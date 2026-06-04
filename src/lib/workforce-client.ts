@@ -3,12 +3,18 @@
 // research / audit / treasury workforce capabilities, not the legacy
 // DeepBook / NAVI / Suilend yield routing.
 
+"use client";
+
+import { useEffect, useState } from "react";
+import { useSuiClient } from "@mysten/dapp-kit";
 import {
   BRIEF_OPERATOR_ADDRESS,
   buildCreatePolicyTx,
+  decodeOperatorPolicy,
   suiToMist,
   type OperatorPolicyDecoded,
 } from "./operator-policy-client";
+import { BRIEF_PACKAGE_ID, BRIEF_TYPE_ORIGIN_ID } from "./brief-client";
 import { Transaction } from "@mysten/sui/transactions";
 
 // Re-exported so the UI can show "planner agent: 0x…" without dipping
@@ -177,6 +183,319 @@ export type ActivateArgs = {
   autoApprovePct?: number;
   riskTolerance?: "low" | "medium" | "high";
 };
+
+// ---------------------------------------------------------------------------
+// Live hooks
+// ---------------------------------------------------------------------------
+
+export type TaskStatus =
+  | "open"
+  | "accepted"
+  | "delivered"
+  | "approved"
+  | "expired"
+  | "unknown";
+
+export type WorkforceTask = {
+  id: string;
+  poster: string;
+  assignedTo: string;
+  title: string;
+  primaryCapability: string;
+  specBlob: string;
+  bountyMist: bigint;
+  status: TaskStatus;
+  deliverableId: string | null;
+  parentPolicy: string | null;
+  postedAtMs: bigint;
+  deadlineMs: bigint;
+  postedTxDigest: string;
+};
+
+function statusFromCode(code: number): TaskStatus {
+  switch (code) {
+    case 0:
+      return "open";
+    case 1:
+      return "accepted";
+    case 2:
+      return "delivered";
+    case 3:
+      return "approved";
+    case 4:
+      return "expired";
+    default:
+      return "unknown";
+  }
+}
+
+function unwrapOptionId(
+  v: string | null | { vec?: string[] },
+): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v;
+  if (Array.isArray(v?.vec) && v.vec.length > 0) return v.vec[0];
+  return null;
+}
+
+function readBountyAmount(b: unknown): bigint {
+  if (b == null) return 0n;
+  if (typeof b === "string" || typeof b === "number") return BigInt(b);
+  if (typeof b === "object") {
+    const anyB = b as { fields?: { value?: string | number } };
+    if (anyB.fields?.value != null) return BigInt(anyB.fields.value);
+  }
+  return 0n;
+}
+
+/**
+ * Poll on-chain for tasks parented to the given OperatorPolicy. Walks
+ * TaskPosted events (descending, page of 50), filters by parent_policy,
+ * then fetches each task object for its current status. Returns the
+ * task list sorted by posted_at_ms desc.
+ */
+export function useTasksForPolicy(
+  policyId: string | null | undefined,
+  pollMs = 3000,
+): { tasks: WorkforceTask[]; loading: boolean } {
+  const client = useSuiClient();
+  const [tasks, setTasks] = useState<WorkforceTask[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!policyId || !policyId.startsWith("0x")) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const evResp = await client.queryEvents({
+          query: { MoveEventType: `${BRIEF_TYPE_ORIGIN_ID}::task::TaskPosted` },
+          order: "descending",
+          limit: 50,
+        });
+        const candidates = evResp.data
+          .map((ev) => {
+            const p = ev.parsedJson as {
+              task_id?: string;
+              poster?: string;
+              assigned_to?: string;
+              title?: string;
+              primary_capability?: string;
+              bounty_amount?: string;
+              deadline_ms?: string;
+              parent_policy?: string | { vec?: string[] } | null;
+              posted_at_ms?: string;
+            };
+            const parent = unwrapOptionId(
+              (p?.parent_policy ?? null) as
+                | string
+                | null
+                | { vec?: string[] },
+            );
+            if (!p?.task_id || parent !== policyId) return null;
+            return {
+              taskId: p.task_id,
+              poster: p.poster ?? "",
+              assignedTo: p.assigned_to ?? "",
+              title: p.title ?? "",
+              primaryCapability: p.primary_capability ?? "",
+              bountyMistEvent: BigInt(p.bounty_amount ?? "0"),
+              deadlineMs: BigInt(p.deadline_ms ?? "0"),
+              postedAtMs: BigInt(p.posted_at_ms ?? "0"),
+              parent,
+              postedTxDigest: ev.id.txDigest,
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => x !== null);
+
+        if (candidates.length === 0) {
+          if (!cancelled) {
+            setTasks([]);
+            setLoading(false);
+          }
+          return;
+        }
+
+        const fetched = await Promise.all(
+          candidates.map(async (c) => {
+            try {
+              const resp = await client.getObject({
+                id: c.taskId,
+                options: { showContent: true },
+              });
+              const content = resp.data?.content;
+              if (!content || content.dataType !== "moveObject") return c;
+              const f = (content as unknown as { fields: Record<string, unknown> }).fields;
+              const statusCode = Number(f.status ?? 0);
+              return {
+                ...c,
+                fields: f,
+                bountyMist: readBountyAmount(f.bounty),
+                status: statusFromCode(statusCode),
+                deliverableId: unwrapOptionId(
+                  f.deliverable_id as string | { vec?: string[] } | null,
+                ),
+                specBlob: String(f.spec_blob ?? ""),
+              };
+            } catch {
+              return c;
+            }
+          }),
+        );
+
+        const resolved: WorkforceTask[] = fetched.map((c) => {
+          const withFields = c as typeof c & {
+            fields?: Record<string, unknown>;
+            bountyMist?: bigint;
+            status?: TaskStatus;
+            deliverableId?: string | null;
+            specBlob?: string;
+          };
+          return {
+            id: withFields.taskId,
+            poster: withFields.poster,
+            assignedTo: withFields.assignedTo,
+            title: withFields.title,
+            primaryCapability: withFields.primaryCapability,
+            specBlob: withFields.specBlob ?? "",
+            bountyMist: withFields.bountyMist ?? withFields.bountyMistEvent,
+            status: withFields.status ?? "unknown",
+            deliverableId: withFields.deliverableId ?? null,
+            parentPolicy: withFields.parent,
+            postedAtMs: withFields.postedAtMs,
+            deadlineMs: withFields.deadlineMs,
+            postedTxDigest: withFields.postedTxDigest,
+          };
+        });
+
+        resolved.sort((a, b) => Number(b.postedAtMs - a.postedAtMs));
+
+        if (!cancelled) {
+          setTasks(resolved);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    tick();
+    const handle = setInterval(tick, pollMs);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [policyId, client, pollMs]);
+
+  return { tasks, loading };
+}
+
+/**
+ * Fetch a single OperatorPolicy by id with light polling. The Wizard's
+ * post-activation console uses this to surface up-to-date remaining
+ * budget + revoked state.
+ */
+export function usePolicy(
+  policyId: string | null | undefined,
+  pollMs = 4000,
+): { policy: OperatorPolicyDecoded | null; loading: boolean } {
+  const client = useSuiClient();
+  const [policy, setPolicy] = useState<OperatorPolicyDecoded | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!policyId || !policyId.startsWith("0x")) {
+      setPolicy(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const resp = await client.getObject({
+          id: policyId,
+          options: { showContent: true },
+        });
+        const decoded = decodeOperatorPolicy(resp);
+        if (!cancelled) {
+          setPolicy(decoded);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    tick();
+    const handle = setInterval(tick, pollMs);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [policyId, client, pollMs]);
+
+  return { policy, loading };
+}
+
+/**
+ * Resolve the OperatorPolicy object id from a recent grant tx digest by
+ * inspecting the tx's created objects. Returns null until the tx
+ * propagates + the policy is discoverable. Polls every `pollMs`.
+ */
+export function useResolvedPolicyId(
+  txDigest: string | null | undefined,
+  pollMs = 1800,
+): string | null {
+  const client = useSuiClient();
+  const [resolved, setResolved] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!txDigest) {
+      setResolved(null);
+      return;
+    }
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const tx = await client.getTransactionBlock({
+          digest: txDigest,
+          options: { showObjectChanges: true },
+        });
+        const created = (tx.objectChanges ?? []).find(
+          (c) =>
+            c.type === "created" &&
+            typeof (c as { objectType?: string }).objectType === "string" &&
+            (c as { objectType?: string }).objectType?.includes(
+              "::operator_policy::OperatorPolicy",
+            ),
+        ) as { objectId?: string } | undefined;
+        if (!cancelled && created?.objectId) {
+          setResolved(created.objectId);
+        }
+      } catch {
+        /* ignore — tx may still be propagating */
+      }
+    };
+
+    tick();
+    const handle = setInterval(() => {
+      if (resolved) return; // resolved already, stop polling
+      tick();
+    }, pollMs);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [txDigest, client, pollMs, resolved]);
+
+  return resolved;
+}
 
 export function buildActivateTx(args: ActivateArgs): Transaction {
   const t = templateById(args.templateId);

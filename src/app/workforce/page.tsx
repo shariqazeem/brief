@@ -16,6 +16,11 @@ import {
   buildActivateTx,
   dispatchMission,
   plannerCliCommand,
+  usePolicy,
+  useResolvedPolicyId,
+  useTasksForPolicy,
+  type TaskStatus,
+  type WorkforceTask,
   type WorkforceTemplate,
 } from "@/lib/workforce-client";
 
@@ -741,6 +746,15 @@ function PostActivationConsole({
   activation: ActivationResult;
   onReset: () => void;
 }) {
+  // Resolve the actual policy id from the grant tx digest.
+  const resolvedPolicyId = useResolvedPolicyId(activation.txDigest);
+  const effectivePolicyId = resolvedPolicyId ?? null;
+
+  // Live policy + tasks polling. Both are no-ops until the policy id is
+  // available, so we can render the form skeleton immediately.
+  const { policy } = usePolicy(effectivePolicyId);
+  const { tasks, loading: tasksLoading } = useTasksForPolicy(effectivePolicyId);
+
   const [mission, setMission] = useState("");
   const [targetPackageId, setTargetPackageId] = useState(DEFAULT_TARGET_PACKAGE_ID);
   const [dispatchState, setDispatchState] = useState<
@@ -750,6 +764,10 @@ function PostActivationConsole({
 
   async function handleDispatch() {
     setDispatchErr(null);
+    if (!effectivePolicyId) {
+      setDispatchErr("Policy id is still resolving from the grant tx — wait a beat");
+      return;
+    }
     if (mission.trim().length === 0) {
       setDispatchErr("Mission must not be empty");
       return;
@@ -757,7 +775,7 @@ function PostActivationConsole({
     setDispatchState("sending");
     try {
       await dispatchMission({
-        policyId: activation.policyId,
+        policyId: effectivePolicyId,
         mission,
         targetPackageId: targetPackageId || undefined,
       });
@@ -769,10 +787,18 @@ function PostActivationConsole({
   }
 
   const cliCommand = plannerCliCommand({
-    policyId: activation.policyId,
+    policyId: effectivePolicyId ?? "<resolving…>",
     mission: mission || "(your mission here)",
     targetPackageId: targetPackageId || undefined,
   });
+
+  const policyDisplay = effectivePolicyId ?? "(resolving…)";
+  const budgetRemainingMist = policy
+    ? policy.budgetCap - policy.spent
+    : null;
+  const budgetRemainingSui = budgetRemainingMist
+    ? Number(budgetRemainingMist) / 1e9
+    : null;
 
   return (
     <section className="mx-auto max-w-4xl px-6 py-12 sm:px-10 sm:py-16">
@@ -788,14 +814,23 @@ function PostActivationConsole({
           <SummaryRow label="Template">{activation.templateId}</SummaryRow>
           <SummaryRow label="Budget">
             <span className="font-mono tabular-nums">
-              {activation.budgetSui.toFixed(2)} SUI
+              {budgetRemainingSui !== null
+                ? `${budgetRemainingSui.toFixed(3)} / ${activation.budgetSui.toFixed(2)} SUI remaining`
+                : `${activation.budgetSui.toFixed(2)} SUI`}
             </span>
           </SummaryRow>
           <SummaryRow label="Capabilities">
             <span className="font-mono">[{activation.allowedVenues.join(", ")}]</span>
           </SummaryRow>
           <SummaryRow label="Policy id">
-            <CopyableMono value={activation.policyId} />
+            {effectivePolicyId ? (
+              <CopyableMono value={effectivePolicyId} />
+            ) : (
+              <span className="inline-flex items-center gap-2 font-mono text-[12px] text-muted">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {policyDisplay}
+              </span>
+            )}
           </SummaryRow>
           <SummaryRow label="Grant tx">
             <a
@@ -808,6 +843,13 @@ function PostActivationConsole({
               <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
             </a>
           </SummaryRow>
+          {policy?.revoked && (
+            <SummaryRow label="Status">
+              <span className="font-mono text-red-700">
+                REVOKED · approvals will abort on chain
+              </span>
+            </SummaryRow>
+          )}
         </div>
       </div>
 
@@ -875,6 +917,9 @@ function PostActivationConsole({
           </p>
         )}
       </div>
+
+      {/* Activity Stream — live polled tasks for this policy */}
+      <ActivityStream tasks={tasks} loading={tasksLoading} hasPolicy={!!effectivePolicyId} />
 
       <details className="mt-8 border border-line bg-bg-elev">
         <summary className="cursor-pointer px-6 py-4 font-mono text-[10px] uppercase tracking-[0.28em] text-ink-2">
@@ -958,6 +1003,274 @@ function CopyableMono({ value, hideText }: { value: string; hideText?: boolean }
       </button>
     </span>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Activity Stream — live polled task list for the active policy
+// ---------------------------------------------------------------------------
+
+const STATUS_TONE: Record<TaskStatus, { label: string; tone: string }> = {
+  open: { label: "OPEN", tone: "border-line text-muted" },
+  accepted: { label: "ACCEPTED", tone: "border-amber-400 text-amber-700" },
+  delivered: { label: "DELIVERED", tone: "border-emerald-500 text-emerald-700" },
+  approved: { label: "APPROVED", tone: "border-ink bg-ink text-bg" },
+  expired: { label: "EXPIRED", tone: "border-red-300 text-red-700" },
+  unknown: { label: "—", tone: "border-line text-muted" },
+};
+
+function ActivityStream({
+  tasks,
+  loading,
+  hasPolicy,
+}: {
+  tasks: WorkforceTask[];
+  loading: boolean;
+  hasPolicy: boolean;
+}) {
+  return (
+    <section className="mt-8">
+      <div className="flex items-baseline justify-between">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          Activity · {tasks.length}
+        </p>
+        {hasPolicy && (
+          <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+            {loading && tasks.length === 0 ? "polling…" : "polling · 3s"}
+          </p>
+        )}
+      </div>
+      <div className="mt-4 border border-line bg-bg-elev">
+        {!hasPolicy ? (
+          <p className="px-6 py-6 text-center font-mono text-[12px] uppercase tracking-[0.16em] text-muted">
+            Waiting for policy id to resolve…
+          </p>
+        ) : tasks.length === 0 ? (
+          <p className="px-6 py-6 text-center font-mono text-[12px] uppercase tracking-[0.16em] text-muted">
+            No tasks posted yet — dispatch a mission above to start the
+            workforce.
+          </p>
+        ) : (
+          <ul className="divide-y divide-line">
+            {tasks.map((t) => (
+              <TaskRow key={t.id} task={t} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TaskRow({ task }: { task: WorkforceTask }) {
+  const [expanded, setExpanded] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [approveResult, setApproveResult] = useState<{
+    ok?: boolean;
+    txDigest?: string;
+    abortCode?: number;
+    abortConst?: string;
+    abortModule?: string;
+    abortFn?: string;
+    error?: string;
+  } | null>(null);
+  const tone = STATUS_TONE[task.status];
+  const bountySui = Number(task.bountyMist) / 1e9;
+  const ageMs = Date.now() - Number(task.postedAtMs);
+
+  async function handleApprove() {
+    setApproving(true);
+    setApproveResult(null);
+    try {
+      const res = await fetch("/api/workforce/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task_id: task.id,
+          policy_id: task.parentPolicy,
+        }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        txDigest?: string;
+        abortCode?: number;
+        abortConst?: string;
+        abortModule?: string;
+        abortFn?: string;
+        error?: string;
+      };
+      setApproveResult(json);
+    } catch (e) {
+      setApproveResult({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setApproving(false);
+    }
+  }
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center justify-between gap-4 px-6 py-4 text-left hover:bg-bg/50"
+      >
+        <div className="flex min-w-0 items-center gap-4">
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+            {task.primaryCapability}
+          </span>
+          <span className="truncate text-[14px] text-ink">{task.title}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="font-mono text-[11px] tabular-nums text-ink-2">
+            {bountySui.toFixed(2)} SUI
+          </span>
+          <span
+            className={[
+              "border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em]",
+              tone.tone,
+            ].join(" ")}
+          >
+            {tone.label}
+          </span>
+          <span className="hidden font-mono text-[10px] text-muted sm:inline">
+            {formatRelativeShort(ageMs)}
+          </span>
+        </div>
+      </button>
+      {expanded && (
+        <div className="border-t border-line bg-bg/40 px-6 py-4 text-[12.5px] leading-relaxed">
+          <DetailRow label="Task id">
+            <a
+              href={explorerUrl("object", task.id)}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-ink underline-offset-4 hover:underline"
+            >
+              {short(task.id, 8, 8)}
+            </a>
+          </DetailRow>
+          <DetailRow label="Posted tx">
+            <a
+              href={explorerUrl("txblock", task.postedTxDigest)}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-ink underline-offset-4 hover:underline"
+            >
+              {short(task.postedTxDigest, 8, 8)}
+            </a>
+          </DetailRow>
+          <DetailRow label="Assigned to">
+            <span className="font-mono">{short(task.assignedTo, 8, 8)}</span>
+          </DetailRow>
+          {task.deliverableId && (
+            <DetailRow label="Deliverable">
+              <a
+                href={explorerUrl("object", task.deliverableId)}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-ink underline-offset-4 hover:underline"
+              >
+                {short(task.deliverableId, 8, 8)}
+              </a>
+            </DetailRow>
+          )}
+          {task.specBlob && (
+            <DetailRow label="Spec">
+              <pre className="mt-1 max-h-40 overflow-auto border border-line bg-bg p-2 font-mono text-[11px]">
+                {task.specBlob.slice(0, 800)}
+                {task.specBlob.length > 800 ? "…" : ""}
+              </pre>
+            </DetailRow>
+          )}
+          {task.status === "delivered" && !approveResult?.ok && (
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={approving}
+                className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-4 py-2 font-mono text-[11px] uppercase tracking-[0.28em] text-bg transition-colors hover:bg-ink-2 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {approving ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Approving
+                  </>
+                ) : (
+                  <>
+                    Approve & pay
+                    <Check className="h-3 w-3" strokeWidth={2} />
+                  </>
+                )}
+              </button>
+              <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+                planner signs · {bountySui.toFixed(2)} SUI to{" "}
+                {short(task.assignedTo, 6, 4)}
+              </span>
+            </div>
+          )}
+          {approveResult?.ok && (
+            <p className="mt-4 inline-flex items-center gap-2 border border-emerald-300 bg-emerald-50 px-3 py-1.5 font-mono text-[12px] text-emerald-800">
+              <Check className="h-3 w-3" strokeWidth={2} />
+              Paid · tx{" "}
+              <a
+                href={
+                  approveResult.txDigest
+                    ? explorerUrl("txblock", approveResult.txDigest)
+                    : "#"
+                }
+                target="_blank"
+                rel="noreferrer"
+                className="underline-offset-4 hover:underline"
+              >
+                {approveResult.txDigest
+                  ? short(approveResult.txDigest, 6, 6)
+                  : "—"}
+              </a>
+            </p>
+          )}
+          {approveResult && !approveResult.ok && (
+            <p className="mt-4 border border-red-300 bg-red-50 p-3 font-mono text-[12px] text-red-700">
+              {approveResult.abortCode !== undefined ? (
+                <>
+                  ABORTED on chain — {approveResult.abortModule ?? "?"}::
+                  {approveResult.abortFn ?? "?"} code {approveResult.abortCode}
+                  {approveResult.abortConst ? ` (${approveResult.abortConst})` : ""}
+                </>
+              ) : (
+                <>{approveResult.error ?? "approval failed"}</>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function DetailRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[110px_1fr] gap-3 py-1.5">
+      <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+        {label}
+      </span>
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function formatRelativeShort(ms: number): string {
+  if (ms < 1000) return "just now";
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  return `${hr}h ago`;
 }
 
 // ---------------------------------------------------------------------------
