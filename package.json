@@ -17,6 +17,7 @@
     "workforce:revoke-policy": "tsx --env-file=.env.local scripts/workforce-revoke-policy.ts",
     "workforce:post-task": "tsx --env-file=.env.local scripts/workforce-post-task.ts",
     "workforce:approve-task": "tsx --env-file=.env.local scripts/workforce-approve-task.ts",
+    "workforce:planner-service": "tsx --env-file=.env.local scripts/workforce-planner-service.ts",
     "move:build": "cd move && sui move build",
     "move:test": "cd move && sui move test",
     "move:publish": "cd move && sui client publish --gas-budget 200000000"

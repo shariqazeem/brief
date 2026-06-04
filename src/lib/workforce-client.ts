@@ -4,11 +4,16 @@
 // DeepBook / NAVI / Suilend yield routing.
 
 import {
+  BRIEF_OPERATOR_ADDRESS,
   buildCreatePolicyTx,
   suiToMist,
   type OperatorPolicyDecoded,
 } from "./operator-policy-client";
 import { Transaction } from "@mysten/sui/transactions";
+
+// Re-exported so the UI can show "planner agent: 0x…" without dipping
+// into operator-policy-client directly.
+export { BRIEF_OPERATOR_ADDRESS };
 
 export type WorkforceTemplate = {
   id: string;
@@ -155,7 +160,14 @@ export function plannerCliCommand(args: MissionPayload): string {
 
 export type ActivateArgs = {
   packageId: string;
-  agentAddress: string;
+  /**
+   * The Planner agent's address — this is the `agent` bound into the
+   * OperatorPolicy and the wallet that posts sub-tasks. Defaults to
+   * BRIEF_OPERATOR_ADDRESS (from env) so the wizard's signer (the
+   * connected dApp Kit wallet, the OWNER) doesn't have to match the
+   * agent. In Wk2 multi-wallet mode this can be passed explicitly.
+   */
+  agentAddress?: string;
   templateId: string;
   name?: string;
   budgetSui?: number;
@@ -169,6 +181,12 @@ export type ActivateArgs = {
 export function buildActivateTx(args: ActivateArgs): Transaction {
   const t = templateById(args.templateId);
   if (!t) throw new Error(`unknown workforce template: ${args.templateId}`);
+  const agentAddress = args.agentAddress ?? BRIEF_OPERATOR_ADDRESS;
+  if (!agentAddress || !agentAddress.startsWith("0x") || agentAddress === "0x0") {
+    throw new Error(
+      "NEXT_PUBLIC_BRIEF_OPERATOR_ADDRESS is not set — the wizard can't grant authority to a missing Planner agent",
+    );
+  }
   const name = args.name ?? t.defaults.name;
   const budgetSui = args.budgetSui ?? t.defaults.budgetSui;
   const allowedVenues = args.allowedVenues ?? t.defaults.allowedVenues;
@@ -178,7 +196,7 @@ export function buildActivateTx(args: ActivateArgs): Transaction {
   const riskTolerance = args.riskTolerance ?? t.defaults.riskTolerance;
   return buildCreatePolicyTx({
     packageId: args.packageId,
-    agent: args.agentAddress,
+    agent: agentAddress,
     name,
     budgetCap: suiToMist(budgetSui),
     allowedVenues,

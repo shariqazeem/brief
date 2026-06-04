@@ -10,6 +10,7 @@ import {
 } from "@mysten/dapp-kit";
 import { BRIEF_PACKAGE_ID, explorerUrl } from "@/lib/brief-client";
 import {
+  BRIEF_OPERATOR_ADDRESS,
   WORKFORCE_TEMPLATES,
   templateById,
   buildActivateTx,
@@ -185,16 +186,25 @@ function HireWizard({
 
   function handleActivate() {
     setActivateError(null);
-    const tx = buildActivateTx({
-      packageId: BRIEF_PACKAGE_ID,
-      agentAddress: address,
-      templateId,
-      name,
-      budgetSui,
-      allowedVenues,
-      expiryHours,
-      riskTolerance,
-    });
+    // The OWNER of the policy is the connected wallet (signer). The AGENT
+    // is the Planner address from env — that's the wallet the
+    // planner-service signs as, and what record_spend checks against.
+    let tx;
+    try {
+      tx = buildActivateTx({
+        packageId: BRIEF_PACKAGE_ID,
+        // agentAddress omitted on purpose → falls back to BRIEF_OPERATOR_ADDRESS.
+        templateId,
+        name,
+        budgetSui,
+        allowedVenues,
+        expiryHours,
+        riskTolerance,
+      });
+    } catch (e) {
+      setActivateError(e instanceof Error ? e.message : String(e));
+      return;
+    }
     signAndExecute(
       { transaction: tx },
       {
@@ -662,11 +672,19 @@ function ActivateStage(props: {
             (Template: {template.label}.)
           </span>
         </p>
+        <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.18em] text-ink-2">
+          Planner agent ·{" "}
+          <span className="text-ink">
+            {BRIEF_OPERATOR_ADDRESS.slice(0, 10)}…
+            {BRIEF_OPERATOR_ADDRESS.slice(-6)}
+          </span>
+        </p>
         <p className="mt-4 text-[13px] leading-relaxed text-muted">
           You're signing a single transaction that creates a Move{" "}
-          <span className="font-mono">OperatorPolicy</span> on chain. You
-          can revoke it at any time with a single counter-signature; the
-          chain itself will block any further payment.
+          <span className="font-mono">OperatorPolicy</span> on chain — you
+          are the OWNER, the Planner above is the bound AGENT. You can
+          revoke at any time with a single counter-signature; the chain
+          itself will block any further payment.
         </p>
       </div>
 
