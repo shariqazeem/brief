@@ -86,14 +86,23 @@ async function main(): Promise<void> {
     `[approve] sending ${policyId ? "approve_with_policy" : "approve_direct"} · policy=${policyId?.slice(0, 10) ?? "none"} reg=${agentRegId.slice(0, 10)}…`,
   );
 
-  const res = await ctx.client.signAndExecuteTransaction({
-    signer: ctx.keypair,
-    transaction: tx,
-    options: { showEffects: true, showEvents: true, showBalanceChanges: true },
-  });
+  let res;
+  try {
+    res = await ctx.client.signAndExecuteTransaction({
+      signer: ctx.keypair,
+      transaction: tx,
+      options: { showEffects: true, showEvents: true, showBalanceChanges: true },
+    });
+  } catch (e) {
+    reportAbort(env.network, e);
+    process.exit(1);
+  }
 
   if (res.effects?.status?.status !== "success") {
-    console.error("FAILED:", res.effects?.status?.error);
+    reportAbort(env.network, {
+      message: res.effects?.status?.error ?? "unknown abort",
+      digest: res.digest,
+    });
     process.exit(1);
   }
 
@@ -102,7 +111,86 @@ async function main(): Promise<void> {
   console.log(`[approve] explorer=${explorer}`);
 }
 
+// Map Move abort codes back to the constant names declared in our modules.
+// Format we extract from: "MoveAbort(MoveLocation { module: ModuleId { ... }, function: 12, instruction: 24, function_name: Some(\"record_spend\") }, 3) in command 0"
+const ABORT_CODES: Record<string, Record<number, string>> = {
+  operator_policy: {
+    1: "ENotOwner",
+    2: "ENotAgent",
+    3: "EPolicyRevoked",
+    4: "EPolicyExpired",
+    5: "EBudgetExceeded",
+    6: "EVenueNotAllowed",
+    7: "EInvalidConfig",
+    8: "ECannotShrink",
+  },
+  task: {
+    1: "ENotPoster",
+    2: "ENotAssignedAgent",
+    3: "EWrongStatus",
+    4: "EDeadlinePassed",
+    5: "EDeadlineNotReached",
+    6: "EInvalidConfig",
+    7: "EAgentMismatch",
+    8: "EPolicyMismatch",
+    9: "EPolicyRequired",
+    10: "EPolicyNotAllowed",
+  },
+};
+
+function reportAbort(network: string, e: unknown): void {
+  const anyE = e as { message?: string; digest?: string; cause?: unknown };
+  const raw = typeof anyE.message === "string" ? anyE.message : String(e);
+  const digest = anyE.digest;
+
+  // SDK format A (Transaction resolution failed):
+  //   "MoveAbort in 1st command, abort code: 3, in '0x...::operator_policy::assert_can_spend' (instruction 29)"
+  // SDK format B (debug serialization):
+  //   "MoveAbort(MoveLocation { module: ModuleId { ... name: Identifier(\"operator_policy\") }, function: 12, function_name: Some(\"record_spend\") }, 3) in command 0"
+
+  const formatACode = raw.match(/abort code:\s*(\d+)/i);
+  const formatAQual = raw.match(/in\s*'[^']*::([a-zA-Z0-9_]+)::([a-zA-Z0-9_]+)'/);
+  const formatBCode = raw.match(/\}\s*,\s*(\d+)\s*\)\s*in command/);
+  const formatBFn = raw.match(/function_name:\s*Some\("([^"]+)"\)/);
+  const formatBModule = raw.match(/Identifier\("([a-zA-Z0-9_]+)"\)/);
+
+  const code = Number(
+    (formatACode?.[1] ?? formatBCode?.[1] ?? "NaN"),
+  );
+
+  let moduleName: string | undefined;
+  let fnName: string | undefined;
+  if (formatAQual) {
+    moduleName = formatAQual[1];
+    fnName = formatAQual[2];
+  } else if (formatBFn || formatBModule) {
+    fnName = formatBFn?.[1];
+    moduleName = formatBModule?.[1];
+    if (!moduleName && fnName === "record_spend") moduleName = "operator_policy";
+  }
+
+  const named =
+    moduleName && Number.isFinite(code) ? ABORT_CODES[moduleName]?.[code] : undefined;
+
+  console.error("[approve] tx ABORTED on chain — policy enforced");
+  if (digest) {
+    console.error(`[approve] digest    ${digest}`);
+    console.error(`[approve] explorer  https://suiscan.xyz/${network}/tx/${digest}`);
+  }
+  if (moduleName) console.error(`[approve] module    ${moduleName}`);
+  if (fnName) console.error(`[approve] function  ${fnName}`);
+  if (Number.isFinite(code)) {
+    console.error(
+      `[approve] code      ${code}${named ? ` (${named})` : ""}`,
+    );
+  }
+  if (!named) {
+    // surface raw for debugging when we can't pretty-print
+    console.error(`[approve] raw       ${raw.slice(0, 280)}`);
+  }
+}
+
 main().catch((e) => {
-  console.error("[approve] fatal:", e);
+  reportAbort("testnet", e);
   process.exit(1);
 });

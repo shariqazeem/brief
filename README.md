@@ -1,89 +1,144 @@
 # Brief
 
-**Composable work objects for autonomous agents.**
-Sui Overflow 2026 submission. Track: Agentic Web → Intent Engine.
-Submission deadline: **2026-06-21**.
+**An autonomous workforce of AI agents on Sui — agents that hire other agents and pay each other on-chain.**
 
-> Agents shouldn't just transact — they should compose.
-> Brief makes agent work into owned, transferable objects on Sui.
+A submission for **Sui Overflow 2026** (Agentic Web + DeepBook). Deadline 2026-06-21.
 
-**For status read [`SESSION-STATUS.md`](./SESSION-STATUS.md) first** — it tracks what's built locally vs. what's blocked on testnet gas.
+> *Agents can build. Now they can hire.*
 
-## What this repository contains
+A user grants a **Planner agent** an envelope of authority (a Move
+`OperatorPolicy`: budget, allowed venues, expiry, kill switch). The
+Planner decomposes a mission into sub-tasks and posts each on chain with
+**escrowed bounty**. Registered **specialist agents** (Research,
+Treasury) accept their assignments, do the work, deliver, get paid
+atomically with a **policy enforcement check**, and accrue
+**on-chain reputation**. Revoke the policy, and the chain itself blocks
+the next payment.
 
-| Path | Stack | State (2026-05-19 EOD) |
+By [Kyvernlabs](https://app.kyvernlabs.com). Sibling product to **Kyvern**
+on Solana (single-agent authorization). Same thesis on two chains: bounded
+autonomous authority for AI agents.
+
+---
+
+## What's on chain
+
+| Module | Lines | Role |
 |---|---|---|
-| `/` (Next.js app) | Next.js 14, TypeScript, Tailwind | Landing + `/app` + `/lineage/[id]` all build clean |
-| `move/` | Sui Move 2024.beta, 4 modules | All bodies implemented; `sui move build` exits 0; publish blocked on faucet |
-| `agents/` | Node.js + tsx, 3 agents + shared lib | All code written + type-checked; runtime blocked on published package |
-| `scripts/` | tsx helpers | `dispatch-query.ts`, `walk-lineage.ts` ready; `probe-deepbook.ts` and `seed-demo-data.ts` pending |
+| `operator_policy` | 295 | budget envelope, kill switch, `record_spend` |
+| `task` | 440 | post/accept/submit/approve/expire with escrowed bounty |
+| `agent_registry` | 215 | shared specialist catalog with capabilities + reputation |
+| `work_object` | 179 | typed audit log primitive parented to tasks |
+| `settlement` | 71 | legacy pay-and-record helper (single-agent path) |
+| `lineage` | 62 | read-only graph helpers |
 
-## Run locally
+Total **22/22 Move unit tests pass** (`npm run move:test`). Published at
+`0xe550ace873c02768dbaca7de3a2d64a28acd3f7c51551c9c97b704703e95fb9d` on
+Sui testnet.
+
+## The workforce
+
+Three Node + TypeScript processes that share the agent wallet during
+Wk1, separated into per-agent wallets in Wk2:
+
+- **`agents/workforce/planner/`** — CLI-invoked. Takes a mission, decomposes
+  via Claude Sonnet (DeepSeek v4-flash via Commonstack today, template
+  fallback when LLM is unavailable), posts sub-tasks with bounty escrowed
+  from its `OperatorPolicy`.
+- **`agents/workforce/research/`** — Polls TaskPosted, accepts tasks with
+  capability `research`, fetches the target Move package's module surface
+  from Sui RPC, optionally enriches via LLM, uploads the deliverable
+  markdown to Walrus, mints a `Deliverable` WorkObject and submits to
+  the task — in one atomic PTB.
+- **`agents/workforce/treasury/`** — Same boot pattern as Research but
+  filters on capability `treasury`. Composes an atomic PTB that deposits
+  SUI into a DeepBook BalanceManager, places `POST_ONLY` limit orders on
+  the SUI/DBUSDC pool at +50bps / +200bps over mid, mints a `Deliverable`
+  with the order IDs, and submits to the task. Auto-falls-back to
+  simulated mode when wallet balance is below `LIVE_MODE_MIN_BALANCE_SUI`.
+
+## How it actually runs
 
 ```bash
-# Install (root Next.js app + agents)
+# One-time
 npm install --legacy-peer-deps
+cp .env.local.example .env.local       # then fill in AGENT_SECRET_KEY
 
-# Dev server (landing + /app + /lineage)
-npm run dev          # http://localhost:3000
-
-# Production build
+# Three gates that must stay green
 npm run build
-
-# Move package
-npm run move:build
-npm run move:test       # (when tests written)
-npm run move:publish    # needs gas — Day 3 of locked plan
-
-# Agents (after package published + .env.local set up)
-npm run dispatch "your intent here"     # mints a Query
-npm run agents:all                       # run all 3 agents together
-npm run lineage <object-id>              # walk the lineage of an object
-
-# Type-check the agent + script TS
+npm run typecheck
 npm run typecheck:agents
+npm run move:test
+
+# Workforce loop end-to-end (each step is its own command)
+npm run workforce:create-policy -- --name "Demo" --budget-sui 1 --venues research,audit,treasury --duration-hours 2
+npm run agents:all                                                              # research + treasury background
+npm run agent:planner -- --policy 0x... --mission "..." --target-package-id 0x...
+npm run workforce:approve-task -- --task 0x... --policy 0x...                  # one per delivered task
 ```
 
-Copy `.env.local.example` to `.env.local` and fill in the required vars
-before running agents or scripts.
+Helpers: `npm run workforce:post-task`, `scripts/check-{balance,workforce,policy}.ts`.
 
-## Day-by-day plan (locked, do not expand without re-decision)
+The frontend dev server (`npm run dev`) currently serves the original
+landing page (still showing earlier-pivot copy — rewrite is Day 8 of the
+locked plan). The full workforce console is being scaffolded next.
 
-| Week | Focus | End-of-week proof |
-|---|---|---|
-| Week 1 — May 14-20 | `work_object` Move module + ResearchAgent | A ResearchObject visible on Sui testnet explorer |
-| Week 2 — May 21-27 | Strategy + Execution Move modules + agents | Full Research→Strategy→Execution chain end-to-end from CLI |
-| Week 3 — May 28-Jun 3 | Frontend `/app`, `/lineage/:id`, landing polish | A user can complete the demo in browser |
-| Week 4 — Jun 4-10 | Walrus integration + polish + branching demo | Submission video recordable |
-| Week 5 — Jun 11-17 | Demo video, writeup, docs, X launch | Submitted with 3-day buffer |
-| Jun 20-21 | Buffer + submission | Submit + launch |
+## Reliability
 
-The full plan is the document the user pasted in conversation on 2026-05-19.
-That document is the source of truth for scope.
+`agents/lib/sui-rpc.ts` wraps Mysten's `JsonRpcHTTPTransport` with a
+resilient version that rotates through `NEXT_PUBLIC_SUI_RPC_URL` +
+`BRIEF_SUI_RPC_FALLBACKS` (comma-separated) + a hardcoded Mysten
+fullnode last-resort, with 30s cooldowns per failed URL and an
+auto-promotion when a fallback succeeds. The default publicnode RPC
+intermittently throws on `queryEvents` and we don't want a flaky RPC
+killing the demo.
 
-## Brand
+## Sub-track alignment
 
-- Foundation cream `#f4f2ec` (same as Kyvern — sibling product, not unrelated)
-- Ink **navy** `#1a2c4e` (the differentiation — legal-document feel fits "Brief")
-- Single accent: Sui blue `#4DA2FF`, used only for the live status dot and on-chain confirmation glyphs
-- Type: Inter (body) + JetBrains Mono (code, metadata, object IDs)
-- No gradients, no shadows, no scroll animations. Type-driven.
+| Track / prize | How Brief satisfies it |
+|---|---|
+| **Agentic Web** | The whole product. AI agents that act, transact, AND coordinate via on-chain escrowed bounties. |
+| **DeepBook** | Treasury Agent places real `POST_ONLY` limit orders in the same PTB as `record_spend` + `task::submit`. Atomic. |
+| **Walrus** | Research deliverables uploaded to Walrus; blob ID stored on-chain in the Deliverable WorkObject. The actual audit content is verifiable + portable. |
 
-## What this is NOT
+## Verified end-to-end (2026-06-05, testnet)
 
-(From the locked plan — repeated here so future-me does not drift)
+See [`demo-artifacts.md`](./demo-artifacts.md) for clickable suiscan
+links. In short: a Planner posted two sub-tasks (one research, one
+treasury) with policy-escrowed bounty; both specialist agents accepted,
+delivered, and were paid atomically with `record_spend` against the
+policy. The policy went from `spent=0 → 0.3 SUI`; the AgentRegistration
+went from `completed_tasks=1, reputation=1 → completed_tasks=3,
+reputation=3`. All five transaction digests resolve on suiscan.
 
-- Not a generic AI agent framework
-- Not an agent marketplace
-- Not a coordination platform for "AI swarms"
-- Not a multi-agent runtime
-- Not infrastructure for agents to discover each other
+## Code layout
 
-The protagonists are the **work objects**, not the agents.
+```
+brief/
+├── move/
+│   └── sources/
+│       ├── operator_policy.move
+│       ├── task.move
+│       ├── agent_registry.move
+│       ├── work_object.move
+│       ├── settlement.move
+│       └── lineage.move
+├── agents/
+│   ├── lib/                       # env, sui (+sui-rpc), llm, walrus, operator-policy, work-object
+│   └── workforce/
+│       ├── lib/                   # task, agent-registry (TS), inbox
+│       ├── planner/
+│       ├── research/
+│       └── treasury/
+├── scripts/                       # workforce-{create-policy,post-task,approve-task}.ts + checks + probes
+├── src/                           # Next.js 14 — landing + /app stub (workforce UI pending Day 8)
+└── legacy/                        # prior pivots, preserved for reference
+```
 
-## Sibling project
+## Author
 
-[Kyvern](https://app.kyvernlabs.com) — single-agent authorization on Solana.
-Brief is the coordination layer above single-agent infra. Same author,
-different chain, complementary thesis. The submission writeup explicitly
-references Kyvern in the "what we'd build next" section.
+[@shariqshkt](https://x.com/shariqshkt) — solo build. Kyvernlabs.
+
+## License
+
+TBD before submission.

@@ -69,6 +69,78 @@ All artifacts live on Sui testnet under package
 | AgentRegistration | `reputation_score` | `3` (was 1) |
 | Wallet | net delta | `-0.043 SUI` (gas only — bounties paid back to single-wallet operator) |
 
+---
+
+# Kill switch ceremony (2026-06-05) — the killer demo beat
+
+A second, independent end-to-end run to prove the *revocation aborts
+payment on chain* story. Identical workforce, fresh policy, one task,
+and a deliberate revoke between deliver and approve.
+
+## Policy (revoke-target)
+
+| Field | Value |
+|---|---|
+| Object id | `0x60eda8e3e77ea54851dc90faaecf6a7e04c4aaf964d69d1d30195b89b2e4defa` |
+| Name | Revoke Ceremony Test |
+| Budget cap | 0.5 SUI |
+| Allowed venues | `[research, audit, treasury]` |
+| Create tx | `DHHgAYkRscZEwqSoawCV93shNirjsU5DNzww771BJ3kF` |
+
+## Task posted by Planner
+
+| Field | Value |
+|---|---|
+| Task id | `0x23a4930aa2e646096e5c96e2ff4c71dbddb77bb6b91a071cecd6191536551f8a` |
+| Capability | research |
+| Bounty | 0.1 SUI |
+| Post tx | `5DxYRorAJQkbussV4jqTpepHdxrj5uunyK8FQ92DFqti` |
+| Walrus blob | `orNFxS69aCtpvMxh8yPmJEOAKwFXVC_74msjf58X8eI` (same content as Day 4 — same target package) |
+
+## Sequence on chain
+
+| Step | Action | Result | Tx digest |
+|---|---|---|---|
+| 1 | Planner posts research sub-task with `parent_policy = 0x60eda8e3…` | Task created, status=OPEN, 0.1 SUI escrowed | `5DxYRorAJQkbussV4jqTpepHdxrj5uunyK8FQ92DFqti` |
+| 2 | Research agent accepts | status=ACCEPTED | (in agent log) |
+| 3 | Research agent uploads to Walrus (15.5s) + mints Deliverable + submits | status=DELIVERED | `3coEkULwJUZe…` |
+| 4 | **Owner revokes the policy** | `policy.revoked = true` on chain | `5f4BHR1Q7sPGT3aZC22uXq38y7zjaM8mnAKspJGTX5Eo` |
+| 5 | Owner attempts `task::approve_with_policy` | **ABORTS with `assert_can_spend` → EPolicyRevoked (code 3)** | `HDRPJygY7Q8HoNTLgWDoVRzsSupD3jKKh9NozQsuNU6T` |
+
+## Resolved abort
+
+```
+[approve] tx ABORTED on chain — policy enforced
+[approve] module    operator_policy
+[approve] function  assert_can_spend
+[approve] code      3 (EPolicyRevoked)
+```
+
+The bounty stayed escrowed in the task (status stays at DELIVERED). The
+agent never got paid. The reputation never bumped. The chain — not our
+server, not a guardian process, the chain itself — refused settlement
+because of the revoke. After the task deadline passes, anyone can call
+`task::expire` to return the bounty to the poster.
+
+This is the slide-worthy demo arc:
+
+> 1. Owner grants Planner a 0.5 SUI budget for `[research, audit, treasury]`.
+> 2. Planner decomposes a mission, posts an escrowed research sub-task.
+> 3. Research agent accepts, audits, delivers (Walrus-backed).
+> 4. Owner clicks **REVOKE**.
+> 5. Owner tries to approve → chain aborts with **`EPolicyRevoked`**.
+>
+> *The AI is not trusted. The policy is.*
+
+## What this verifies for judges
+
+- `operator_policy::revoke` works as a one-signature kill switch
+- `task::approve_with_policy` is atomic with `record_spend`
+- Revocation interleaved between submit and approve genuinely aborts the
+  payment, even though the deliverable was already submitted
+- The Move abort code surfaces cleanly through our `workforce-approve-task`
+  CLI so we can demonstrate the exact rule that fired
+
 ## Specialist registrations
 
 | Agent | Address | Registration id | Capabilities |

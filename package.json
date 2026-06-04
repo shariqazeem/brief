@@ -14,6 +14,7 @@
     "agent:treasury": "tsx --env-file=.env.local agents/workforce/treasury/index.ts",
     "agents:all": "concurrently -n research,treasury -c blue,green \"npm:agent:research\" \"npm:agent:treasury\"",
     "workforce:create-policy": "tsx --env-file=.env.local scripts/workforce-create-policy.ts",
+    "workforce:revoke-policy": "tsx --env-file=.env.local scripts/workforce-revoke-policy.ts",
     "workforce:post-task": "tsx --env-file=.env.local scripts/workforce-post-task.ts",
     "workforce:approve-task": "tsx --env-file=.env.local scripts/workforce-approve-task.ts",
     "move:build": "cd move && sui move build",
