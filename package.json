@@ -1,0 +1,47 @@
+{
+  "name": "brief",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "typecheck:agents": "tsc --noEmit -p tsconfig.agents.json",
+    "agent:research": "tsx --env-file=.env.local agents/workforce/research/index.ts",
+    "agent:planner": "tsx --env-file=.env.local agents/workforce/planner/index.ts",
+    "agent:treasury": "tsx --env-file=.env.local agents/workforce/treasury/index.ts",
+    "agents:all": "concurrently -n research,treasury -c blue,green \"npm:agent:research\" \"npm:agent:treasury\"",
+    "workforce:create-policy": "tsx --env-file=.env.local scripts/workforce-create-policy.ts",
+    "workforce:post-task": "tsx --env-file=.env.local scripts/workforce-post-task.ts",
+    "workforce:approve-task": "tsx --env-file=.env.local scripts/workforce-approve-task.ts",
+    "move:build": "cd move && sui move build",
+    "move:test": "cd move && sui move test",
+    "move:publish": "cd move && sui client publish --gas-budget 200000000"
+  },
+  "dependencies": {
+    "@mysten/dapp-kit": "^1.0.6",
+    "@mysten/deepbook-v3": "^1.3.6",
+    "@mysten/sui": "^2.17.0",
+    "@mysten/walrus": "^1.1.7",
+    "@tanstack/react-query": "^5.100.11",
+    "lucide-react": "^0.460.0",
+    "next": "14.2.18",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.15.0",
+    "eslint-config-next": "14.2.18",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "tsx": "^4.22.3",
+    "typescript": "^5.6.3"
+  }
+}

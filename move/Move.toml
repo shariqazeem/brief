@@ -1,0 +1,31 @@
+[package]
+name = "Brief"
+version = "0.3.0"
+edition = "2024.beta"
+authors = ["Shariq Shaukat <shariq@brief.xyz>"]
+# v3 fresh publish (Path A). The v2 deploy is preserved on chain; v3 is a
+# separate package carrying the new Agent Commerce primitives (brief::task,
+# extended brief::agent_registry with structured reputation).
+#
+# v3 (LATEST, active):
+#   published-at  = 0xe550ace873c02768dbaca7de3a2d64a28acd3f7c51551c9c97b704703e95fb9d
+#   UpgradeCap    = 0x7bf59acbebdbf71b020d986f67da3e7387ceed8fd1e7c1371c1d69ed7954c2d5
+#   publish tx    = H8vL3kBHQ6HYAeYSFL6eQiQ3zkFgFm3CLwZ1YGjxi4bQ
+#
+# Prior deploys (do NOT use as the active package id):
+#   v1 (origin):  0xfa3a152aff2aba3886bf0fb41328e72da5ccd637074d4673c36b1924c850d084
+#   v2:           0xb047640605f00ab27a68a900ca6177ae07e3aa9da0feae39c9851e5a32bbd1c0
+#   v2 UpgradeCap: 0x6e43e0c0001c398679f9f088b74952e80213f7fac9028e836d467447546abc2f
+published-at = "0xe550ace873c02768dbaca7de3a2d64a28acd3f7c51551c9c97b704703e95fb9d"
+
+[dependencies]
+# Pinned to testnet framework — Sui Overflow submissions demo on testnet
+# (devnet wipes too often).
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+
+[addresses]
+brief = "0xe550ace873c02768dbaca7de3a2d64a28acd3f7c51551c9c97b704703e95fb9d"
+
+[dev-dependencies]
+
+[dev-addresses]

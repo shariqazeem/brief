@@ -1,0 +1,510 @@
+// Planner Agent — the head of Brief's autonomous workforce.
+//
+// Given a mission (a plain-English brief from a user) and an OperatorPolicy
+// envelope, the Planner decomposes the mission into 1–N sub-tasks routed to
+// specialist agents (Research today; Treasury once Day 3 lands), and posts
+// each sub-task on chain with `parent_policy = Some(policy.id)` so the
+// later `approve_with_policy` call enforces the kill switch atomically.
+//
+// For Wk1 this is a CLI one-shot — given a mission, decompose, post, exit.
+// Day 8 wraps the same core in an event-driven loop bound to a UI-minted
+// MissionRequested event.
+//
+// Usage:
+//   tsx --env-file=.env.local agents/workforce/planner/index.ts \
+//     --policy 0x... \
+//     --mission "Evaluate this Move contract for a $50k DAO grant" \
+//     [--target-package-id 0x...] \
+//     [--max-subtasks 2] \
+//     [--default-bounty-sui 0.5] \
+//     [--deadline-min 30]
+//
+// Or via npm: `npm run agent:planner -- --policy 0x... --mission "..."`
+
+import { loadEnv, activeLlmKey } from "../../lib/env.js";
+import { makeAgentContext, type AgentContext } from "../../lib/sui.js";
+import { callLlm, llmMode, extractJson } from "../../lib/llm.js";
+import {
+  fetchOperatorPolicy,
+  type OperatorPolicyDecoded,
+} from "../../lib/operator-policy.js";
+import { buildPostTaskTx } from "../lib/task.js";
+import { findAgentRegistration } from "../lib/agent-registry.js";
+
+const DEFAULT_DEADLINE_MIN = 30;
+const DEFAULT_BOUNTY_SUI = 0.5;
+const DEFAULT_MAX_SUBTASKS = 2;
+const GAS_BUFFER_MIST = 100_000_000n; // 0.1 SUI reserved for gas across posts
+
+// ---------------------------------------------------------------------------
+// CLI argv parsing
+// ---------------------------------------------------------------------------
+
+type Args = {
+  policy: string;
+  mission: string;
+  targetPackageId?: string;
+  maxSubtasks: number;
+  defaultBountySui: number;
+  deadlineMin: number;
+};
+
+function parseArgs(): Args {
+  const argv = process.argv.slice(2);
+  const map: Record<string, string> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith("--")) continue;
+    const key = a.slice(2);
+    const next = argv[i + 1];
+    if (!next || next.startsWith("--")) {
+      map[key] = "true";
+    } else {
+      map[key] = next;
+      i++;
+    }
+  }
+  if (!map.policy) {
+    throw new Error("--policy <policy-id> is required");
+  }
+  if (!map.mission) {
+    throw new Error('--mission "..." is required');
+  }
+  return {
+    policy: map.policy,
+    mission: map.mission,
+    targetPackageId: map["target-package-id"] || undefined,
+    maxSubtasks: Number(map["max-subtasks"] ?? DEFAULT_MAX_SUBTASKS),
+    defaultBountySui: Number(map["default-bounty-sui"] ?? DEFAULT_BOUNTY_SUI),
+    deadlineMin: Number(map["deadline-min"] ?? DEFAULT_DEADLINE_MIN),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Workforce discovery (single-wallet for Wk1 — Day 8+ walks all registrations)
+// ---------------------------------------------------------------------------
+
+type WorkforceEntry = {
+  capability: string;
+  address: string;
+  displayName: string;
+  basePriceSui: number;
+};
+
+async function discoverWorkforce(ctx: AgentContext): Promise<WorkforceEntry[]> {
+  // Wk1 single-wallet mode: Planner + specialists share AGENT_SECRET_KEY,
+  // so they all live at ctx.address. We look up the one registration that
+  // exists and fan its capabilities out as workforce entries. Day 8 will
+  // walk all AgentRegistered events to handle multi-wallet specialists.
+  const reg = await findAgentRegistration(ctx, ctx.address);
+  if (!reg) {
+    console.warn(
+      "[planner] no AgentRegistration found at this address — posted tasks have no eligible specialist",
+    );
+    return [];
+  }
+  return reg.capabilities.map((capability) => ({
+    capability,
+    address: reg.agentAddress,
+    displayName: reg.displayName,
+    basePriceSui: Number(reg.basePricePerCall) / 1e9,
+  }));
+}
+
+function pickSpecialist(
+  workforce: WorkforceEntry[],
+  capability: string,
+): WorkforceEntry | null {
+  return workforce.find((w) => w.capability === capability) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Mission decomposition
+// ---------------------------------------------------------------------------
+
+type SubTaskPlan = {
+  capability: string;
+  title: string;
+  spec: Record<string, unknown>;
+  bounty_sui: number;
+  deadline_minutes: number;
+  rationale: string;
+};
+
+function templateDecompose(args: Args, workforce: WorkforceEntry[]): SubTaskPlan[] {
+  // Deterministic fallback when no LLM is available. For the canonical
+  // demo mission ("evaluate Move contract for grant") we produce a single
+  // research+audit sub-task; Day 3 adds a treasury sub-task to the bank.
+  const plans: SubTaskPlan[] = [];
+  const hasResearch = workforce.some((w) => w.capability === "research");
+  if (hasResearch) {
+    plans.push({
+      capability: "research",
+      title: "Research + Move audit",
+      spec: {
+        target_package_id: args.targetPackageId ?? null,
+        context: args.mission,
+      },
+      bounty_sui: args.defaultBountySui,
+      deadline_minutes: args.deadlineMin,
+      rationale:
+        "Single research+audit sub-task covers the full evaluation in template mode.",
+    });
+  }
+  const hasTreasury = workforce.some((w) => w.capability === "treasury");
+  if (hasTreasury && plans.length < args.maxSubtasks) {
+    plans.push({
+      capability: "treasury",
+      title: "Disbursement sizing + liquidity probe",
+      spec: {
+        context: args.mission,
+        action: "place_test_orders_to_size_disbursement",
+      },
+      bounty_sui: args.defaultBountySui,
+      deadline_minutes: args.deadlineMin,
+      rationale:
+        "Treasury sub-task probes live DEX liquidity to size the recommended disbursement schedule.",
+    });
+  }
+  return plans;
+}
+
+async function llmDecompose(
+  args: Args,
+  workforce: WorkforceEntry[],
+  apiKey: string,
+): Promise<SubTaskPlan[]> {
+  const availableCapabilities = Array.from(
+    new Set(workforce.map((w) => w.capability)),
+  );
+  if (availableCapabilities.length === 0) {
+    throw new Error("no specialists available to decompose against");
+  }
+  const workforceTable = workforce
+    .map(
+      (w) =>
+        `- ${w.displayName} (capability=${w.capability}, base=${w.basePriceSui.toFixed(2)} SUI)`,
+    )
+    .join("\n");
+
+  const prompt = `You are the Planner agent in Brief, an autonomous workforce on Sui. Your job is to take a human's mission and decompose it into 1–${args.maxSubtasks} sub-tasks, each routed to a specialist agent.
+
+## Mission
+${args.mission}
+
+## Context
+- Target Move package id (if any): ${args.targetPackageId ?? "none"}
+- Available specialist capabilities: [${availableCapabilities.join(", ")}]
+- Default bounty per sub-task: ${args.defaultBountySui} SUI
+- Default deadline per sub-task: ${args.deadlineMin} minutes
+- Max sub-tasks: ${args.maxSubtasks}
+
+## Workforce
+${workforceTable}
+
+## Rules
+- Every sub-task's "capability" MUST be one of [${availableCapabilities.join(", ")}]. If only "research" is available, do not produce a "treasury" sub-task.
+- Each sub-task must be self-contained — the specialist must be able to act on it without further clarification.
+- The "spec" object is serialized to JSON and stored on chain as the spec_blob the specialist reads. Include target_package_id and a short context paragraph for research sub-tasks.
+- Do not exceed ${args.maxSubtasks} sub-tasks. Fewer is fine.
+- bounty_sui must be a positive number; default to ${args.defaultBountySui} unless the mission justifies more.
+
+Respond with valid JSON ONLY, matching this schema:
+{
+  "subtasks": [
+    {
+      "capability": "<one of available>",
+      "title": "<= 60 chars",
+      "spec": { ... },
+      "bounty_sui": 0.5,
+      "deadline_minutes": 30,
+      "rationale": "one short sentence"
+    }
+  ]
+}`;
+
+  const raw = await callLlm({
+    apiKey,
+    system:
+      "You are the Planner agent in Brief. You output ONLY valid JSON matching the requested schema. No prose, no commentary, no markdown fences. Be specific and concrete.",
+    prompt,
+    maxTokens: 1500,
+    jsonSchemaHint:
+      '{"subtasks":[{"capability":"<available>","title":"...","spec":{...},"bounty_sui":0.5,"deadline_minutes":30,"rationale":"..."}]}',
+  });
+
+  let parsed: { subtasks?: SubTaskPlan[] };
+  try {
+    parsed = extractJson<{ subtasks?: SubTaskPlan[] }>(raw);
+  } catch (e) {
+    throw new Error(`LLM produced non-JSON output: ${(e as Error).message}`);
+  }
+  const subtasks = parsed.subtasks ?? [];
+  if (subtasks.length === 0) {
+    throw new Error("LLM returned no subtasks");
+  }
+  const validCaps = new Set(availableCapabilities);
+  for (const st of subtasks) {
+    if (!st.capability || !validCaps.has(st.capability)) {
+      throw new Error(
+        `LLM produced sub-task with unavailable capability "${st.capability}"`,
+      );
+    }
+    if (typeof st.bounty_sui !== "number" || !(st.bounty_sui > 0)) {
+      throw new Error(`Invalid bounty_sui on sub-task "${st.title}"`);
+    }
+    if (!st.title || typeof st.title !== "string") {
+      throw new Error("sub-task missing title");
+    }
+    if (typeof st.deadline_minutes !== "number" || st.deadline_minutes <= 0) {
+      st.deadline_minutes = args.deadlineMin;
+    }
+    if (!st.spec || typeof st.spec !== "object") {
+      st.spec = {};
+    }
+    if (!st.rationale) st.rationale = "";
+  }
+  return subtasks.slice(0, args.maxSubtasks);
+}
+
+// ---------------------------------------------------------------------------
+// Pre-post validation
+// ---------------------------------------------------------------------------
+
+function validatePolicyForPlanner(
+  policy: OperatorPolicyDecoded,
+  plannerAddress: string,
+  subtasks: SubTaskPlan[],
+): bigint {
+  if (policy.revoked) {
+    throw new Error(`Policy ${policy.id} is revoked — cannot post sub-tasks.`);
+  }
+  if (Number(policy.expiresAtMs) <= Date.now()) {
+    throw new Error(
+      `Policy ${policy.id} expired at ${new Date(Number(policy.expiresAtMs)).toISOString()}.`,
+    );
+  }
+  if (policy.agent.toLowerCase() !== plannerAddress.toLowerCase()) {
+    throw new Error(
+      `Policy.agent (${policy.agent.slice(0, 10)}…) does not match the planner address (${plannerAddress.slice(0, 10)}…). The policy must bind to this wallet for record_spend to pass.`,
+    );
+  }
+  const remaining = policy.budgetCap - policy.spent;
+  const totalBountyMist = subtasks.reduce(
+    (acc, st) => acc + BigInt(Math.floor(st.bounty_sui * 1e9)),
+    0n,
+  );
+  if (totalBountyMist > remaining) {
+    throw new Error(
+      `Sub-task bounties (${(Number(totalBountyMist) / 1e9).toFixed(3)} SUI) exceed remaining policy budget (${(Number(remaining) / 1e9).toFixed(3)} SUI).`,
+    );
+  }
+  const allowedSet = new Set(policy.allowedVenues.map((v) => v.toLowerCase()));
+  for (const st of subtasks) {
+    if (!allowedSet.has(st.capability.toLowerCase())) {
+      throw new Error(
+        `Sub-task capability "${st.capability}" is not in policy.allowed_venues [${policy.allowedVenues.join(", ")}]. Approval would abort with EVenueNotAllowed.`,
+      );
+    }
+  }
+  return totalBountyMist;
+}
+
+async function assertWalletHasFunds(
+  ctx: AgentContext,
+  totalBountyMist: bigint,
+): Promise<void> {
+  const balance = await ctx.client.getBalance({ owner: ctx.address });
+  const have = BigInt(balance.totalBalance);
+  const need = totalBountyMist + GAS_BUFFER_MIST;
+  if (have < need) {
+    throw new Error(
+      `Insufficient SUI in planner wallet: have ${(Number(have) / 1e9).toFixed(3)} SUI, need ${(Number(need) / 1e9).toFixed(3)} SUI (${(Number(totalBountyMist) / 1e9).toFixed(3)} bounty + ${(Number(GAS_BUFFER_MIST) / 1e9).toFixed(2)} gas buffer).`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Posting
+// ---------------------------------------------------------------------------
+
+type PostedSubtask = {
+  plan: SubTaskPlan;
+  assignedTo: string;
+  taskId: string;
+  txDigest: string;
+  bountyMist: bigint;
+  deadlineMs: bigint;
+};
+
+async function postSubtask(
+  ctx: AgentContext,
+  plan: SubTaskPlan,
+  workforce: WorkforceEntry[],
+  policyId: string,
+): Promise<PostedSubtask> {
+  const specialist = pickSpecialist(workforce, plan.capability);
+  if (!specialist) {
+    throw new Error(
+      `no specialist registered for capability "${plan.capability}"`,
+    );
+  }
+  const bountyMist = BigInt(Math.floor(plan.bounty_sui * 1e9));
+  const deadlineMs = BigInt(Date.now() + plan.deadline_minutes * 60 * 1000);
+  const specBlob = JSON.stringify(plan.spec);
+
+  const tx = buildPostTaskTx(ctx, {
+    bountyMist,
+    assignedTo: specialist.address,
+    title: plan.title,
+    specBlob,
+    primaryCapability: plan.capability,
+    deadlineMs,
+    parentPolicyId: policyId,
+  });
+
+  const res = await ctx.client.signAndExecuteTransaction({
+    signer: ctx.keypair,
+    transaction: tx,
+    options: {
+      showEffects: true,
+      showObjectChanges: true,
+      showEvents: true,
+    },
+  });
+
+  if (res.effects?.status?.status !== "success") {
+    throw new Error(
+      `post failed for "${plan.title}": ${res.effects?.status?.error ?? "unknown"}`,
+    );
+  }
+
+  const created = (res.objectChanges ?? []).find(
+    (c) =>
+      c.type === "created" &&
+      typeof (c as { objectType?: string }).objectType === "string" &&
+      (c as { objectType?: string }).objectType?.includes("::task::Task"),
+  ) as { objectId?: string } | undefined;
+
+  if (!created?.objectId) {
+    throw new Error("post tx succeeded but no Task object was created in changes");
+  }
+  return {
+    plan,
+    assignedTo: specialist.address,
+    taskId: created.objectId,
+    txDigest: res.digest,
+    bountyMist,
+    deadlineMs,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main(): Promise<void> {
+  const args = parseArgs();
+  const env = loadEnv();
+  const ctx = makeAgentContext(env);
+  const mode = llmMode(env);
+  const apiKey = activeLlmKey(env);
+
+  console.log(
+    `[planner] booting · pkg=${ctx.packageId.slice(0, 10)}… address=${ctx.address.slice(0, 10)}… llm=${mode}`,
+  );
+
+  // 1) Validate the policy binding
+  const policy = await fetchOperatorPolicy(ctx, args.policy);
+  if (!policy) {
+    throw new Error(`Policy ${args.policy} not found on chain`);
+  }
+  const remainingSui = (Number(policy.budgetCap - policy.spent) / 1e9).toFixed(3);
+  console.log(
+    `[planner] policy "${policy.name}" remaining=${remainingSui} SUI of ${(Number(policy.budgetCap) / 1e9).toFixed(2)} venues=[${policy.allowedVenues.join(", ")}] revoked=${policy.revoked}`,
+  );
+
+  // 2) Discover specialists from the on-chain registry
+  const workforce = await discoverWorkforce(ctx);
+  console.log(
+    `[planner] workforce: ${workforce.length} capability binding(s) — [${workforce.map((w) => w.capability).join(", ")}]`,
+  );
+
+  // 3) Decompose the mission (LLM with template fallback)
+  let subtasks: SubTaskPlan[];
+  if (mode === "llm" && apiKey && workforce.length > 0) {
+    try {
+      console.log("[planner] decomposing via LLM…");
+      subtasks = await llmDecompose(args, workforce, apiKey);
+    } catch (e) {
+      console.warn(
+        "[planner] LLM decompose failed, falling back to template:",
+        (e as Error).message,
+      );
+      subtasks = templateDecompose(args, workforce);
+    }
+  } else {
+    console.log(
+      `[planner] decomposing via template (llm=${mode}, key=${apiKey ? "set" : "absent"}, workforce=${workforce.length})`,
+    );
+    subtasks = templateDecompose(args, workforce);
+  }
+
+  if (subtasks.length === 0) {
+    throw new Error(
+      "decomposition produced zero sub-tasks; nothing to post (check that specialists are registered)",
+    );
+  }
+
+  console.log(`[planner] plan: ${subtasks.length} sub-task(s)`);
+  for (const st of subtasks) {
+    console.log(
+      `  · ${st.capability} | ${st.title} | ${st.bounty_sui} SUI | ${st.deadline_minutes}m — ${st.rationale}`,
+    );
+  }
+
+  // 4) Validate the plan against the policy + wallet balance
+  const totalBountyMist = validatePolicyForPlanner(policy, ctx.address, subtasks);
+  await assertWalletHasFunds(ctx, totalBountyMist);
+
+  // 5) Post each sub-task
+  const posted: PostedSubtask[] = [];
+  for (const plan of subtasks) {
+    console.log(
+      `[planner] posting "${plan.title}" (${plan.capability}) bounty=${plan.bounty_sui} SUI…`,
+    );
+    const result = await postSubtask(ctx, plan, workforce, policy.id);
+    console.log(
+      `[planner] ok task=${result.taskId.slice(0, 12)}… tx=${result.txDigest.slice(0, 12)}…`,
+    );
+    posted.push(result);
+  }
+
+  // 6) Summary
+  console.log("\n[planner] summary:");
+  console.log(
+    JSON.stringify(
+      {
+        mission: args.mission,
+        policy_id: policy.id,
+        posted_subtasks: posted.map((p) => ({
+          capability: p.plan.capability,
+          title: p.plan.title,
+          task_id: p.taskId,
+          assigned_to: p.assignedTo,
+          bounty_sui: Number(p.bountyMist) / 1e9,
+          deadline_ms: String(p.deadlineMs),
+          tx_digest: p.txDigest,
+          explorer: `https://suiscan.xyz/${env.network}/object/${p.taskId}`,
+        })),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+main().catch((e) => {
+  console.error("[planner] fatal:", e instanceof Error ? e.message : e);
+  process.exit(1);
+});

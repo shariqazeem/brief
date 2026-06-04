@@ -1,0 +1,33 @@
+node_modules
+.next
+out
+.env*.local
+.DS_Store
+*.log
+next-env.d.ts
+
+# Move
+move/build
+move/target
+
+# Agents
+agents/**/node_modules
+agents/**/dist
+
+# Vercel
+.vercel
+
+# Agent runtime state
+.cursors/
+
+# Off-chain mission objectives (per-policy mandates the user types in
+# GrantCeremony; the agent reads from .brief/objectives.json).
+.brief/
+
+# TS build cache
+tsconfig.agents.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Test scratch
+/tmp/brief-*
+nohup.out

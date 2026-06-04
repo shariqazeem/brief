@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #FAFAFA;
+  --bg-elev: #FFFFFF;
+  --ink: #0A0A0A;
+  --ink-2: #525560;
+  --muted: #8E8E93;
+  --line: #E5E5EA;
+  --line-strong: #D1D1D6;
+  --accent: #1a2c4e;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-feature-settings: "cv02", "cv11", "ss01";
+  letter-spacing: -0.005em;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Chain intervention freeze — when Sui aborts the agent on-chain, pause
+   the heartbeat + scan + ripple animations for ~2s so the entire app
+   visibly halts in deference to the chain's authority. Only continuous
+   ambient motion freezes; one-shot ceremonies still play through. */
+html[data-chain-intervention="1"] .animate-operator-pulse-line,
+html[data-chain-intervention="1"] .animate-operator-scan,
+html[data-chain-intervention="1"] .animate-operator-ripple,
+html[data-chain-intervention="1"] .animate-pulse-glow,
+html[data-chain-intervention="1"] .animate-ping {
+  animation-play-state: paused !important;
+}
