@@ -1,206 +1,233 @@
 # Brief — Sui Overflow 2026 submission
 
-Paste sections of this document into the overflow.sui.io submission form
-when ready. Each `##` block maps to one form field. Tested-and-true
-language; trim only if a field has a character cap.
+A draft to paste into overflow.sui.io. Each `##` heading roughly
+maps to one form field; trim where the field has a character cap.
+
+This submission rewrites the older intent-engine framing — that
+substrate is still in the package, but the product is now Agent
+Commerce: AI agents that hire other AI agents.
 
 ---
 
 ## One-line product description
 
-> Brief is an intent engine on Sui where every step of an autonomous agent's reasoning is an owned, verifiable WorkObject — composable like Git, executable on DeepBook, persisted on Walrus.
+> Brief is an autonomous workforce on Sui — AI agents that hire AI agents, paid on chain, governed by a Move policy you can revoke in one signature.
 
-(28 words. Shorter alternates: *"Composable work objects for autonomous agents on Sui."* / *"The Agentic Web settles in owned objects."*)
+(26 words. Shorter alternates: *"Agent Commerce on Sui — agents hire agents, paid on chain."* / *"Agents can build. Now they can hire."*)
 
 ---
 
 ## The problem
 
-Autonomous agents on every chain can already transact. They cannot
-**compose**. The output of one agent — a research report, a strategy, a
-trade plan — disappears the moment the next agent is called. There is no
-verifiable graph of who produced what, no on-chain claim that one agent's
-reasoning was the actual input to another's, and no way for a user to
-explicitly sign off between steps without breaking the chain.
+AI agents on every chain can already act. They cannot **transact with
+each other** on terms that compose. Today an agent that needs another
+agent's work either calls an HTTP endpoint and trusts the response, or
+runs a sibling process in the same monolith. There is no economic
+layer between them: no escrow, no settled payment, no reputation that
+travels with the worker.
 
-The result is that "agent infrastructure" today is a black-box pipeline.
-The user trusts the operator. There is no audit trail. The work disappears.
+Worse, the human granting authority has no kill switch. If you delegate
+a budget to an "AI treasury agent," its rebound on shutdown is whatever
+your operator's process honors. The chain doesn't know.
 
 ---
 
 ## The Brief solution
 
-Brief makes every agent output a first-class Sui object. A user states a
-financial intent in plain English. A Research agent surveys Sui DeFi
-protocols and mints a **ResearchObject** owned by the user. A Strategy
-agent consumes that object — *deterministically*, because the Move struct
-schema is typed — and mints a **StrategyObject** with explicit
-`guardian_warnings` (slippage, concentration, stale-pool). The user
-reviews the warnings and signs a **ConfirmationObject**, a real on-chain
-artifact that gates execution. Only then does the Execution agent compile
-the strategy into a programmable transaction block, settle through
-DeepBook, and mint an **ExecutionReceipt** with the live PTB digest.
+Brief is a **workforce of AI agents on Sui**. A user grants a **Planner
+agent** an envelope of authority — a Move `OperatorPolicy` with a
+budget cap, allowed venues, expiry, and a one-signature kill switch.
+The Planner decomposes a mission into sub-tasks and posts each on chain
+as a **`Task`** object with the bounty escrowed in SUI. Specialist
+agents — Research (Move audit + project research), Treasury (real
+DeepBook v3 limit orders) — sit in a shared **agent registry** with
+declared capabilities and accrue **on-chain reputation** as they get
+paid. When a deliverable is approved, the bounty transfers atomically
+with a `record_spend` against the policy. If the user revokes the
+policy mid-flight, **the next approval aborts on chain** with
+`EPolicyRevoked` and the bounty stays escrowed.
 
-The chain itself is the audit trail. Every node owned, every edge a real
-`parent_objects` reference, every payload either inline or stored on Walrus
-with the blob id committed on-chain. The work composes like Git.
+The chain itself is the economic layer:
+- Tasks are first-class Sui objects with status (`OPEN → ACCEPTED →
+  DELIVERED → APPROVED | EXPIRED`).
+- Settlement is one PTB: `approve_with_policy` calls
+  `operator_policy::record_spend` + transfers escrow + bumps
+  reputation, atomically.
+- Audit trail is Walrus-anchored: every research deliverable is a
+  markdown blob with the id stored on-chain in the `Deliverable`
+  WorkObject.
+- DEX integration is structural: Treasury Agent composes
+  `depositIntoManager` + `placeLimitOrder` (POST_ONLY) + `record_spend`
+  + `mint(Deliverable)` + `task::submit` in a **single atomic PTB**.
 
 ---
 
 ## The demo
 
-A user opens app.brief.xyz, connects a Sui wallet, and types: *"I have
-1000 SUI. Where should I deploy for sustainable 30-day yield, low risk?"*
-Within ~40 seconds, three WorkObject cards materialize sequentially as
-on-chain events arrive: a Research card with five Sui DeFi protocols
-evaluated, a Strategy card with a 60/30/10 NAVI/Scallop/reserve
-allocation and a single amber slippage warning, then a guardian panel
-asking for explicit sign-off. The user clicks "Confirm execution," which
-mints a Confirmation WorkObject. The Execution agent fires, places a
-SUI/DBUSDC market order on DeepBook, and mints an ExecutionReceipt. The
-user clicks "Show lineage" and sees the full graph: five nodes, real
-parent edges, every payload either inline or fetched from Walrus, every
-node clickable to Sui Explorer.
+A user opens the Brief workforce console, connects a Sui wallet, picks
+the *Investment Committee* template, types the mission *"Evaluate this
+Move contract for a $50,000 DAO grant — recommend approve/reject and
+probe DeepBook liquidity to size the disbursement,"* and signs once.
+A Move `OperatorPolicy` materializes on chain with a 0.5 SUI budget
+across `[research, audit, treasury]`. The Planner agent decomposes the
+mission into two sub-tasks and posts each as a `Task` object with
+escrowed bounty.
+
+Within ~30 seconds, the Activity Stream lights up: the Research agent
+accepts, fetches the target package's module surface from Sui RPC,
+produces a markdown audit, uploads it to Walrus, and submits the
+deliverable. The Treasury agent in parallel places two POST_ONLY limit
+orders on the SUI/DBUSDC DeepBook pool at +50bps and +200bps over mid,
+embeds the order IDs in its deliverable, and submits. The user clicks
+**Approve & pay** on each row. The chain settles: bounties transfer,
+reputation bumps, the policy's `spent` field ticks up.
+
+Then the user clicks **Revoke**. The next time the chain receives an
+`approve_with_policy` for any sub-task under that policy, it aborts
+with `code 3 (EPolicyRevoked)`. The UI surfaces the abort module +
+function + code + named constant. The bounty stays escrowed. The agent
+never gets paid. The chain — not the server — refused settlement.
 
 ---
 
 ## Why Sui specifically
 
-Four properties of Sui are load-bearing — remove any one and the product
-becomes awkward, expensive, or untrusted:
+Four Sui properties are load-bearing — remove any one and the product
+collapses or moves off-chain:
 
-1. **Owned objects** — A WorkObject `has key, store`. Every agent output
-   is a top-level addressable object that can be transferred, wrapped,
-   queried, and used as an input to the next Move call. Solana's account
-   model fights this (no object types); Ethereum's gas economics forbid
-   it (storing a 10 KB reasoning chain per call is uneconomic).
+1. **Move shared objects** — `Task`, `OperatorPolicy`, `AgentRegistration`,
+   `WorkObject` are all shared objects. The poster, assigned agent, and
+   policy owner all transact against them concurrently. On a chain
+   without shared mutable state, this is a backend with extra steps.
 
-2. **Atomic programmable transaction blocks** — The Execution step is one
-   PTB that composes `deposit_into_manager` + `place_market_order` +
-   `mint_work_object` atomically. Either all three succeed or none do.
-   No multi-step coordinator can corrupt the chain partway through.
+2. **Atomic PTBs** — Treasury's delivery is a single PTB that combines
+   `depositIntoManager` + `placeLimitOrder × 2` + `work_object::mint` +
+   `task::submit`. The same atomicity is what makes the kill switch
+   real: `approve_with_policy` runs `record_spend` (which asserts
+   `!revoked`) in the same transaction as the bounty transfer. A
+   revoke that lands 200ms before approval aborts the *entire*
+   transaction.
 
-3. **Walrus content-addressed storage** — Large payloads (full reasoning
-   chains, transaction effects bundles) live on Walrus, an integrated
-   Sui-ecosystem decentralized storage primitive. Only the blob id goes
-   on-chain. Storage cost stays bounded; provenance stays verifiable. The
-   integration is structural, not decorative — every Research, Strategy,
-   and Execution payload is round-tripped through Walrus in the live
-   chain we ran on testnet.
+3. **DeepBook native CLOB** — Treasury Agent places real on-chain limit
+   orders. No oracle dependency, no AMM-only slippage estimation, no
+   off-chain matcher. POST_ONLY orders rest on the book until they
+   fill or expire. The order IDs go into the deliverable as audit
+   trail.
 
-4. **DeepBook native CLOB** — The Execution agent settles through
-   DeepBook's on-chain orderbook on the SUI/DBUSDC pool. Real fills,
-   real prices, no oracle dependence, no AMM slippage estimation. The
-   `BalanceManager` is a real on-chain object created during our Day-6
-   probe.
+4. **Walrus content-addressed storage** — Research deliverables (full
+   markdown audit reports) live on Walrus. Only the blob id is stored
+   on chain. Storage cost stays bounded; verifiability is intact.
+   Judges can fetch the actual audit content from the public
+   aggregator via the URL printed in the deliverable preview.
 
-The combination is not portable. The same product on a chain without
-Sui's object model would be a coordination protocol; here it's an asset
-class.
+The same product on Solana / Ethereum would either (a) reinvent
+shared-object semantics in a backend (defeating the point) or (b) live
+entirely off-chain with the on-chain layer reduced to payment rails
+(losing the kill switch, the reputation, the atomicity).
 
 ---
 
-## Sub-track alignment — Intent Engine
+## Sub-track alignment
 
-| Must-have | Brief's answer |
+| Sub-track / prize | How Brief satisfies it |
 |---|---|
-| Text → PTB → execution flow | Query (user-typed plain-English intent) → Research → Strategy (carries the PTB intent) → Confirmation → Execution (the PTB executed on-chain). Every step is its own owned Sui object with a typed payload. |
-| Human-readable PTB preview | The StrategyObject card renders allocations + projected returns + operation list in plain English ("deposit 60% into NAVI") before any signing. |
-| Guardian catching ≥2 risk classes | Slippage, concentration, and stale-pool warnings are typed entries on the StrategyObject. Surfaced with severity (info / amber / red) before the Confirm button enables. |
-| Explicit confirmation step | The "Confirm execution" button mints a **Confirmation WorkObject** parented to the Strategy. The ExecutionAgent watches *only* for Confirmation events — never for raw Strategy events. The confirmation is itself a verifiable on-chain artifact in the lineage. |
+| **Agentic Web** | The product is literally agents that act, transact, and coordinate — economic coordination between AI agents. Not one agent; agents hiring agents, paying agents, building reputation with agents. |
+| **DeepBook** | Treasury Agent places real `POST_ONLY` SUI/DBUSDC limit orders in the same atomic PTB as `record_spend` + `task::submit` + `mint(Deliverable)`. The order IDs go into the on-chain deliverable as proof. |
+| **Walrus** | Research deliverables (markdown audit reports) upload to Walrus; blob id stored in the on-chain Deliverable WorkObject. Verifiable, portable, decoupled from the demo URL. |
 
 ---
 
 ## Tech stack
 
-- **On-chain (Sui Move 2024.beta):** 4-module package — `work_object`,
-  `agent_registry`, `settlement`, `lineage`. Published to testnet as
-  `0xfa3a152aff2aba3886bf0fb41328e72da5ccd637074d4673c36b1924c850d084`.
+- **On-chain (Sui Move 2024.beta):** 6-module package — `operator_policy`,
+  `task`, `agent_registry`, `work_object`, `settlement`, `lineage`.
+  Published to testnet as
+  `0xe550ace873c02768dbaca7de3a2d64a28acd3f7c51551c9c97b704703e95fb9d`.
+  22/22 Move unit tests pass.
 - **Frontend:** Next.js 14 App Router, TypeScript, Tailwind. `@mysten/sui`
-  v2.17, `@mysten/dapp-kit` for wallet integration, `@tanstack/react-query`
-  for SuiClient query lifecycle.
-- **Agent runtimes:** Node.js + tsx, three independent processes
-  (`agents/research/`, `agents/strategy/`, `agents/execution/`) sharing a
-  small lib for `queryEvents` cursor-polling, Walrus upload, work-object
-  fetch with Walrus fallback, and Anthropic LLM calls (Claude Haiku for
-  Research, Sonnet for Strategy).
-- **Storage:** `@mysten/walrus` v1.1 with the `upload-relay.testnet`
-  endpoint to keep the storage-node fan-out under control. Reads via
-  `aggregator.walrus-testnet.walrus.space`.
-- **DEX:** `@mysten/deepbook-v3` v1.3 with a pre-created `BalanceManager`
-  on the SUI/DBUSDC pool. The Execution PTB combines deposit + market
-  order in a single transaction.
-- **Lineage UI:** Plain SVG (no react-flow dependency) — kind-colored
-  nodes, bezier-curved parent edges, Walrus badge per node, click-to-
-  Explorer.
-
----
-
-## What we'd build next
-
-1. **Per-agent keypairs and Sui Gas Pool sponsorship** — In v0 all three
-   agents share the user's wallet. Splitting into distinct keypairs
-   removes the gas-coin race and lets each agent build its own
-   reputation in `agent_registry`. Sponsored transactions remove the
-   "agents need SUI to operate" friction entirely.
-
-2. **Open the agent registry** — `agent_registry::register` is already a
-   shared object; any developer can publish an agent with a typed
-   capability declaration. The next step is a Brief SDK that other teams
-   can use to slot their own agents into a user's chain (a Tax agent
-   between Strategy and Execution; a Compliance agent that publishes
-   a ComplianceObject; etc.).
-
-3. **Kyvern integration** — The author's prior project ([Kyvern on
-   Solana](https://app.kyvernlabs.com)) is a per-agent authorization
-   layer. Brief is the cross-agent coordination layer above it.
-   Together they form the per-agent ↔ per-graph stack — the same agent
-   has policy-scoped budgets on its single-agent transactions AND a
-   composable trail of its outputs across many agents.
-
-4. **Mainnet** — Testnet was deliberate for the hackathon (predictable
-   epochs, free WAL via `walrus get-wal`). Mainnet deploy is one Move
-   publish + one Walrus config change.
+  v2.17, `@mysten/dapp-kit` for wallet integration.
+- **Agent runtimes:** Node.js + tsx. Three workforce processes —
+  `agents/workforce/planner` (CLI + service), `agents/workforce/research`,
+  `agents/workforce/treasury` — share a `lib/` for env, sui (with a
+  resilient RPC transport that rotates through three testnet endpoints
+  on 429 / 5xx), llm (DeepSeek v4-flash via Commonstack with template
+  fallback), walrus (`@mysten/walrus` v1.1 with upload-relay).
+- **DeepBook:** `@mysten/deepbook-v3` v1.3. BalanceManager pre-created.
+  Limit orders use `OrderType.POST_ONLY` so they rest on the book.
+- **Storage:** Walrus testnet (`aggregator.walrus-testnet.walrus.space`).
 
 ---
 
 ## Live artifacts (testnet)
 
-Judges can inspect these on Sui Explorer directly:
+Verifiable on Sui Explorer / Suiscan directly. Full digest list lives in
+[`demo-artifacts.md`](./demo-artifacts.md).
 
-- **Published package:**
-  https://suiexplorer.com/object/0xfa3a152aff2aba3886bf0fb41328e72da5ccd637074d4673c36b1924c850d084?network=testnet
-- **DeepBook BalanceManager:**
-  https://suiexplorer.com/object/0x1d9495d48e2de6f86068c7fbde6defe528e196b6e7a4305b90fe454f3d244771?network=testnet
-- **Sample full chain (5 nodes, Walrus-backed, Confirmation-gated):**
-  - Query
-    https://suiexplorer.com/object/0xa119d939f42bd4f0521b890f23aecf7dc15bf7dc50e72bd320b104690bcf1901?network=testnet
-  - Research
-    https://suiexplorer.com/object/0x2b507799973fa9c31ce29c0de24c021a8f8969819e76f88362fb546a1ce8b028?network=testnet
-  - Strategy
-    https://suiexplorer.com/object/0xdb87516f48fd0d2b25103bfbe5cf040931643e805756a3dc38b804c2ccedfeb5?network=testnet
-  - Confirmation
-    https://suiexplorer.com/object/0xd71fc0a128a21db37437562cf11318bbf8e7c3de8b3c3b7b02b5aa5e42ecdb3a?network=testnet
-  - ExecutionReceipt
-    https://suiexplorer.com/object/0x1cc038331c7f9af2b8b667df4e84a0230e35d1a9c7e1eec1dba54be1d91df75f?network=testnet
-- **Sample Walrus blob (the Research payload, decentralized storage):**
-  https://aggregator.walrus-testnet.walrus.space/v1/blobs/X45mwBvuup132zwhk2U1rZo_UpWYzQKC_Nk_7VzC8GU
+**Day 4 — happy path (Planner → 2 sub-tasks → both delivered → both
+approved → reputation bumped):**
+- OperatorPolicy: `0xa854be7c649465a021ebd0a84bd04b2c199932827a52ef7bf42f081b9a8e44f3`
+- Research task: `0x0ead64002b615e4172a8bb468bf4f3130dec86a004255eb8db7f51b8b7385434`
+- Treasury task: `0xf5c09b45b3e3073890180aca3da293e0ce83ac39a4c305b76226358d876fbbe5`
+- Research approve tx: `8F1y9hX1LkZCUEKakrqKQrdMEqErRtoaWexmKfLUmeYP`
+- Treasury approve tx: `EGo3wtD7VhQw5gZJUiCajoC2pr16xHhT6PwL5tqwQVMb`
+- Walrus blob (audit content):
+  https://aggregator.walrus-testnet.walrus.space/v1/blobs/orNFxS69aCtpvMxh8yPmJEOAKwFXVC_74msjf58X8eI
+
+**Day 6-7 — kill switch ceremony (revoke aborts approval on chain):**
+- Revoke-test policy: `0x60eda8e3e77ea54851dc90faaecf6a7e04c4aaf964d69d1d30195b89b2e4defa`
+- Revoke tx: `5f4BHR1Q7sPGT3aZC22uXq38y7zjaM8mnAKspJGTX5Eo`
+- Failed approve tx (aborted EPolicyRevoked code 3):
+  `HDRPJygY7Q8HoNTLgWDoVRzsSupD3jKKh9NozQsuNU6T`
+
+**Agent registry:**
+- Specialist registration: `0xd6a4a09a5893d6e1b7ad2b23b6c6d4866c1ec8441db2b1c5ca433adedf29230c`
+- Capabilities: `[research, audit, treasury]`, completed_tasks 3, reputation 3, total_paid 0.4 SUI
+
+---
+
+## What we'd build next
+
+1. **Multi-wallet specialists.** Wk1 single-wallet for the demo cycle.
+   The architecture supports separate per-agent keypairs; the next step
+   is each specialist on its own wallet, fanning out `assigned_to`
+   discovery via `agent_registry` instead of looking up the shared
+   address.
+
+2. **Proposal / Approval loop above the auto-approve threshold.** The
+   `OperatorPolicy.auto_approve_pct` field already exists; above the
+   threshold, the planner would mint a `Proposal` WorkObject and wait
+   for an owner-signed `Approval` before settling.
+
+3. **Specialist marketplace + open SDK.** The agent_registry is already
+   public. Anyone can publish a specialist; the SDK would let teams
+   slot a `Compliance` agent between Research and approval, or a
+   `Move Dev` agent that produces patches as deliverables.
+
+4. **Kyvern integration** — [Kyvern](https://app.kyvernlabs.com) on
+   Solana is the same author's per-agent authorization layer (Squads v4
+   vault + Anchor policy program + x402 micropayments). Brief is the
+   cross-agent commerce layer. Together they form the agent economy
+   stack — per-agent authority on one chain, multi-agent commerce on
+   another, with reputation portable between.
 
 ---
 
 ## GitHub
 
-`<TODO: push and paste URL here>`
+`<TODO: push origin main and paste URL here>`
 
 ## Live deployment
 
-`<TODO: deploy to Vercel and paste URL here>`
+`<TODO: Vercel deploy + paste URL here>`
 
-## Demo video (90 seconds)
+## Demo video
 
 `<TODO: record + upload, paste URL here>`
 
 ## Author
 
 Shariq Shaukat — [@shariqshkt](https://x.com/shariqshkt)
-Solo build, ~5 weeks of focused work for Sui Overflow 2026.
+
+Solo build for Kyvernlabs. Sibling product to Kyvern on Solana — same
+thesis (bounded autonomous authority for AI agents), two chains, two
+products forming the agent economy stack.
