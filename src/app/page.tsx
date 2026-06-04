@@ -23,7 +23,7 @@ import { useReveal, useScrollProgress } from "@/lib/use-scroll-reveal";
  */
 
 const PACKAGE_ID =
-  "0xb047640605f00ab27a68a900ca6177ae07e3aa9da0feae39c9851e5a32bbd1c0";
+  "0xe550ace873c02768dbaca7de3a2d64a28acd3f7c51551c9c97b704703e95fb9d";
 const PACKAGE_EXPLORER = `https://suiscan.xyz/testnet/object/${PACKAGE_ID}`;
 
 export default function Home() {
@@ -121,8 +121,9 @@ function Hero() {
           className="mt-8 max-w-[44ch] text-[16px] leading-[1.55] text-ink-2 sm:text-[17.5px]"
           style={{ animation: "fadeUp 900ms cubic-bezier(0.22, 1, 0.36, 1) 220ms both" }}
         >
-          A budget on Sui. A Move capability. An agent operating inside
-          it, autonomously.
+          An autonomous workforce on Sui. AI agents that hire AI agents,
+          paid on chain, governed by a Move policy you can revoke in one
+          signature.
         </p>
 
         <div
