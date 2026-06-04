@@ -497,6 +497,248 @@ export function useResolvedPolicyId(
   return resolved;
 }
 
+// ---------------------------------------------------------------------------
+// Agent registration — for profile cards in the Activity Stream
+// ---------------------------------------------------------------------------
+
+export type AgentProfile = {
+  id: string;
+  address: string;
+  displayName: string;
+  capabilities: string[];
+  completedTasks: bigint;
+  totalPaidMist: bigint;
+  reputationScore: bigint;
+  registeredAtMs: bigint;
+  basePricePerCallMist: bigint;
+};
+
+export function useAgentRegistration(
+  agentAddress: string | null | undefined,
+  pollMs = 8000,
+): { profile: AgentProfile | null; loading: boolean } {
+  const client = useSuiClient();
+  const [profile, setProfile] = useState<AgentProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!agentAddress || !agentAddress.startsWith("0x")) {
+      setProfile(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const evResp = await client.queryEvents({
+          query: {
+            MoveEventType: `${BRIEF_TYPE_ORIGIN_ID}::agent_registry::AgentRegistered`,
+          },
+          order: "descending",
+          limit: 100,
+        });
+        const matching = evResp.data
+          .map((ev) => {
+            const p = ev.parsedJson as { agent_address?: string };
+            return p?.agent_address === agentAddress ? ev : null;
+          })
+          .filter((x): x is NonNullable<typeof x> => x !== null);
+        if (matching.length === 0) {
+          if (!cancelled) {
+            setProfile(null);
+            setLoading(false);
+          }
+          return;
+        }
+        // The registration object id isn't on the event; fetch the tx and
+        // pick the AgentRegistration that was created in it.
+        const txResp = await client.getTransactionBlock({
+          digest: matching[0].id.txDigest,
+          options: { showObjectChanges: true },
+        });
+        const created = (txResp.objectChanges ?? []).find(
+          (c) =>
+            c.type === "created" &&
+            typeof (c as { objectType?: string }).objectType === "string" &&
+            (c as { objectType?: string }).objectType?.includes(
+              "::agent_registry::AgentRegistration",
+            ),
+        ) as { objectId?: string } | undefined;
+        if (!created?.objectId) {
+          if (!cancelled) setLoading(false);
+          return;
+        }
+        const regResp = await client.getObject({
+          id: created.objectId,
+          options: { showContent: true },
+        });
+        const content = regResp.data?.content;
+        if (!content || content.dataType !== "moveObject") {
+          if (!cancelled) setLoading(false);
+          return;
+        }
+        const f = (content as unknown as { fields: Record<string, unknown> }).fields;
+        const result: AgentProfile = {
+          id: created.objectId,
+          address: String(f.agent_address ?? agentAddress),
+          displayName: String(f.display_name ?? ""),
+          capabilities: Array.isArray(f.capabilities)
+            ? (f.capabilities as string[])
+            : [],
+          completedTasks: BigInt((f.completed_tasks as string | number) ?? "0"),
+          totalPaidMist: BigInt((f.total_paid as string | number) ?? "0"),
+          reputationScore: BigInt((f.reputation_score as string | number) ?? "0"),
+          registeredAtMs: BigInt((f.registered_at_ms as string | number) ?? "0"),
+          basePricePerCallMist: BigInt(
+            (f.base_price_per_call as string | number) ?? "0",
+          ),
+        };
+        if (!cancelled) {
+          setProfile(result);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    tick();
+    const handle = setInterval(tick, pollMs);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [agentAddress, client, pollMs]);
+
+  return { profile, loading };
+}
+
+// ---------------------------------------------------------------------------
+// Deliverable preview — fetch the WorkObject + (if Walrus-backed) its
+// markdown / JSON content for inline rendering in the Activity Stream.
+// ---------------------------------------------------------------------------
+
+export type DeliverableContent = {
+  id: string;
+  kind: string;
+  walrusBlobId: string | null;
+  // Resolved payload. For markdown deliverables it's the rendered text;
+  // for JSON it's the prettified string.
+  body: string | null;
+  bodyKind: "markdown" | "json" | "text" | null;
+  loading: boolean;
+};
+
+export function useDeliverable(
+  deliverableId: string | null | undefined,
+): DeliverableContent {
+  const client = useSuiClient();
+  const [state, setState] = useState<DeliverableContent>({
+    id: deliverableId ?? "",
+    kind: "",
+    walrusBlobId: null,
+    body: null,
+    bodyKind: null,
+    loading: !!deliverableId,
+  });
+
+  useEffect(() => {
+    if (!deliverableId || !deliverableId.startsWith("0x")) {
+      setState({
+        id: "",
+        kind: "",
+        walrusBlobId: null,
+        body: null,
+        bodyKind: null,
+        loading: false,
+      });
+      return;
+    }
+    let cancelled = false;
+    async function tick() {
+      try {
+        const resp = await client.getObject({
+          id: deliverableId as string,
+          options: { showContent: true },
+        });
+        const content = resp.data?.content;
+        if (!content || content.dataType !== "moveObject") {
+          if (!cancelled) setState((s) => ({ ...s, loading: false }));
+          return;
+        }
+        const f = (content as unknown as { fields: Record<string, unknown> }).fields;
+        const kind = String(f.object_type ?? "");
+        const blobId = unwrapWalrusBlobId(f.walrus_blob_id);
+        const inlinePayload = (f.payload as number[] | undefined) ?? [];
+
+        // Prefer inline; fall back to Walrus.
+        let body: string | null = null;
+        let bodyKind: "markdown" | "json" | "text" | null = null;
+        if (inlinePayload.length > 0) {
+          const decoded = new TextDecoder().decode(new Uint8Array(inlinePayload));
+          ({ body, bodyKind } = classify(decoded));
+        } else if (blobId) {
+          try {
+            const url = `https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}`;
+            const r = await fetch(url);
+            if (r.ok) {
+              const text = await r.text();
+              ({ body, bodyKind } = classify(text));
+            }
+          } catch {
+            /* propagation delay */
+          }
+        }
+
+        if (!cancelled) {
+          setState({
+            id: deliverableId as string,
+            kind,
+            walrusBlobId: blobId,
+            body,
+            bodyKind,
+            loading: false,
+          });
+        }
+      } catch {
+        if (!cancelled) setState((s) => ({ ...s, loading: false }));
+      }
+    }
+    tick();
+  }, [deliverableId, client]);
+
+  return state;
+}
+
+function unwrapWalrusBlobId(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v.length > 0 ? v : null;
+  if (typeof v === "object") {
+    const anyV = v as { vec?: string[] };
+    if (Array.isArray(anyV.vec) && anyV.vec.length > 0) return anyV.vec[0];
+  }
+  return null;
+}
+
+function classify(raw: string): {
+  body: string;
+  bodyKind: "markdown" | "json" | "text";
+} {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return { body: JSON.stringify(parsed, null, 2), bodyKind: "json" };
+    } catch {
+      /* not json */
+    }
+  }
+  if (trimmed.startsWith("#") || trimmed.includes("\n## ")) {
+    return { body: raw, bodyKind: "markdown" };
+  }
+  return { body: raw, bodyKind: "text" };
+}
+
 export function buildActivateTx(args: ActivateArgs): Transaction {
   const t = templateById(args.templateId);
   if (!t) throw new Error(`unknown workforce template: ${args.templateId}`);

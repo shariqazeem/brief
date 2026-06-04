@@ -16,6 +16,8 @@ import {
   buildActivateTx,
   dispatchMission,
   plannerCliCommand,
+  useAgentRegistration,
+  useDeliverable,
   usePolicy,
   useResolvedPolicyId,
   useTasksForPolicy,
@@ -1158,9 +1160,6 @@ function TaskRow({ task }: { task: WorkforceTask }) {
               {short(task.postedTxDigest, 8, 8)}
             </a>
           </DetailRow>
-          <DetailRow label="Assigned to">
-            <span className="font-mono">{short(task.assignedTo, 8, 8)}</span>
-          </DetailRow>
           {task.deliverableId && (
             <DetailRow label="Deliverable">
               <a
@@ -1173,6 +1172,13 @@ function TaskRow({ task }: { task: WorkforceTask }) {
               </a>
             </DetailRow>
           )}
+
+          <AgentProfileCard address={task.assignedTo} />
+
+          {task.deliverableId && (
+            <DeliverablePreview deliverableId={task.deliverableId} />
+          )}
+
           {task.specBlob && (
             <DetailRow label="Spec">
               <pre className="mt-1 max-h-40 overflow-auto border border-line bg-bg p-2 font-mono text-[11px]">
@@ -1259,6 +1265,119 @@ function DetailRow({
         {label}
       </span>
       <span>{children}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Agent profile card — inline pull of the specialist's AgentRegistration
+// ---------------------------------------------------------------------------
+
+function AgentProfileCard({ address }: { address: string }) {
+  const { profile, loading } = useAgentRegistration(address);
+  return (
+    <div className="mt-3 border border-line bg-bg p-3">
+      <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+        Assigned specialist
+      </p>
+      <div className="mt-2 grid grid-cols-[110px_1fr] gap-3 text-[12.5px]">
+        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          Address
+        </span>
+        <span className="font-mono text-ink">{short(address, 10, 10)}</span>
+      </div>
+      {loading && !profile && (
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          Loading registration…
+        </p>
+      )}
+      {!loading && !profile && (
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          No on-chain registration found for this address.
+        </p>
+      )}
+      {profile && (
+        <>
+          <div className="mt-2 grid grid-cols-[110px_1fr] gap-3 text-[12.5px]">
+            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+              Display name
+            </span>
+            <span className="text-ink">{profile.displayName || "—"}</span>
+          </div>
+          <div className="mt-1 grid grid-cols-[110px_1fr] gap-3 text-[12.5px]">
+            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+              Capabilities
+            </span>
+            <span className="font-mono">[{profile.capabilities.join(", ")}]</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-3 text-[11px]">
+            <ProfileStat label="completed" value={String(profile.completedTasks)} />
+            <ProfileStat label="reputation" value={String(profile.reputationScore)} />
+            <ProfileStat
+              label="total paid"
+              value={`${(Number(profile.totalPaidMist) / 1e9).toFixed(3)} SUI`}
+            />
+            <ProfileStat
+              label="base price"
+              value={`${(Number(profile.basePricePerCallMist) / 1e9).toFixed(2)} SUI/call`}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProfileStat({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="border border-line px-2 py-0.5 font-mono">
+      <span className="text-muted">{label}: </span>
+      <span className="text-ink tabular-nums">{value}</span>
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Deliverable preview — inline render of the on-chain / Walrus content
+// ---------------------------------------------------------------------------
+
+function DeliverablePreview({ deliverableId }: { deliverableId: string }) {
+  const d = useDeliverable(deliverableId);
+  return (
+    <div className="mt-3 border border-line bg-bg p-3">
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+          Deliverable {d.bodyKind ? `· ${d.bodyKind}` : ""}
+          {d.walrusBlobId && (
+            <>
+              {" · "}
+              <a
+                href={`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${d.walrusBlobId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="underline-offset-4 hover:text-ink hover:underline"
+              >
+                walrus blob
+              </a>
+            </>
+          )}
+        </p>
+      </div>
+      {d.loading && (
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          Loading content…
+        </p>
+      )}
+      {!d.loading && !d.body && (
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          No inline / Walrus body found yet (propagation can take ~15s).
+        </p>
+      )}
+      {d.body && (
+        <pre className="mt-2 max-h-80 overflow-auto border border-line bg-bg-elev p-3 font-mono text-[11.5px] leading-relaxed">
+          {d.body.length > 6000 ? d.body.slice(0, 6000) + "\n\n… (truncated)" : d.body}
+        </pre>
+      )}
     </div>
   );
 }
