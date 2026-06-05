@@ -2,11 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, ChevronDown, Check, Loader2, Sparkles, ShieldOff, AlertTriangle } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  Droplets,
+  Loader2,
+  ShieldOff,
+  Sparkles,
+} from "lucide-react";
 import {
   ConnectButton,
   useCurrentAccount,
   useSignAndExecuteTransaction,
+  useSuiClient,
 } from "@mysten/dapp-kit";
 import { BRIEF_PACKAGE_ID, explorerUrl } from "@/lib/brief-client";
 import {
@@ -324,6 +334,7 @@ function Connected({ address }: { address: string }) {
   if (!activation) {
     return (
       <section className="mx-auto max-w-page px-6 pt-12 pb-24 sm:px-10 sm:pt-16">
+        <ColdStartFaucet address={address} />
         <div className="grid gap-12 lg:grid-cols-[1.2fr_1fr]">
           <HireForm address={address} onActivated={setActivation} />
           <aside className="space-y-8">
@@ -338,6 +349,146 @@ function Connected({ address }: { address: string }) {
   }
   return (
     <LiveConsole activation={activation} onReset={() => setActivation(null)} />
+  );
+}
+
+// =============================================================================
+// Cold-start faucet — a brand-new wallet has 0 SUI and can't sign the grant.
+// This banner appears the moment we detect the connected wallet is empty
+// and goes away the moment it has enough SUI to act.
+// =============================================================================
+
+const COLD_START_MIN_SUI = 0.05;
+
+function ColdStartFaucet({ address }: { address: string }) {
+  const client = useSuiClient();
+  const [balanceSui, setBalanceSui] = useState<number | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [phase, setPhase] = useState<"idle" | "fetching" | "ok" | "err">("idle");
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const b = await client.getBalance({ owner: address });
+        if (!cancelled) {
+          setBalanceSui(Number(b.totalBalance) / 1e9);
+        }
+      } catch {
+        /* ignore — the banner just hides */
+      }
+    };
+    tick();
+    // After a faucet call, poll a few times so the new balance shows up
+    // without the user having to refresh.
+    const id = setInterval(tick, 6000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [client, address, refreshKey]);
+
+  async function handleFaucet() {
+    setPhase("fetching");
+    setErrMsg(null);
+    try {
+      const r = await fetch("/api/agent/faucet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipient: address }),
+      });
+      const j = (await r.json()) as {
+        ok?: boolean;
+        message?: string;
+        retry_after_sec?: number;
+      };
+      if (!j.ok) {
+        setErrMsg(
+          j.message ??
+            (j.retry_after_sec
+              ? `Try again in ${j.retry_after_sec}s.`
+              : "Faucet failed — try again in a moment."),
+        );
+        setPhase("err");
+        return;
+      }
+      setPhase("ok");
+      // Give the chain a couple of seconds to credit the wallet, then
+      // poll for the updated balance.
+      setTimeout(() => setRefreshKey((k) => k + 1), 3500);
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : String(e));
+      setPhase("err");
+    }
+  }
+
+  // Loading the first balance — render nothing so the layout doesn't flash.
+  if (balanceSui === null) return null;
+  // Wallet is funded; nothing to do.
+  if (balanceSui >= COLD_START_MIN_SUI) return null;
+
+  return (
+    <div className="mb-10 animate-fade-up border border-amber-300 bg-amber-50/60 p-5">
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="flex items-start gap-3">
+          <Droplets
+            className="mt-0.5 h-5 w-5 shrink-0 text-amber-700"
+            strokeWidth={1.75}
+          />
+          <div className="min-w-0">
+            <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-amber-800">
+              Your wallet needs testnet SUI
+            </p>
+            <p className="mt-1 text-[13.5px] leading-relaxed text-ink-2">
+              Brief runs on Sui testnet. You need a tiny bit of SUI to
+              sign the grant transaction. We&apos;ll request{" "}
+              <span className="font-mono">1 SUI</span> from the public faucet
+              for{" "}
+              <span className="font-mono">
+                {short(address, 6, 4)}
+              </span>{" "}
+              — costs nothing, takes a few seconds.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleFaucet}
+          disabled={phase === "fetching" || phase === "ok"}
+          className="inline-flex items-center justify-center gap-2 border-2 border-amber-500 bg-amber-500 px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.28em] text-bg transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {phase === "fetching" ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Requesting…
+            </>
+          ) : phase === "ok" ? (
+            <>
+              <Check className="h-3.5 w-3.5" strokeWidth={2} />
+              Sent — refreshing balance…
+            </>
+          ) : (
+            <>
+              <Droplets className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Get 1 SUI
+            </>
+          )}
+        </button>
+      </div>
+      {phase === "err" && errMsg && (
+        <p className="mt-3 border border-red-300 bg-red-50 p-2 font-mono text-[11.5px] text-red-700">
+          {errMsg.slice(0, 200)}
+        </p>
+      )}
+      <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+        balance ·{" "}
+        <span className="tabular-nums text-ink-2">
+          {balanceSui.toFixed(3)} SUI
+        </span>{" "}
+        · need ≥ {COLD_START_MIN_SUI.toFixed(2)} SUI to sign the grant
+      </p>
+    </div>
   );
 }
 

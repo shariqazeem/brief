@@ -14,6 +14,11 @@
 
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import {
+  getClientIp,
+  rateLimit,
+  rateLimitedResponse,
+} from "@/lib/rate-limit";
 
 const REPO_ROOT = process.cwd();
 const ENV_FILE = join(REPO_ROOT, ".env.local");
@@ -109,6 +114,15 @@ async function runPost(args: {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  // 3/min per IP — verification posts spend planner SUI, throttle hard.
+  const rl = rateLimit("post-verification", getClientIp(req), {
+    windowMs: 60_000,
+    max: 3,
+  });
+  if (!rl.ok) {
+    return rateLimitedResponse(rl.retryAfterSec);
+  }
+
   let body: PostBody;
   try {
     body = (await req.json()) as PostBody;

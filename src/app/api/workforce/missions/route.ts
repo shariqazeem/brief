@@ -14,6 +14,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+  getClientIp,
+  rateLimit,
+  rateLimitedResponse,
+} from "@/lib/rate-limit";
 
 type Mission = {
   policy_id: string;
@@ -27,6 +32,12 @@ type Mission = {
 
 const QUEUE_PATH = join(process.cwd(), ".brief", "missions.json");
 const MAX_MISSION_LEN = 1600;
+// Spending caps so a script can't drain the Planner wallet by submitting
+// a giant mission. The Planner ultimately enforces budget via the
+// OperatorPolicy, but a missions queue with 50 sub-tasks × 1 SUI would
+// still escrow large amounts. These caps mirror what the UI form allows.
+const MAX_MAX_SUBTASKS = 3;
+const MAX_BOUNTY_SUI = 0.1;
 
 function ensureFile(): void {
   try {
@@ -55,7 +66,22 @@ function saveQueue(q: Mission[]): void {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  let body: Partial<Mission> & { policyId?: string; targetPackageId?: string; bountySui?: number; maxSubtasks?: number };
+  // 4/min per IP — enough for a judge to dispatch a few briefs but not
+  // enough for a script to spam the planner.
+  const rl = rateLimit("missions", getClientIp(req), {
+    windowMs: 60_000,
+    max: 4,
+  });
+  if (!rl.ok) {
+    return rateLimitedResponse(rl.retryAfterSec);
+  }
+
+  let body: Partial<Mission> & {
+    policyId?: string;
+    targetPackageId?: string;
+    bountySui?: number;
+    maxSubtasks?: number;
+  };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -72,12 +98,35 @@ export async function POST(req: Request): Promise<Response> {
   if (mission.length > MAX_MISSION_LEN) {
     return Response.json({ error: `mission must be ≤ ${MAX_MISSION_LEN} chars` }, { status: 400 });
   }
+  // Cap spending knobs so the Planner can't be drained.
+  const rawMaxSubtasks = body.max_subtasks ?? body.maxSubtasks;
+  const rawBountySui = body.bounty_sui ?? body.bountySui;
+  let max_subtasks: number | undefined;
+  if (rawMaxSubtasks !== undefined) {
+    if (typeof rawMaxSubtasks !== "number" || !Number.isFinite(rawMaxSubtasks) || rawMaxSubtasks <= 0) {
+      return Response.json({ error: "max_subtasks must be a positive number" }, { status: 400 });
+    }
+    max_subtasks = Math.min(rawMaxSubtasks, MAX_MAX_SUBTASKS);
+  }
+  let bounty_sui: number | undefined;
+  if (rawBountySui !== undefined) {
+    if (typeof rawBountySui !== "number" || !Number.isFinite(rawBountySui) || rawBountySui <= 0) {
+      return Response.json({ error: "bounty_sui must be a positive number" }, { status: 400 });
+    }
+    if (rawBountySui > MAX_BOUNTY_SUI) {
+      return Response.json(
+        { error: `bounty_sui must be ≤ ${MAX_BOUNTY_SUI} SUI on the public deployment` },
+        { status: 400 },
+      );
+    }
+    bounty_sui = rawBountySui;
+  }
   const entry: Mission = {
     policy_id,
     mission,
     target_package_id: body.target_package_id ?? body.targetPackageId,
-    bounty_sui: body.bounty_sui ?? body.bountySui,
-    max_subtasks: body.max_subtasks ?? body.maxSubtasks,
+    bounty_sui,
+    max_subtasks,
     queued_at_ms: Date.now(),
     status: "pending",
   };

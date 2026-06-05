@@ -1,0 +1,38 @@
+# Brief — reverse-proxy in front of `next start` on :3000.
+#
+# Substitute {$BRIEF_HOST} with the public hostname before placing this
+# file at /etc/caddy/Caddyfile (deploy.sh handles this). For an
+# sslip.io host like `141-148-215-239.sslip.io` Caddy auto-fetches a
+# Let's Encrypt certificate on first request as long as inbound 80 + 443
+# are reachable from the public internet.
+
+{$BRIEF_HOST} {
+    encode gzip zstd
+    log {
+        output stdout
+        format console
+    }
+
+    # Don't cache HTML — the / and /workforce pages embed live RPC data.
+    @html {
+        path /
+        path /workforce
+        path /workforce/*
+        path /app
+        path /app/*
+    }
+    header @html Cache-Control "no-store"
+
+    # All other Next.js assets (chunks, fonts, images) get long-lived
+    # immutable caching — Next emits hashed filenames.
+    @static {
+        path /_next/static/*
+    }
+    header @static Cache-Control "public, max-age=31536000, immutable"
+
+    reverse_proxy localhost:3000 {
+        # Caddy automatically sets X-Forwarded-For / X-Forwarded-Proto;
+        # these explicit lines just make intent visible in the file.
+        header_up X-Real-IP {remote_host}
+    }
+}

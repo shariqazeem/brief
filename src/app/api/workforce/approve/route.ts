@@ -11,6 +11,11 @@
 
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import {
+  getClientIp,
+  rateLimit,
+  rateLimitedResponse,
+} from "@/lib/rate-limit";
 
 const REPO_ROOT = process.cwd();
 const ENV_FILE = join(REPO_ROOT, ".env.local");
@@ -89,6 +94,17 @@ async function runApprove(args: {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  // 10/min per IP — approve is gas-only (cheap) but each attempt is a
+  // real on-chain tx; throttling keeps a runaway client from spamming
+  // gas-burns.
+  const rl = rateLimit("approve", getClientIp(req), {
+    windowMs: 60_000,
+    max: 10,
+  });
+  if (!rl.ok) {
+    return rateLimitedResponse(rl.retryAfterSec);
+  }
+
   let body: ApproveBody;
   try {
     body = (await req.json()) as ApproveBody;
