@@ -214,7 +214,7 @@ approved → reputation bumped):**
 
 ## GitHub
 
-`<TODO: push origin main and paste URL here>`
+https://github.com/shariqazeem/brief
 
 ## Live deployment
 
