@@ -9,9 +9,9 @@
 // task inbox filtered by assigned_to=self.address.
 
 import { loadEnv } from "../../lib/env.js";
-import { makeAgentContext } from "../../lib/sui.js";
+import { makeAgentContextFor } from "../../lib/sui.js";
 import { callLlm, llmMode } from "../../lib/llm.js";
-import { uploadToWalrus, walrusEnabled } from "../../lib/walrus.js";
+import { hasWalrusFunding, uploadToWalrus, walrusEnabled } from "../../lib/walrus.js";
 import {
   augmentRegistration,
   type AgentRegistration,
@@ -325,25 +325,41 @@ async function handleTask(
   );
 
   // Confirm on-chain state — protects against double-process if the
-  // cursor lags or the chain rewinds.
+  // cursor lags or the chain rewinds. Recoverable: if the task is
+  // already in ACCEPTED status AND we are the assigned agent, we
+  // proceed straight to work+submit (the previous run crashed
+  // mid-deliver and we're catching up).
   const t = await fetchTask(ctx, notice.taskId);
-  if (t.status !== "open") {
+  if (t.status === "delivered" || t.status === "approved" || t.status === "expired") {
     console.log(`[research] task already ${t.status}, skipping`);
     return;
   }
 
-  // 1) Accept
-  console.log("[research] accepting…");
-  const acceptTx = buildAcceptTaskTx(ctx, notice.taskId);
-  const acceptRes = await ctx.client.signAndExecuteTransaction({
-    signer: ctx.keypair,
-    transaction: acceptTx,
-    options: { showEffects: true },
-  });
-  if (acceptRes.effects?.status?.status !== "success") {
-    throw new Error(
-      `accept failed: ${acceptRes.effects?.status?.error ?? "unknown"}`,
+  if (t.status === "open") {
+    console.log("[research] accepting…");
+    const acceptTx = buildAcceptTaskTx(ctx, notice.taskId);
+    const acceptRes = await ctx.client.signAndExecuteTransaction({
+      signer: ctx.keypair,
+      transaction: acceptTx,
+      options: { showEffects: true },
+    });
+    if (acceptRes.effects?.status?.status !== "success") {
+      throw new Error(
+        `accept failed: ${acceptRes.effects?.status?.error ?? "unknown"}`,
+      );
+    }
+  } else if (
+    t.status === "accepted" &&
+    t.assignedTo.toLowerCase() === ctx.address.toLowerCase()
+  ) {
+    console.log(
+      "[research] task already accepted by this wallet — resuming to deliver",
     );
+  } else {
+    console.log(
+      `[research] task in unexpected state ${t.status} (assigned to ${t.assignedTo.slice(0, 10)}…), skipping`,
+    );
+    return;
   }
 
   // 2) Do the research
@@ -372,26 +388,39 @@ async function handleTask(
 
   const markdown = renderMarkdown(deliverable);
 
-  // 3) Walrus (when enabled) — store the markdown payload
+  // 3) Walrus (when enabled) — store the markdown payload.
+  //
+  // Pre-flight WAL coin check: Walrus' writeBlob pays for storage in WAL,
+  // and the SDK throws from a nested async chain on insufficient balance.
+  // If the chain rejects after we've started signing, the rejection
+  // escapes our try/catch as an UnhandledPromiseRejection and kills the
+  // agent. So we check first; no WAL → fall back to inline.
   const payloadBytes = new TextEncoder().encode(markdown);
   let walrusBlobId: string | null = null;
   if (walrusEnabled() && payloadBytes.length > 0) {
-    try {
-      console.log("[research] uploading deliverable to Walrus…");
-      const uploaded = await uploadToWalrus(
-        payloadBytes,
-        ctx.client,
-        ctx.keypair,
-      );
-      walrusBlobId = uploaded.blobId;
-      console.log(
-        `[research] walrus ok blob=${walrusBlobId} in ${uploaded.uploadMs}ms`,
-      );
-    } catch (e) {
+    const funded = await hasWalrusFunding(ctx.client, ctx.address);
+    if (!funded) {
       console.warn(
-        "[research] walrus upload failed, falling back to inline:",
-        (e as Error).message,
+        `[research] Walrus is enabled but ${ctx.address.slice(0, 10)}… has no WAL coins — falling back to inline storage on this deliverable.`,
       );
+    } else {
+      try {
+        console.log("[research] uploading deliverable to Walrus…");
+        const uploaded = await uploadToWalrus(
+          payloadBytes,
+          ctx.client,
+          ctx.keypair,
+        );
+        walrusBlobId = uploaded.blobId;
+        console.log(
+          `[research] walrus ok blob=${walrusBlobId} in ${uploaded.uploadMs}ms`,
+        );
+      } catch (e) {
+        console.warn(
+          "[research] walrus upload failed, falling back to inline:",
+          (e as Error).message,
+        );
+      }
     }
   }
 
@@ -434,10 +463,14 @@ async function handleTask(
 
 async function main(): Promise<void> {
   const env = loadEnv();
-  const ctx = makeAgentContext(env);
+  // Multi-wallet mode: signs as RESEARCH_SECRET_KEY when present; falls
+  // back to AGENT_SECRET_KEY with a DEGRADED warning when not. The boot
+  // address determines which AgentRegistration is created/augmented, so
+  // reputation accrues to the research wallet specifically.
+  const ctx = makeAgentContextFor(env, "research");
 
   console.log(
-    `[research] booting · pkg=${ctx.packageId.slice(0, 10)}… address=${ctx.address.slice(0, 10)}… walrus=${walrusEnabled()} llm=${llmMode(env)}`,
+    `[research] booting · pkg=${ctx.packageId.slice(0, 10)}… address=${ctx.address}… walrus=${walrusEnabled()} llm=${llmMode(env)}`,
   );
 
   const reg = await augmentRegistration(ctx, {

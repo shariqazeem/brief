@@ -30,7 +30,7 @@ import {
 } from "@mysten/deepbook-v3";
 
 import { loadEnv } from "../../lib/env.js";
-import { makeAgentContext, type AgentContext } from "../../lib/sui.js";
+import { makeAgentContextFor, type AgentContext } from "../../lib/sui.js";
 import { augmentRegistration } from "../lib/agent-registry.js";
 import { startTaskInbox, type TaskPostedNotice } from "../lib/inbox.js";
 import {
@@ -267,23 +267,37 @@ async function handleTask(
   );
 
   const t = await fetchTask(ctx, notice.taskId);
-  if (t.status !== "open") {
+  if (t.status === "delivered" || t.status === "approved" || t.status === "expired") {
     console.log(`[treasury] task already ${t.status}, skipping`);
     return;
   }
 
-  // ---- 1) Accept ---------------------------------------------------------
-  console.log("[treasury] accepting…");
-  const acceptTx = buildAcceptTaskTx(ctx, notice.taskId);
-  const acceptRes = await ctx.client.signAndExecuteTransaction({
-    signer: ctx.keypair,
-    transaction: acceptTx,
-    options: { showEffects: true },
-  });
-  if (acceptRes.effects?.status?.status !== "success") {
-    throw new Error(
-      `accept failed: ${acceptRes.effects?.status?.error ?? "unknown"}`,
+  // ---- 1) Accept (or resume if previously accepted by this wallet) -------
+  if (t.status === "open") {
+    console.log("[treasury] accepting…");
+    const acceptTx = buildAcceptTaskTx(ctx, notice.taskId);
+    const acceptRes = await ctx.client.signAndExecuteTransaction({
+      signer: ctx.keypair,
+      transaction: acceptTx,
+      options: { showEffects: true },
+    });
+    if (acceptRes.effects?.status?.status !== "success") {
+      throw new Error(
+        `accept failed: ${acceptRes.effects?.status?.error ?? "unknown"}`,
+      );
+    }
+  } else if (
+    t.status === "accepted" &&
+    t.assignedTo.toLowerCase() === ctx.address.toLowerCase()
+  ) {
+    console.log(
+      "[treasury] task already accepted by this wallet — resuming to deliver",
     );
+  } else {
+    console.log(
+      `[treasury] task in unexpected state ${t.status} (assigned to ${t.assignedTo.slice(0, 10)}…), skipping`,
+    );
+    return;
   }
 
   // ---- 2) Snapshot pool mid + choose mode --------------------------------
@@ -401,7 +415,11 @@ async function handleTask(
 
 async function main(): Promise<void> {
   const env = loadEnv();
-  const ctx = makeAgentContext(env);
+  // Multi-wallet mode: signs as TREASURY_SECRET_KEY when present; falls
+  // back to AGENT_SECRET_KEY with a DEGRADED warning when not. The boot
+  // address determines which AgentRegistration is created/augmented, so
+  // reputation accrues to the treasury wallet specifically.
+  const ctx = makeAgentContextFor(env, "treasury");
   const balanceManagerId = process.env.BRIEF_BALANCE_MANAGER_ID;
   if (!balanceManagerId || !balanceManagerId.startsWith("0x")) {
     throw new Error(
@@ -410,7 +428,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `[treasury] booting · pkg=${ctx.packageId.slice(0, 10)}… address=${ctx.address.slice(0, 10)}… manager=${balanceManagerId.slice(0, 10)}…`,
+    `[treasury] booting · pkg=${ctx.packageId.slice(0, 10)}… address=${ctx.address}… manager=${balanceManagerId.slice(0, 10)}…`,
   );
 
   const reg = await augmentRegistration(ctx, {

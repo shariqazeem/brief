@@ -37,6 +37,30 @@ export function walrusEnabled(): boolean {
   return process.env.BRIEF_USE_WALRUS === "true";
 }
 
+/**
+ * Confirm the signer wallet has at least one WAL coin. Walrus
+ * `writeBlob` pays for storage in WAL; if the wallet has none, the SDK
+ * throws from a nested async chain that escapes our try/catch as an
+ * UnhandledPromiseRejection and crashes the agent. Pre-flighting the
+ * balance lets us fall back to inline storage cleanly when the
+ * specialist wallet hasn't been topped up with WAL yet.
+ */
+export async function hasWalrusFunding(
+  sui: SuiJsonRpcClient,
+  owner: string,
+): Promise<boolean> {
+  try {
+    const coins = await sui.getCoins({
+      owner,
+      coinType:
+        "0x8270feb7375eee355e64fdb69c50abb6b5f9393a722883c1cf45f8e26048810a::wal::WAL",
+    });
+    return (coins.data ?? []).some((c) => BigInt(c.balance) > 0n);
+  } catch {
+    return false;
+  }
+}
+
 export async function uploadToWalrus(
   payload: Uint8Array,
   sui: SuiJsonRpcClient,

@@ -349,7 +349,7 @@ function TemplateStage({
         Pick a workforce shape.
       </h2>
       <p className="mt-3 max-w-prose text-ink-2">
-        Each template presets the policy's budget envelope, the
+        Each template presets the policy&apos;s budget envelope, the
         capabilities the workforce includes, the expiry, and the risk
         profile. You can adjust everything in the next stage.
       </p>
@@ -687,7 +687,7 @@ function ActivateStage(props: {
           </span>
         </p>
         <p className="mt-4 text-[13px] leading-relaxed text-muted">
-          You're signing a single transaction that creates a Move{" "}
+          You&apos;re signing a single transaction that creates a Move{" "}
           <span className="font-mono">OperatorPolicy</span> on chain — you
           are the OWNER, the Planner above is the bound AGENT. You can
           revoke at any time with a single counter-signature; the chain

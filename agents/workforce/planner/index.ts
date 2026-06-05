@@ -29,7 +29,7 @@ import {
   type OperatorPolicyDecoded,
 } from "../../lib/operator-policy.js";
 import { buildPostTaskTx } from "../lib/task.js";
-import { findAgentRegistration } from "../lib/agent-registry.js";
+import { listLatestRegistrationsByAddress } from "../lib/agent-registry.js";
 
 const DEFAULT_DEADLINE_MIN = 30;
 const DEFAULT_BOUNTY_SUI = 0.5;
@@ -81,41 +81,75 @@ function parseArgs(): Args {
 }
 
 // ---------------------------------------------------------------------------
-// Workforce discovery (single-wallet for Wk1 — Day 8+ walks all registrations)
+// Workforce discovery — multi-wallet.
+//
+// Walks every AgentRegistered event on chain, keeps the newest
+// registration per address, and exposes the (capability, address) pairs
+// the Planner can route sub-tasks to. CRITICAL invariant: entries whose
+// address equals the Planner's own address are filtered out, because
+// `task::approve_with_policy` requires `task.poster != task.assigned_to`
+// in spirit (the policy bakes that contract: poster signs the approve;
+// reputation must accrue to a DIFFERENT registration). If no distinct
+// specialist exists for a required capability we fail loudly rather than
+// silently self-assigning back to the Planner — that would collapse the
+// "agents hiring agents" property the chain is supposed to prove.
 // ---------------------------------------------------------------------------
 
 type WorkforceEntry = {
   capability: string;
   address: string;
+  registrationId: string;
   displayName: string;
   basePriceSui: number;
+  reputationScore: bigint;
 };
 
 async function discoverWorkforce(ctx: AgentContext): Promise<WorkforceEntry[]> {
-  // Wk1 single-wallet mode: Planner + specialists share AGENT_SECRET_KEY,
-  // so they all live at ctx.address. We look up the one registration that
-  // exists and fan its capabilities out as workforce entries. Day 8 will
-  // walk all AgentRegistered events to handle multi-wallet specialists.
-  const reg = await findAgentRegistration(ctx, ctx.address);
-  if (!reg) {
-    console.warn(
-      "[planner] no AgentRegistration found at this address — posted tasks have no eligible specialist",
-    );
-    return [];
+  const byAddress = await listLatestRegistrationsByAddress(ctx);
+  const plannerAddr = ctx.address.toLowerCase();
+  const out: WorkforceEntry[] = [];
+  for (const reg of byAddress.values()) {
+    if (reg.agentAddress.toLowerCase() === plannerAddr) continue;
+    for (const capability of reg.capabilities) {
+      out.push({
+        capability,
+        address: reg.agentAddress,
+        registrationId: reg.id,
+        displayName: reg.displayName,
+        basePriceSui: Number(reg.basePricePerCall) / 1e9,
+        reputationScore: reg.reputationScore,
+      });
+    }
   }
-  return reg.capabilities.map((capability) => ({
-    capability,
-    address: reg.agentAddress,
-    displayName: reg.displayName,
-    basePriceSui: Number(reg.basePricePerCall) / 1e9,
-  }));
+  return out;
 }
 
+/**
+ * Pick the best specialist for a capability. Tie-break: higher
+ * reputation_score first, then lower base_price_per_call. Planner's own
+ * address is never eligible — discoverWorkforce filters it out by
+ * construction, but we re-assert defensively here in case a caller hands
+ * us a custom workforce list.
+ */
 function pickSpecialist(
   workforce: WorkforceEntry[],
   capability: string,
+  plannerAddress: string,
 ): WorkforceEntry | null {
-  return workforce.find((w) => w.capability === capability) ?? null;
+  const plannerLower = plannerAddress.toLowerCase();
+  const candidates = workforce
+    .filter(
+      (w) =>
+        w.capability === capability &&
+        w.address.toLowerCase() !== plannerLower,
+    )
+    .sort((a, b) => {
+      if (a.reputationScore !== b.reputationScore) {
+        return a.reputationScore < b.reputationScore ? 1 : -1;
+      }
+      return a.basePriceSui - b.basePriceSui;
+    });
+  return candidates[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -343,12 +377,19 @@ async function postSubtask(
   workforce: WorkforceEntry[],
   policyId: string,
 ): Promise<PostedSubtask> {
-  const specialist = pickSpecialist(workforce, plan.capability);
+  const specialist = pickSpecialist(workforce, plan.capability, ctx.address);
   if (!specialist) {
+    const capsSeen = Array.from(new Set(workforce.map((w) => w.capability)));
     throw new Error(
-      `no specialist registered for capability "${plan.capability}"`,
+      `no distinct specialist registered for capability "${plan.capability}" — ` +
+        `workforce has [${capsSeen.join(", ") || "none"}] from ${workforce.length} entries, ` +
+        `all at planner address. Start the ${plan.capability} agent on its own wallet ` +
+        `(see 'npm run workforce:setup') and re-run.`,
     );
   }
+  console.log(
+    `[planner] routing "${plan.title}" → ${specialist.displayName} (${specialist.address.slice(0, 10)}…, rep=${specialist.reputationScore})`,
+  );
   const bountyMist = BigInt(Math.floor(plan.bounty_sui * 1e9));
   const deadlineMs = BigInt(Date.now() + plan.deadline_minutes * 60 * 1000);
   const specBlob = JSON.stringify(plan.spec);

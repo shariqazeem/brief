@@ -160,6 +160,53 @@ export async function findAgentRegistration(
   return null;
 }
 
+/**
+ * Walk every AgentRegistered event (descending, capped at `limit`) and
+ * return the most-recent live registration per distinct agent address.
+ *
+ * This is the multi-wallet planner's discovery primitive: it surfaces ALL
+ * specialists registered on chain, not just the ones at the caller's own
+ * address. Same address registering twice → only the newer one is kept
+ * (matches the on-chain `update` semantics that REPLACE the prior fields).
+ */
+export async function listLatestRegistrationsByAddress(
+  ctx: AgentContext,
+  limit = 500,
+): Promise<Map<string, AgentRegistration>> {
+  const eventType = `${ctx.typeOriginId}::agent_registry::AgentRegistered`;
+  const page = await ctx.client.queryEvents({
+    query: { MoveEventType: eventType },
+    order: "descending",
+    limit,
+  });
+
+  const byAddress = new Map<string, AgentRegistration>();
+  for (const ev of page.data) {
+    const p = ev.parsedJson as AgentRegisteredEvent;
+    // Descending order → first hit per address is the newest.
+    if (byAddress.has(p.agent_address)) continue;
+
+    const tx = await ctx.client.getTransactionBlock({
+      digest: ev.id.txDigest,
+      options: { showObjectChanges: true },
+    });
+    const created = (tx.objectChanges ?? []).find(
+      (c) =>
+        c.type === "created" &&
+        typeof (c as { objectType?: string }).objectType === "string" &&
+        (c as { objectType?: string }).objectType?.includes(
+          "::agent_registry::AgentRegistration",
+        ),
+    ) as { objectId?: string } | undefined;
+
+    if (!created?.objectId) continue;
+    const reg = await fetchAgentRegistration(ctx, created.objectId);
+    if (!reg) continue;
+    byAddress.set(p.agent_address, reg);
+  }
+  return byAddress;
+}
+
 export async function fetchAgentRegistration(
   ctx: AgentContext,
   id: string,
@@ -171,7 +218,32 @@ export async function fetchAgentRegistration(
   const content = resp.data?.content;
   if (!content || content.dataType !== "moveObject") return null;
   const f = (content as unknown as { fields: AgentRegistrationFields }).fields;
+  return decodeRegistrationFields(f);
+}
 
+/**
+ * Same as fetchAgentRegistration but tolerates RPC propagation lag:
+ * retries up to `attempts` times when the object isn't visible yet (the
+ * register/update tx just landed and we rotated to a different node
+ * mid-call). Returns null if every attempt comes up empty.
+ */
+export async function fetchAgentRegistrationWithRetry(
+  ctx: AgentContext,
+  id: string,
+  attempts = 6,
+  delayMs = 750,
+): Promise<AgentRegistration | null> {
+  for (let i = 0; i < attempts; i++) {
+    const reg = await fetchAgentRegistration(ctx, id);
+    if (reg) return reg;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return null;
+}
+
+function decodeRegistrationFields(
+  f: AgentRegistrationFields,
+): AgentRegistration {
   return {
     id: f.id.id,
     agentAddress: f.agent_address,
@@ -249,7 +321,7 @@ export async function augmentRegistration(
       `agent_registry::update failed: ${res.effects?.status?.error ?? "unknown"}`,
     );
   }
-  const refetched = await fetchAgentRegistration(ctx, existing.id);
+  const refetched = await fetchAgentRegistrationWithRetry(ctx, existing.id);
   if (!refetched) throw new Error("update succeeded but registration vanished");
   return refetched;
 }
@@ -296,7 +368,9 @@ export async function ensureRegistration(
     throw new Error("register tx succeeded but no AgentRegistration was created");
   }
 
-  const reg = await fetchAgentRegistration(ctx, created.objectId);
+  // Retry the read-back: register tx may have landed on one RPC node while
+  // our resilient transport rotated to another mid-call.
+  const reg = await fetchAgentRegistrationWithRetry(ctx, created.objectId);
   if (!reg) throw new Error("registered but could not refetch registration");
   console.log(
     `[registry] registered as ${reg.displayName} (reg=${reg.id.slice(0, 10)}…)`,
