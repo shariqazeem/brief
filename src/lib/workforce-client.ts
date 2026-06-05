@@ -147,18 +147,6 @@ export async function dispatchMission(args: MissionPayload): Promise<{
   return (await res.json()) as { ok: boolean; queuedAt: number };
 }
 
-export function plannerCliCommand(args: MissionPayload): string {
-  const parts = [
-    "npm run agent:planner --",
-    `--policy ${args.policyId}`,
-    `--mission ${JSON.stringify(args.mission)}`,
-  ];
-  if (args.targetPackageId) parts.push(`--target-package-id ${args.targetPackageId}`);
-  if (args.bountySui) parts.push(`--default-bounty-sui ${args.bountySui}`);
-  if (args.maxSubtasks) parts.push(`--max-subtasks ${args.maxSubtasks}`);
-  return parts.join(" \\\n  ");
-}
-
 // ---------------------------------------------------------------------------
 // Tiny wrapper used by the Hire Wizard's Activate stage. Returns a
 // Transaction ready for useSignAndExecuteTransaction.
@@ -737,6 +725,255 @@ function classify(raw: string): {
     return { body: raw, bodyKind: "markdown" };
   }
   return { body: raw, bodyKind: "text" };
+}
+
+// ---------------------------------------------------------------------------
+// Roster + recent activity — drive the always-on /workforce view (renders
+// even when the visitor hasn't connected a wallet so the screen never
+// shows an empty state).
+// ---------------------------------------------------------------------------
+
+export type RegisteredAgent = AgentProfile;
+
+/**
+ * Walk every AgentRegistered event, dedupe to the most-recent registration
+ * per address, and (optionally) exclude one address — typically the
+ * Planner so the roster only shows specialists for hire. Polls every
+ * `pollMs`.
+ */
+export function useRegisteredAgents(opts?: {
+  excludeAddress?: string;
+  pollMs?: number;
+}): { agents: RegisteredAgent[]; loading: boolean } {
+  const client = useSuiClient();
+  const [agents, setAgents] = useState<RegisteredAgent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const exclude = opts?.excludeAddress?.toLowerCase();
+  const pollMs = opts?.pollMs ?? 8000;
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const evResp = await client.queryEvents({
+          query: {
+            MoveEventType: `${BRIEF_TYPE_ORIGIN_ID}::agent_registry::AgentRegistered`,
+          },
+          order: "descending",
+          limit: 200,
+        });
+        const seen = new Set<string>();
+        const order: Array<{ address: string; txDigest: string }> = [];
+        for (const ev of evResp.data) {
+          const p = ev.parsedJson as { agent_address?: string };
+          if (!p?.agent_address) continue;
+          const a = p.agent_address;
+          if (exclude && a.toLowerCase() === exclude) continue;
+          if (seen.has(a)) continue;
+          seen.add(a);
+          order.push({ address: a, txDigest: ev.id.txDigest });
+        }
+        const profiles: RegisteredAgent[] = [];
+        for (const { address, txDigest } of order) {
+          try {
+            const txResp = await client.getTransactionBlock({
+              digest: txDigest,
+              options: { showObjectChanges: true },
+            });
+            const created = (txResp.objectChanges ?? []).find(
+              (c) =>
+                c.type === "created" &&
+                typeof (c as { objectType?: string }).objectType === "string" &&
+                (c as { objectType?: string }).objectType?.includes(
+                  "::agent_registry::AgentRegistration",
+                ),
+            ) as { objectId?: string } | undefined;
+            if (!created?.objectId) continue;
+            const regResp = await client.getObject({
+              id: created.objectId,
+              options: { showContent: true },
+            });
+            const content = regResp.data?.content;
+            if (!content || content.dataType !== "moveObject") continue;
+            const f = (content as unknown as { fields: Record<string, unknown> }).fields;
+            profiles.push({
+              id: created.objectId,
+              address: String(f.agent_address ?? address),
+              displayName: String(f.display_name ?? ""),
+              capabilities: Array.isArray(f.capabilities)
+                ? (f.capabilities as string[])
+                : [],
+              completedTasks: BigInt((f.completed_tasks as string | number) ?? "0"),
+              totalPaidMist: BigInt((f.total_paid as string | number) ?? "0"),
+              reputationScore: BigInt((f.reputation_score as string | number) ?? "0"),
+              registeredAtMs: BigInt((f.registered_at_ms as string | number) ?? "0"),
+              basePricePerCallMist: BigInt(
+                (f.base_price_per_call as string | number) ?? "0",
+              ),
+            });
+          } catch {
+            /* skip this entry */
+          }
+        }
+        if (!cancelled) {
+          // Sort by reputation desc, then completed desc.
+          profiles.sort((a, b) => {
+            const dr = Number(b.reputationScore - a.reputationScore);
+            if (dr !== 0) return dr;
+            return Number(b.completedTasks - a.completedTasks);
+          });
+          setAgents(profiles);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    tick();
+    const h = setInterval(tick, pollMs);
+    return () => {
+      cancelled = true;
+      clearInterval(h);
+    };
+  }, [client, exclude, pollMs]);
+
+  return { agents, loading };
+}
+
+export type RecentActivityItem = {
+  kind: "posted" | "approved";
+  taskId: string;
+  poster: string;
+  assignedTo: string;
+  capability: string;
+  title: string;
+  bountyMist: bigint;
+  atMs: bigint;
+  txDigest: string;
+  parentPolicy: string | null;
+};
+
+/**
+ * Pull recent TaskPosted + TaskApproved events across ALL policies, merge
+ * and sort. Used by the always-on /workforce header so even a
+ * disconnected visitor sees a living agent economy.
+ */
+export function useRecentTaskActivity(
+  limit = 8,
+  pollMs = 4000,
+): { items: RecentActivityItem[]; loading: boolean } {
+  const client = useSuiClient();
+  const [items, setItems] = useState<RecentActivityItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const [posted, approved] = await Promise.all([
+          client.queryEvents({
+            query: { MoveEventType: `${BRIEF_TYPE_ORIGIN_ID}::task::TaskPosted` },
+            order: "descending",
+            limit: 25,
+          }),
+          client.queryEvents({
+            query: { MoveEventType: `${BRIEF_TYPE_ORIGIN_ID}::task::TaskApproved` },
+            order: "descending",
+            limit: 25,
+          }),
+        ]);
+
+        const out: RecentActivityItem[] = [];
+        for (const ev of posted.data) {
+          const p = ev.parsedJson as {
+            task_id?: string;
+            poster?: string;
+            assigned_to?: string;
+            primary_capability?: string;
+            title?: string;
+            bounty_amount?: string;
+            posted_at_ms?: string;
+            parent_policy?: string | null | { vec?: string[] };
+          };
+          if (!p?.task_id) continue;
+          out.push({
+            kind: "posted",
+            taskId: p.task_id,
+            poster: p.poster ?? "",
+            assignedTo: p.assigned_to ?? "",
+            capability: p.primary_capability ?? "",
+            title: p.title ?? "",
+            bountyMist: BigInt(p.bounty_amount ?? "0"),
+            atMs: BigInt(p.posted_at_ms ?? "0"),
+            txDigest: ev.id.txDigest,
+            parentPolicy: unwrapOptionId(
+              (p?.parent_policy ?? null) as
+                | string
+                | null
+                | { vec?: string[] },
+            ),
+          });
+        }
+        for (const ev of approved.data) {
+          const p = ev.parsedJson as {
+            task_id?: string;
+            poster?: string;
+            agent?: string;
+            primary_capability?: string;
+            bounty_amount?: string;
+            approved_at_ms?: string;
+            parent_policy?: string | null | { vec?: string[] };
+          };
+          if (!p?.task_id) continue;
+          out.push({
+            kind: "approved",
+            taskId: p.task_id,
+            poster: p.poster ?? "",
+            assignedTo: p.agent ?? "",
+            capability: p.primary_capability ?? "",
+            title: "",
+            bountyMist: BigInt(p.bounty_amount ?? "0"),
+            atMs: BigInt(p.approved_at_ms ?? "0"),
+            txDigest: ev.id.txDigest,
+            parentPolicy: unwrapOptionId(
+              (p?.parent_policy ?? null) as
+                | string
+                | null
+                | { vec?: string[] },
+            ),
+          });
+        }
+        out.sort((a, b) => Number(b.atMs - a.atMs));
+        if (!cancelled) {
+          setItems(out.slice(0, limit));
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    tick();
+    const h = setInterval(tick, pollMs);
+    return () => {
+      cancelled = true;
+      clearInterval(h);
+    };
+  }, [client, limit, pollMs]);
+
+  return { items, loading };
+}
+
+// ---------------------------------------------------------------------------
+// Brief auto-detection. The single-step grant form lets the user paste a
+// 0x… address inline in their brief; we lift it out so the Planner sees
+// a structured target_package_id without the user filling a second field.
+// ---------------------------------------------------------------------------
+
+const SUI_ADDR_RE = /\b0x[0-9a-fA-F]{40,64}\b/;
+
+export function extractTargetPackageId(brief: string): string | null {
+  const m = SUI_ADDR_RE.exec(brief);
+  return m ? m[0] : null;
 }
 
 export function buildActivateTx(args: ActivateArgs): Transaction {

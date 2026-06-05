@@ -1,16 +1,25 @@
 // Workforce planner-service.
 //
-// Polls the mission queue at .brief/missions.json every POLL_MS. For each
-// "pending" mission, marks it "running", exec's the existing planner CLI
-// with the right args, and marks "complete" or "failed" based on exit
-// code. Stdout from the planner is streamed live to this process's
-// stdout (prefixed) so the operator can tail one log.
+// Two cooperating loops, one source of truth (.brief/missions.json):
+//
+// 1. MISSION LOOP — polls .brief/missions.json. For each "pending"
+//    mission, marks it "running", exec's the planner CLI to decompose +
+//    post sub-tasks, and marks "complete" or "failed" based on exit
+//    code. The set of policy ids referenced by missions becomes the
+//    "managed policies" set for loop 2.
+//
+// 2. AUTO-APPROVE LOOP — every AUTO_APPROVE_TICK_MS, scans the managed
+//    policies for tasks in DELIVERED status. When a delivered task has
+//    been visible for AUTO_APPROVE_DELAY_MS (long enough for a judge to
+//    notice the row light up green), it spawns the approve-task CLI to
+//    settle on chain. If the policy has been revoked, the chain aborts
+//    the approve with EPolicyRevoked — the abort IS the kill-switch
+//    payoff (the /workforce UI also surfaces it directly when the user
+//    presses Revoke). Tasks are only auto-approved once per process
+//    lifetime; the chain's status check prevents double-settling.
 //
 // Run:
 //   npm run workforce:planner-service
-//
-// The /workforce UI POSTs to /api/workforce/missions which appends to the
-// queue. This service is the consumer that actually invokes the planner.
 
 import { spawn } from "node:child_process";
 import {
@@ -20,6 +29,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+
+import { loadEnv } from "../agents/lib/env.js";
+import { makeAgentContext } from "../agents/lib/sui.js";
+import { fetchTask } from "../agents/workforce/lib/task.js";
 
 type MissionStatus = "pending" | "running" | "complete" | "failed";
 
@@ -37,9 +50,16 @@ type Mission = {
 };
 
 const POLL_MS = 5000;
+const AUTO_APPROVE_TICK_MS = 3500;
+/** Hold a delivered task at "delivered" for this long before auto-settling so
+ *  a watcher visibly sees the row light green then transition to paid — and,
+ *  more importantly, has time to press Revoke and watch the chain refuse the
+ *  settlement. */
+const AUTO_APPROVE_DELAY_MS = 12_000;
 const REPO_ROOT = process.cwd();
 const QUEUE_PATH = join(REPO_ROOT, ".brief", "missions.json");
 const PLANNER_ENTRY = join(REPO_ROOT, "agents", "workforce", "planner", "index.ts");
+const APPROVE_ENTRY = join(REPO_ROOT, "scripts", "workforce-approve-task.ts");
 const ENV_FILE = join(REPO_ROOT, ".env.local");
 
 function ensureFile(): void {
@@ -160,9 +180,146 @@ async function tick(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Auto-approve loop. Settles delivered tasks under any policy referenced by
+// a mission in the queue. Tracks per-task first-seen + first-attempt state
+// so we don't double-trigger (the chain rejects redundant approves anyway,
+// but we want clean logs).
+// ---------------------------------------------------------------------------
+
+type AutoState = {
+  firstSeenMs: number;
+  attempted: boolean;
+};
+
+const autoState = new Map<string, AutoState>();
+const env = loadEnv();
+const ctx = makeAgentContext(env);
+
+function managedPolicyIds(): Set<string> {
+  const out = new Set<string>();
+  for (const m of loadQueue()) {
+    if (m.policy_id && m.policy_id.startsWith("0x")) {
+      out.add(m.policy_id);
+    }
+  }
+  return out;
+}
+
+async function approveTask(taskId: string, policyId: string): Promise<void> {
+  return new Promise<void>((resolveProm) => {
+    const args = [
+      "--env-file=" + ENV_FILE,
+      resolve(APPROVE_ENTRY),
+      "--task",
+      taskId,
+      "--policy",
+      policyId,
+    ];
+    const child = spawn("tsx", args, {
+      cwd: REPO_ROOT,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let captured = "";
+    child.stdout.on("data", (b: Buffer) => {
+      captured += b.toString();
+      process.stdout.write(
+        b.toString().replace(/^/gm, `  [auto-approve] `),
+      );
+    });
+    child.stderr.on("data", (b: Buffer) => {
+      captured += b.toString();
+      process.stderr.write(
+        b.toString().replace(/^/gm, `  [auto-approve err] `),
+      );
+    });
+    child.on("close", () => {
+      // captured is logged in real-time above; we don't differentiate
+      // success vs abort here — the chain is the source of truth and
+      // the next pass will reflect the new task status.
+      void captured;
+      resolveProm();
+    });
+    child.on("error", () => resolveProm());
+  });
+}
+
+async function autoApproveTick(): Promise<void> {
+  const policyIds = managedPolicyIds();
+  if (policyIds.size === 0) return;
+
+  // Pull recent TaskPosted events across all policies and filter to ours.
+  let events;
+  try {
+    events = await ctx.client.queryEvents({
+      query: { MoveEventType: `${ctx.typeOriginId}::task::TaskPosted` },
+      order: "descending",
+      limit: 100,
+    });
+  } catch {
+    return;
+  }
+  const candidates: { taskId: string; policyId: string }[] = [];
+  for (const ev of events.data) {
+    const p = ev.parsedJson as {
+      task_id?: string;
+      parent_policy?: string | null | { vec?: string[] };
+    };
+    if (!p?.task_id) continue;
+    const parent = unwrapOption(p.parent_policy);
+    if (!parent || !policyIds.has(parent)) continue;
+    candidates.push({ taskId: p.task_id, policyId: parent });
+  }
+  if (candidates.length === 0) return;
+
+  // For each candidate task, check its current status; act on DELIVERED.
+  for (const c of candidates) {
+    const tracked = autoState.get(c.taskId);
+    if (tracked?.attempted) continue;
+    let t;
+    try {
+      t = await fetchTask(ctx, c.taskId);
+    } catch {
+      continue;
+    }
+    if (t.status === "approved" || t.status === "expired") {
+      autoState.set(c.taskId, { firstSeenMs: 0, attempted: true });
+      continue;
+    }
+    if (t.status !== "delivered") continue;
+    const now = Date.now();
+    if (!tracked) {
+      autoState.set(c.taskId, { firstSeenMs: now, attempted: false });
+      console.log(
+        `[auto-approve] saw delivered task=${c.taskId.slice(0, 10)}… policy=${c.policyId.slice(0, 10)}… — holding ${AUTO_APPROVE_DELAY_MS}ms before settling`,
+      );
+      continue;
+    }
+    if (now - tracked.firstSeenMs < AUTO_APPROVE_DELAY_MS) continue;
+    autoState.set(c.taskId, { ...tracked, attempted: true });
+    console.log(
+      `[auto-approve] settling task=${c.taskId.slice(0, 10)}… policy=${c.policyId.slice(0, 10)}…`,
+    );
+    await approveTask(c.taskId, c.policyId);
+  }
+}
+
+function unwrapOption(
+  v: string | null | undefined | { vec?: string[] },
+): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v;
+  if (Array.isArray(v?.vec) && v.vec.length > 0) return v.vec[0];
+  return null;
+}
+
 async function main(): Promise<void> {
   console.log(
     `[planner-service] watching ${QUEUE_PATH} every ${POLL_MS / 1000}s · planner=${PLANNER_ENTRY.replace(REPO_ROOT, ".")}`,
+  );
+  console.log(
+    `[planner-service] auto-approve loop every ${AUTO_APPROVE_TICK_MS / 1000}s · hold delivered ${AUTO_APPROVE_DELAY_MS / 1000}s`,
   );
   // Process anything that was already queued at boot.
   await tick();
@@ -171,6 +328,11 @@ async function main(): Promise<void> {
       console.error("[planner-service] tick error:", e);
     });
   }, POLL_MS);
+  setInterval(() => {
+    autoApproveTick().catch((e) => {
+      console.error("[planner-service] auto-approve tick error:", e);
+    });
+  }, AUTO_APPROVE_TICK_MS);
 }
 
 main().catch((e) => {
