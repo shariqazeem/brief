@@ -174,8 +174,10 @@ async function tick(): Promise<void> {
   for (let i = 0; i < q.length; i++) {
     if (q[i].status === "pending") {
       updateMission(i, { status: "running", started_at_ms: Date.now() });
-      // Process one mission at a time so we don't race the same wallet.
-      await runPlanner(q[i], i);
+      // Mission decomposition + posting is the Planner-signed CLI; hold
+      // the lock for the full run so the auto-approve loop can't fire
+      // concurrently with it.
+      await withPlannerLock(`mission#${i}`, () => runPlanner(q[i], i));
     }
   }
 }
@@ -195,6 +197,32 @@ type AutoState = {
 const autoState = new Map<string, AutoState>();
 const env = loadEnv();
 const ctx = makeAgentContext(env);
+
+// Cross-loop mutex on planner-signed spawns. The two loops in this
+// process (mission decomposition and auto-approve settlement) both sign
+// as the Planner wallet, and approve-task spawns from the frontend's
+// /api/workforce/approve route are a third (cross-process) signer. To
+// prevent the same gas coin from being reserved by two child processes
+// concurrently inside THIS process, we serialize every planner-signed
+// CLI spawn here. The frontend approve calls hit a separate process —
+// for those, the per-tx retry helper handles the cross-process race.
+let plannerSpawnLock: Promise<void> = Promise.resolve();
+async function withPlannerLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const prior = plannerSpawnLock;
+  let release!: () => void;
+  plannerSpawnLock = new Promise<void>((r) => {
+    release = r;
+  });
+  await prior;
+  const started = Date.now();
+  try {
+    return await fn();
+  } finally {
+    const ms = Date.now() - started;
+    console.log(`[planner-lock] released after ${ms}ms (${label})`);
+    release();
+  }
+}
 
 function managedPolicyIds(): Set<string> {
   const out = new Set<string>();
@@ -245,7 +273,22 @@ async function approveTask(taskId: string, policyId: string): Promise<void> {
   });
 }
 
+let autoApproveTicking = false;
 async function autoApproveTick(): Promise<void> {
+  // Reentrancy guard: a tick can take seconds (the approve spawn is
+  // synchronous from this loop's POV). If the previous tick is still
+  // running when the interval fires again, skip — the next tick will
+  // catch up.
+  if (autoApproveTicking) return;
+  autoApproveTicking = true;
+  try {
+    return await autoApproveTickImpl();
+  } finally {
+    autoApproveTicking = false;
+  }
+}
+
+async function autoApproveTickImpl(): Promise<void> {
   const policyIds = managedPolicyIds();
   if (policyIds.size === 0) return;
 
@@ -331,7 +374,12 @@ async function autoApproveTick(): Promise<void> {
       console.log(
         `[auto-approve] settling task=${t.id.slice(0, 10)}… policy=${policyId.slice(0, 10)}… (newer delivered task is the pending release)`,
       );
-      await approveTask(t.id, policyId);
+      // Serialize against the mission loop and against any in-flight
+      // auto-approve. The lock guarantees no two Planner-signed CLIs run
+      // concurrently within this process.
+      await withPlannerLock(`auto-approve:${t.id.slice(0, 10)}`, () =>
+        approveTask(t.id, policyId),
+      );
     }
   }
 }

@@ -15,6 +15,7 @@ import {
   type OperatorPolicyDecoded,
 } from "./operator-policy-client";
 import { BRIEF_PACKAGE_ID, BRIEF_TYPE_ORIGIN_ID } from "./brief-client";
+import { apiUrl } from "./api-base";
 import { Transaction } from "@mysten/sui/transactions";
 
 // Re-exported so the UI can show "planner agent: 0x…" without dipping
@@ -135,7 +136,7 @@ export async function dispatchMission(args: MissionPayload): Promise<{
   ok: boolean;
   queuedAt: number;
 }> {
-  const res = await fetch("/api/workforce/missions", {
+  const res = await fetch(apiUrl("/api/workforce/missions"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(args),

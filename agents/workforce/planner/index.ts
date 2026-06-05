@@ -21,6 +21,8 @@
 //
 // Or via npm: `npm run agent:planner -- --policy 0x... --mission "..."`
 
+import { Transaction } from "@mysten/sui/transactions";
+
 import { loadEnv, activeLlmKey } from "../../lib/env.js";
 import { makeAgentContext, type AgentContext } from "../../lib/sui.js";
 import { callLlm, llmMode, extractJson } from "../../lib/llm.js";
@@ -28,7 +30,8 @@ import {
   fetchOperatorPolicy,
   type OperatorPolicyDecoded,
 } from "../../lib/operator-policy.js";
-import { buildPostTaskTx } from "../lib/task.js";
+import { signAndExecuteWithRetry } from "../../lib/sui-retry.js";
+import { appendPostTask } from "../lib/task.js";
 import { listLatestRegistrationsByAddress } from "../lib/agent-registry.js";
 
 const DEFAULT_DEADLINE_MIN = 30;
@@ -371,73 +374,116 @@ type PostedSubtask = {
   deadlineMs: bigint;
 };
 
-async function postSubtask(
+/**
+ * Post ALL sub-tasks of a mission in ONE atomic PTB:
+ *   tx.splitCoins(tx.gas, [b1, b2, …, bN])
+ *   appendPostTask(tx, …) × N
+ *
+ * Eliminates the intra-mission gas-coin race that previously dropped the
+ * 2nd post when the SDK held a stale version of the same gas coin. The N
+ * Task object ids are pulled from the TaskPosted events in the response
+ * — events fire in PTB-call order, so events[i] matches plans[i].
+ */
+async function postSubtasks(
   ctx: AgentContext,
-  plan: SubTaskPlan,
+  plans: SubTaskPlan[],
   workforce: WorkforceEntry[],
   policyId: string,
-): Promise<PostedSubtask> {
-  const specialist = pickSpecialist(workforce, plan.capability, ctx.address);
-  if (!specialist) {
-    const capsSeen = Array.from(new Set(workforce.map((w) => w.capability)));
-    throw new Error(
-      `no distinct specialist registered for capability "${plan.capability}" — ` +
-        `workforce has [${capsSeen.join(", ") || "none"}] from ${workforce.length} entries, ` +
-        `all at planner address. Start the ${plan.capability} agent on its own wallet ` +
-        `(see 'npm run workforce:setup') and re-run.`,
+): Promise<PostedSubtask[]> {
+  if (plans.length === 0) return [];
+
+  // Route every plan first; fail loudly BEFORE building the tx so the
+  // judge never sees a half-built mission.
+  const routes = plans.map((plan) => {
+    const specialist = pickSpecialist(workforce, plan.capability, ctx.address);
+    if (!specialist) {
+      const capsSeen = Array.from(new Set(workforce.map((w) => w.capability)));
+      throw new Error(
+        `no distinct specialist registered for capability "${plan.capability}" — ` +
+          `workforce has [${capsSeen.join(", ") || "none"}] from ${workforce.length} entries, ` +
+          `all at planner address. Start the ${plan.capability} agent on its own wallet ` +
+          `(see 'npm run workforce:setup') and re-run.`,
+      );
+    }
+    return { plan, specialist };
+  });
+  for (const r of routes) {
+    console.log(
+      `[planner] routing "${r.plan.title}" → ${r.specialist.displayName} (${r.specialist.address.slice(0, 10)}…, rep=${r.specialist.reputationScore})`,
     );
   }
-  console.log(
-    `[planner] routing "${plan.title}" → ${specialist.displayName} (${specialist.address.slice(0, 10)}…, rep=${specialist.reputationScore})`,
-  );
-  const bountyMist = BigInt(Math.floor(plan.bounty_sui * 1e9));
-  const deadlineMs = BigInt(Date.now() + plan.deadline_minutes * 60 * 1000);
-  const specBlob = JSON.stringify(plan.spec);
 
-  const tx = buildPostTaskTx(ctx, {
-    bountyMist,
-    assignedTo: specialist.address,
-    title: plan.title,
-    specBlob,
-    primaryCapability: plan.capability,
-    deadlineMs,
-    parentPolicyId: policyId,
+  // Build the single PTB: split N bounty coins out of gas, then N posts.
+  const tx = new Transaction();
+  const bountyMists = routes.map((r) =>
+    BigInt(Math.floor(r.plan.bounty_sui * 1e9)),
+  );
+  const bountyCoins = tx.splitCoins(
+    tx.gas,
+    bountyMists.map((m) => tx.pure.u64(m)),
+  );
+  const deadlineMses = routes.map((r) =>
+    BigInt(Date.now() + r.plan.deadline_minutes * 60 * 1000),
+  );
+  routes.forEach((r, i) => {
+    appendPostTask(tx, ctx, {
+      bountyCoin: bountyCoins[i],
+      assignedTo: r.specialist.address,
+      title: r.plan.title,
+      specBlob: JSON.stringify(r.plan.spec),
+      primaryCapability: r.plan.capability,
+      deadlineMs: deadlineMses[i],
+      parentPolicyId: policyId,
+    });
   });
 
-  const res = await ctx.client.signAndExecuteTransaction({
-    signer: ctx.keypair,
-    transaction: tx,
-    options: {
+  console.log(
+    `[planner] posting ${plans.length} sub-task${plans.length === 1 ? "" : "s"} in one atomic PTB…`,
+  );
+  const res = await signAndExecuteWithRetry(
+    ctx,
+    tx,
+    {
       showEffects: true,
       showObjectChanges: true,
       showEvents: true,
     },
-  });
-
+    { label: "planner:post-all" },
+  );
   if (res.effects?.status?.status !== "success") {
     throw new Error(
-      `post failed for "${plan.title}": ${res.effects?.status?.error ?? "unknown"}`,
+      `batched post failed: ${res.effects?.status?.error ?? "unknown"}`,
     );
   }
 
-  const created = (res.objectChanges ?? []).find(
-    (c) =>
-      c.type === "created" &&
-      typeof (c as { objectType?: string }).objectType === "string" &&
-      (c as { objectType?: string }).objectType?.includes("::task::Task"),
-  ) as { objectId?: string } | undefined;
-
-  if (!created?.objectId) {
-    throw new Error("post tx succeeded but no Task object was created in changes");
+  // TaskPosted events fire in PTB-call order, so events[i] is plans[i].
+  const events = (res.events ?? []) as Array<{
+    type: string;
+    parsedJson?: { task_id?: string };
+  }>;
+  const postedEvents = events.filter((e) =>
+    e.type.endsWith("::task::TaskPosted"),
+  );
+  if (postedEvents.length !== routes.length) {
+    throw new Error(
+      `batched post: expected ${routes.length} TaskPosted events, got ${postedEvents.length}`,
+    );
   }
-  return {
-    plan,
-    assignedTo: specialist.address,
-    taskId: created.objectId,
-    txDigest: res.digest,
-    bountyMist,
-    deadlineMs,
-  };
+
+  return routes.map((r, i) => {
+    const taskId = postedEvents[i].parsedJson?.task_id;
+    if (!taskId) {
+      throw new Error(`batched post: event ${i} missing task_id`);
+    }
+    return {
+      plan: r.plan,
+      assignedTo: r.specialist.address,
+      taskId,
+      txDigest: res.digest,
+      bountyMist: bountyMists[i],
+      deadlineMs: deadlineMses[i],
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -508,17 +554,14 @@ async function main(): Promise<void> {
   const totalBountyMist = validatePolicyForPlanner(policy, ctx.address, subtasks);
   await assertWalletHasFunds(ctx, totalBountyMist);
 
-  // 5) Post each sub-task
-  const posted: PostedSubtask[] = [];
-  for (const plan of subtasks) {
-    console.log(
-      `[planner] posting "${plan.title}" (${plan.capability}) bounty=${plan.bounty_sui} SUI…`,
-    );
-    const result = await postSubtask(ctx, plan, workforce, policy.id);
+  // 5) Post EVERY sub-task in ONE atomic PTB. Either every sub-task
+  // lands, or none of them do — the judge never sees a half-posted
+  // mission and we sidestep the in-process gas-coin race entirely.
+  const posted = await postSubtasks(ctx, subtasks, workforce, policy.id);
+  for (const result of posted) {
     console.log(
       `[planner] ok task=${result.taskId.slice(0, 12)}… tx=${result.txDigest.slice(0, 12)}…`,
     );
-    posted.push(result);
   }
 
   // 6) Summary

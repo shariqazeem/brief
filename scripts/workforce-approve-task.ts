@@ -12,6 +12,7 @@
 
 import { loadEnv } from "../agents/lib/env.js";
 import { makeAgentContext } from "../agents/lib/sui.js";
+import { signAndExecuteWithRetry } from "../agents/lib/sui-retry.js";
 import {
   buildApproveWithPolicyTx,
   buildApproveDirectTx,
@@ -88,11 +89,12 @@ async function main(): Promise<void> {
 
   let res;
   try {
-    res = await ctx.client.signAndExecuteTransaction({
-      signer: ctx.keypair,
-      transaction: tx,
-      options: { showEffects: true, showEvents: true, showBalanceChanges: true },
-    });
+    res = await signAndExecuteWithRetry(
+      ctx,
+      tx,
+      { showEffects: true, showEvents: true, showBalanceChanges: true },
+      { label: "approve-task", attempts: 3 },
+    );
   } catch (e) {
     reportAbort(env.network, e);
     process.exit(1);

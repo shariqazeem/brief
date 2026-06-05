@@ -42,6 +42,7 @@ import {
   policyStatus,
   type OperatorPolicyDecoded,
 } from "@/lib/operator-policy-client";
+import { apiUrl } from "@/lib/api-base";
 
 // =============================================================================
 // /workforce — single-step hire + live console.
@@ -393,7 +394,7 @@ function ColdStartFaucet({ address }: { address: string }) {
     setPhase("fetching");
     setErrMsg(null);
     try {
-      const r = await fetch("/api/agent/faucet", {
+      const r = await fetch(apiUrl("/api/agent/faucet"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recipient: address }),
@@ -931,7 +932,7 @@ function LiveConsole({
       if (triedTaskIdsRef.current.has(taskId)) return false;
       triedTaskIdsRef.current.add(taskId);
       try {
-        const r = await fetch("/api/workforce/approve", {
+        const r = await fetch(apiUrl("/api/workforce/approve"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ task_id: taskId, policy_id: policyId }),
@@ -1004,7 +1005,7 @@ function LiveConsole({
       }
       setKillSwitchPhase("verifying_post");
       try {
-        const r = await fetch("/api/workforce/post-verification", {
+        const r = await fetch(apiUrl("/api/workforce/post-verification"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1109,7 +1110,7 @@ function LiveConsole({
     setReleaseTaskId(taskId);
     setReleaseSubmitting(true);
     try {
-      await fetch("/api/workforce/approve", {
+      await fetch(apiUrl("/api/workforce/approve"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task_id: taskId, policy_id: policyId }),

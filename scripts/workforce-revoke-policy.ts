@@ -6,6 +6,7 @@
 
 import { loadEnv } from "../agents/lib/env.js";
 import { makeAgentContext } from "../agents/lib/sui.js";
+import { signAndExecuteWithRetry } from "../agents/lib/sui-retry.js";
 import { buildRevokeTx } from "../agents/lib/operator-policy.js";
 
 async function main(): Promise<void> {
@@ -17,11 +18,12 @@ async function main(): Promise<void> {
   const ctx = makeAgentContext(env);
 
   const tx = buildRevokeTx({ packageId: env.packageId, policyId: id });
-  const res = await ctx.client.signAndExecuteTransaction({
-    signer: ctx.keypair,
-    transaction: tx,
-    options: { showEffects: true, showEvents: true },
-  });
+  const res = await signAndExecuteWithRetry(
+    ctx,
+    tx,
+    { showEffects: true, showEvents: true },
+    { label: "revoke", attempts: 3 },
+  );
   if (res.effects?.status?.status !== "success") {
     console.error("FAILED:", res.effects?.status?.error);
     process.exit(1);

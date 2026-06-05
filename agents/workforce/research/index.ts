@@ -17,6 +17,7 @@ import {
   type AgentRegistration,
 } from "../lib/agent-registry.js";
 import { startTaskInbox, type TaskPostedNotice } from "../lib/inbox.js";
+import { recoverStuckTasks } from "../lib/recovery.js";
 import {
   buildAcceptTaskTx,
   buildMintAndSubmitTx,
@@ -485,6 +486,15 @@ async function main(): Promise<void> {
   console.log(
     `[research] active · reg=${reg.id.slice(0, 10)}… capabilities=[${reg.capabilities.join(", ")}]`,
   );
+
+  // Self-healing: re-process any task this wallet accepted but never
+  // submitted (e.g., a prior crash before submit landed). Runs BEFORE
+  // the inbox so we don't race the steady-state poll loop.
+  await recoverStuckTasks(ctx, {
+    capabilityFilter: "research",
+    label: "research-recovery",
+    onTask: (notice) => handleTask(ctx, reg, notice),
+  });
 
   await startTaskInbox({
     ctx,

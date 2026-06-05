@@ -14,6 +14,7 @@
 
 import { loadEnv } from "../agents/lib/env.js";
 import { makeAgentContext } from "../agents/lib/sui.js";
+import { signAndExecuteWithRetry } from "../agents/lib/sui-retry.js";
 import { buildPostTaskTx } from "../agents/workforce/lib/task.js";
 
 function parseArgs(): Record<string, string> {
@@ -67,11 +68,12 @@ async function main(): Promise<void> {
     `[post-task] posting · poster=${ctx.address.slice(0, 10)}… to=${args.to.slice(0, 10)}… cap=${args.capability} bounty=${bountySui} SUI deadline=${deadlineMin}min`,
   );
 
-  const res = await ctx.client.signAndExecuteTransaction({
-    signer: ctx.keypair,
-    transaction: tx,
-    options: { showEffects: true, showObjectChanges: true, showEvents: true },
-  });
+  const res = await signAndExecuteWithRetry(
+    ctx,
+    tx,
+    { showEffects: true, showObjectChanges: true, showEvents: true },
+    { label: "post-task", attempts: 3 },
+  );
 
   if (res.effects?.status?.status !== "success") {
     console.error("FAILED:", res.effects?.status?.error);

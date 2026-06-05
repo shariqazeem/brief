@@ -33,6 +33,7 @@ import { loadEnv } from "../../lib/env.js";
 import { makeAgentContextFor, type AgentContext } from "../../lib/sui.js";
 import { augmentRegistration } from "../lib/agent-registry.js";
 import { startTaskInbox, type TaskPostedNotice } from "../lib/inbox.js";
+import { recoverStuckTasks } from "../lib/recovery.js";
 import {
   appendMintAndSubmit,
   buildAcceptTaskTx,
@@ -445,6 +446,14 @@ async function main(): Promise<void> {
   );
 
   const dbCtx = makeDeepBookCtx(ctx, balanceManagerId);
+
+  // Self-healing: re-process any task this wallet accepted but never
+  // submitted. Runs BEFORE the inbox.
+  await recoverStuckTasks(ctx, {
+    capabilityFilter: "treasury",
+    label: "treasury-recovery",
+    onTask: (notice) => handleTask(ctx, dbCtx, notice),
+  });
 
   await startTaskInbox({
     ctx,

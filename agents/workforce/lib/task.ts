@@ -201,10 +201,48 @@ export function buildPostTaskTx(
   const tx = new Transaction();
   const [bountyCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(args.bountyMist)]);
 
+  appendPostTask(tx, ctx, {
+    bountyCoin,
+    assignedTo: args.assignedTo,
+    title: args.title,
+    specBlob: args.specBlob,
+    primaryCapability: args.primaryCapability,
+    deadlineMs: args.deadlineMs,
+    parentPolicyId: args.parentPolicyId,
+  });
+
+  return tx;
+}
+
+export type AppendPostTaskArgs = {
+  /** A TransactionArgument referencing the coin to escrow as bounty —
+   *  typically one element of a `tx.splitCoins(tx.gas, [...])` array. */
+  bountyCoin: ReturnType<Transaction["splitCoins"]>[number];
+  assignedTo: string;
+  title: string;
+  specBlob: string;
+  primaryCapability: string;
+  deadlineMs: bigint;
+  parentPolicyId: string | null;
+};
+
+/**
+ * Append a task::post call to an existing PTB. Lets the Planner batch
+ * N sub-tasks of a single mission into ONE atomic transaction —
+ * eliminates the intra-mission gas-coin race that previously dropped
+ * the 2nd post when it tried to use a stale version of the same gas
+ * coin. Use with tx.splitCoins(tx.gas, [b1, b2, …, bN]) to fund each
+ * post in the same PTB.
+ */
+export function appendPostTask(
+  tx: Transaction,
+  ctx: AgentContext,
+  args: AppendPostTaskArgs,
+): void {
   tx.moveCall({
     target: `${ctx.packageId}::task::post`,
     arguments: [
-      bountyCoin,
+      args.bountyCoin,
       tx.pure.address(args.assignedTo),
       tx.pure.string(args.title),
       tx.pure.string(args.specBlob),
@@ -216,8 +254,6 @@ export function buildPostTaskTx(
       tx.object(SUI_CLOCK_OBJECT_ID),
     ],
   });
-
-  return tx;
 }
 
 export function buildAcceptTaskTx(
