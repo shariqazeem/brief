@@ -255,53 +255,84 @@ async function autoApproveTick(): Promise<void> {
     events = await ctx.client.queryEvents({
       query: { MoveEventType: `${ctx.typeOriginId}::task::TaskPosted` },
       order: "descending",
-      limit: 100,
+      limit: 200,
     });
   } catch {
     return;
   }
-  const candidates: { taskId: string; policyId: string }[] = [];
+  type Candidate = { taskId: string; policyId: string; postedAtMs: bigint };
+  const byPolicy = new Map<string, Candidate[]>();
   for (const ev of events.data) {
     const p = ev.parsedJson as {
       task_id?: string;
       parent_policy?: string | null | { vec?: string[] };
+      posted_at_ms?: string;
     };
     if (!p?.task_id) continue;
     const parent = unwrapOption(p.parent_policy);
     if (!parent || !policyIds.has(parent)) continue;
-    candidates.push({ taskId: p.task_id, policyId: parent });
+    const arr = byPolicy.get(parent) ?? [];
+    arr.push({
+      taskId: p.task_id,
+      policyId: parent,
+      postedAtMs: BigInt(p.posted_at_ms ?? "0"),
+    });
+    byPolicy.set(parent, arr);
   }
-  if (candidates.length === 0) return;
+  if (byPolicy.size === 0) return;
 
-  // For each candidate task, check its current status; act on DELIVERED.
-  for (const c of candidates) {
-    const tracked = autoState.get(c.taskId);
-    if (tracked?.attempted) continue;
-    let t;
-    try {
-      t = await fetchTask(ctx, c.taskId);
-    } catch {
-      continue;
+  // Per policy: fetch each candidate's current status, find DELIVERED ones,
+  // and HOLD the most-recently-posted as "pending release" so the
+  // /workforce UI always has a live target for its kill-switch demo. The
+  // rest auto-settle on the watchable hold (the visible "alive" beat).
+  for (const [policyId, items] of byPolicy) {
+    type Live = {
+      id: string;
+      postedAtMs: bigint;
+      status: string;
+    };
+    const live: Live[] = [];
+    for (const it of items) {
+      try {
+        const t = await fetchTask(ctx, it.taskId);
+        live.push({ id: it.taskId, postedAtMs: it.postedAtMs, status: t.status });
+      } catch {
+        /* skip */
+      }
     }
-    if (t.status === "approved" || t.status === "expired") {
-      autoState.set(c.taskId, { firstSeenMs: 0, attempted: true });
-      continue;
-    }
-    if (t.status !== "delivered") continue;
+    const delivered = live
+      .filter((t) => t.status === "delivered")
+      .sort((a, b) => Number(b.postedAtMs - a.postedAtMs));
+    if (delivered.length === 0) continue;
+
+    // The newest delivered task is held back as the pending-release
+    // checkpoint — the policy's auto_approve_pct field formalizes this as
+    // a human-in-the-loop checkpoint on autonomous spend. Older delivered
+    // tasks settle once they age past the watchable hold.
+    const [held, ...settleable] = delivered;
+    autoState.set(held.id, {
+      firstSeenMs: autoState.get(held.id)?.firstSeenMs ?? Date.now(),
+      attempted: false,
+    });
+
     const now = Date.now();
-    if (!tracked) {
-      autoState.set(c.taskId, { firstSeenMs: now, attempted: false });
+    for (const t of settleable) {
+      const tracked = autoState.get(t.id);
+      if (tracked?.attempted) continue;
+      if (!tracked) {
+        autoState.set(t.id, { firstSeenMs: now, attempted: false });
+        console.log(
+          `[auto-approve] saw delivered task=${t.id.slice(0, 10)}… policy=${policyId.slice(0, 10)}… — holding ${AUTO_APPROVE_DELAY_MS}ms before settling`,
+        );
+        continue;
+      }
+      if (now - tracked.firstSeenMs < AUTO_APPROVE_DELAY_MS) continue;
+      autoState.set(t.id, { ...tracked, attempted: true });
       console.log(
-        `[auto-approve] saw delivered task=${c.taskId.slice(0, 10)}… policy=${c.policyId.slice(0, 10)}… — holding ${AUTO_APPROVE_DELAY_MS}ms before settling`,
+        `[auto-approve] settling task=${t.id.slice(0, 10)}… policy=${policyId.slice(0, 10)}… (newer delivered task is the pending release)`,
       );
-      continue;
+      await approveTask(t.id, policyId);
     }
-    if (now - tracked.firstSeenMs < AUTO_APPROVE_DELAY_MS) continue;
-    autoState.set(c.taskId, { ...tracked, attempted: true });
-    console.log(
-      `[auto-approve] settling task=${c.taskId.slice(0, 10)}… policy=${c.policyId.slice(0, 10)}…`,
-    );
-    await approveTask(c.taskId, c.policyId);
   }
 }
 

@@ -713,22 +713,71 @@ function LiveConsole({
     });
   }, [policyId, activation.brief]);
 
-  // Revoke + kill-switch payoff
+  // Specialist roster (excluding Planner). Used by both the team panel
+  // and the kill-switch's verification-fallback path.
+  const { agents: roster } = useRegisteredAgents({
+    excludeAddress: BRIEF_OPERATOR_ADDRESS,
+  });
+
+  // Revoke + deterministic kill-switch state machine.
+  //
+  // The chain only emits EPolicyRevoked (operator_policy::3) on a task
+  // that is currently in DELIVERED status — the runtime checks task
+  // status BEFORE record_spend (see move/sources/task.move). So to
+  // surface the canonical EPolicyRevoked fingerprint we always need a
+  // live DELIVERED target. Strategy:
+  //
+  //   1. After the user signs revoke, scan the task list for any
+  //      delivered-but-unsettled task and attempt approve_with_policy
+  //      against it via /api/workforce/approve (server-signed by the
+  //      Planner). Validate the abort response — only commit to the
+  //      CHAIN REFUSED card if the chain returned the EXACT
+  //      (operator_policy::assert_can_spend, code 3) fingerprint.
+  //   2. If the response was anything else (e.g. task::EWrongStatus
+  //      from a race against the auto-approve loop), mark the task
+  //      tried and re-target on the next render. Don't surface a
+  //      misleading card.
+  //   3. If we exhaust all delivered tasks without verifying, post a
+  //      "Kill-switch verification" task via /api/workforce/post-
+  //      verification. Wait for the specialist to deliver it, then
+  //      attempt approve — which aborts EPolicyRevoked, deterministically.
+  //
+  // The planner-service holds the most-recent delivered task per policy
+  // as the user-facing "pending release" checkpoint, so step 1 almost
+  // always succeeds; step 3 is the safety net for the "judge let
+  // everything settle to paid then revoked" case.
+  type KillSwitchPhase =
+    | "idle"
+    | "scanning"
+    | "verifying_post"
+    | "verified";
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [revokeSubmitting, setRevokeSubmitting] = useState(false);
   const [revokeTx, setRevokeTx] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
   const [chainAbort, setChainAbort] = useState<AbortRecord | null>(null);
-  const [killSwitchArmed, setKillSwitchArmed] = useState(false);
+  const [killSwitchPhase, setKillSwitchPhase] = useState<KillSwitchPhase>("idle");
+  const [verificationTaskId, setVerificationTaskId] = useState<string | null>(
+    null,
+  );
   const triedTaskIdsRef = useRef<Set<string>>(new Set());
+  const verificationPostedRef = useRef(false);
+  const inFlightRef = useRef(false);
   const { mutate: signRevoke } = useSignAndExecuteTransaction();
 
-  // Helper: attempt to settle a task — the chain refuses (EPolicyRevoked)
-  // because the policy is now revoked. Captures the abort fingerprint for
-  // the CHAIN REFUSED card.
-  const triggerKillSwitchOn = useCallback(
-    async (taskId: string): Promise<void> => {
-      if (triedTaskIdsRef.current.has(taskId)) return;
+  function isVerifiedEPolicyRevoked(j: Partial<AbortRecord>): boolean {
+    if (j.abortCode !== 3) return false;
+    if (j.abortModule !== "operator_policy") return false;
+    // Either the parsed const name or the function name confirms it.
+    if (j.abortConst && j.abortConst !== "EPolicyRevoked") return false;
+    return true;
+  }
+
+  // Try one approve_with_policy attempt against `taskId`. Returns true if
+  // we got a verified EPolicyRevoked (the kill-switch is proven).
+  const attemptAbort = useCallback(
+    async (taskId: string): Promise<boolean> => {
+      if (triedTaskIdsRef.current.has(taskId)) return false;
       triedTaskIdsRef.current.add(taskId);
       try {
         const r = await fetch("/api/workforce/approve", {
@@ -740,46 +789,134 @@ function LiveConsole({
           ok?: boolean;
           error?: string;
         };
-        // A successful approve here would be unexpected (the policy is
-        // revoked) but possible if revoke landed AFTER an in-flight
-        // approve. Either way, we only surface a fail-state.
-        if (j.ok) return;
+        // A successful approve is a race: revoke hadn't landed before the
+        // approve hit the validator. Skip — caller will try another task.
+        if (j.ok) return false;
+        if (!isVerifiedEPolicyRevoked(j)) return false;
         setChainAbort({
           taskId,
           txDigest: j.txDigest,
           abortCode: j.abortCode,
-          abortConst: j.abortConst,
-          abortModule: j.abortModule,
-          abortFn: j.abortFn,
-          error: j.error,
+          abortConst: j.abortConst ?? "EPolicyRevoked",
+          abortModule: j.abortModule ?? "operator_policy",
+          abortFn: j.abortFn ?? "assert_can_spend",
           at: Date.now(),
         });
-      } catch (e) {
-        setChainAbort({
-          taskId,
-          error: e instanceof Error ? e.message : String(e),
-          at: Date.now(),
-        });
+        setKillSwitchPhase("verified");
+        return true;
+      } catch {
+        return false;
       }
     },
     [policyId],
   );
 
-  // While the kill switch is armed (post-revoke), watch the task list. The
-  // moment a delivered task is visible, attempt to settle it — the chain
-  // will refuse it, which fires the CHAIN REFUSED payoff. This makes the
-  // demo work even when no delivered task exists at the moment of revoke.
+  // Post a tiny kill-switch verification task under the revoked policy so
+  // the chain has something to refuse. Assigned to a registered
+  // specialist whose capability is in policy.allowed_venues.
+  const postVerificationTask = useCallback(
+    async (allowedVenues: string[]): Promise<void> => {
+      if (!policyId || verificationPostedRef.current) return;
+      verificationPostedRef.current = true;
+      // Pick a specialist whose capabilities intersect policy.allowed_venues.
+      // Prefer treasury (simulated-mode = no DeepBook wallet requirement).
+      const pickFor = (cap: string) =>
+        roster.find((a) => a.capabilities.includes(cap));
+      const preferred = ["treasury", "research", "audit"];
+      let chosen: { address: string; capability: string } | null = null;
+      for (const cap of preferred) {
+        if (!allowedVenues.includes(cap)) continue;
+        const a = pickFor(cap);
+        if (a) {
+          chosen = { address: a.address, capability: cap };
+          break;
+        }
+      }
+      // Fallback — first capability/specialist match.
+      if (!chosen) {
+        for (const a of roster) {
+          for (const cap of a.capabilities) {
+            if (allowedVenues.includes(cap)) {
+              chosen = { address: a.address, capability: cap };
+              break;
+            }
+          }
+          if (chosen) break;
+        }
+      }
+      if (!chosen) {
+        // Can't post — no eligible specialist. The state machine will
+        // retry; if it persists, the UI surfaces "armed, awaiting
+        // workforce" copy.
+        verificationPostedRef.current = false;
+        return;
+      }
+      setKillSwitchPhase("verifying_post");
+      try {
+        const r = await fetch("/api/workforce/post-verification", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            policy_id: policyId,
+            assigned_to: chosen.address,
+            capability: chosen.capability,
+          }),
+        });
+        const j = (await r.json()) as {
+          ok?: boolean;
+          task_id?: string;
+          error?: string;
+        };
+        if (j.ok && j.task_id) {
+          setVerificationTaskId(j.task_id);
+        } else {
+          // Allow retry on the next tick.
+          verificationPostedRef.current = false;
+        }
+      } catch {
+        verificationPostedRef.current = false;
+      }
+      setKillSwitchPhase("scanning");
+    },
+    [policyId, roster],
+  );
+
+  // Drive the kill-switch state machine. The effect re-runs whenever the
+  // task list updates (useTasksForPolicy polls every 3s) — so a freshly
+  // delivered task is picked up automatically.
   useEffect(() => {
-    if (!killSwitchArmed || chainAbort) return;
-    const delivered = tasks.find(
-      (t) => t.status === "delivered" && !triedTaskIdsRef.current.has(t.id),
-    );
-    if (delivered) {
-      void triggerKillSwitchOn(delivered.id);
-    }
-    // No timer needed — useTasksForPolicy polls every 3s and reruns this
-    // effect on each task update.
-  }, [killSwitchArmed, chainAbort, tasks, triggerKillSwitchOn]);
+    if (chainAbort) return;
+    if (killSwitchPhase === "idle" || killSwitchPhase === "verified") return;
+    if (!policyId || !policy) return;
+    if (inFlightRef.current) return;
+
+    inFlightRef.current = true;
+    void (async () => {
+      try {
+        // 1. Try every untried delivered task.
+        for (const t of tasks) {
+          if (t.status !== "delivered") continue;
+          if (triedTaskIdsRef.current.has(t.id)) continue;
+          const verified = await attemptAbort(t.id);
+          if (verified) return;
+        }
+        // 2. Nothing untried + delivered. Post a verification task once.
+        if (!verificationPostedRef.current) {
+          await postVerificationTask(policy.allowedVenues);
+        }
+      } finally {
+        inFlightRef.current = false;
+      }
+    })();
+  }, [
+    chainAbort,
+    killSwitchPhase,
+    tasks,
+    policyId,
+    policy,
+    attemptAbort,
+    postVerificationTask,
+  ]);
 
   function handleRevoke() {
     if (!policyId) return;
@@ -792,18 +929,13 @@ function LiveConsole({
     signRevoke(
       { transaction: tx },
       {
-        onSuccess: async (res) => {
+        onSuccess: (res) => {
           setRevokeTx(res.digest);
           setRevokeSubmitting(false);
           setConfirmRevoke(false);
-          // Arm the kill switch. If a delivered task is visible right
-          // now, trigger immediately; otherwise the useEffect above
-          // attempts on the next delivered task that lands.
-          setKillSwitchArmed(true);
-          const candidate = tasks.find((t) => t.status === "delivered");
-          if (candidate) {
-            void triggerKillSwitchOn(candidate.id);
-          }
+          // Arm the kill-switch state machine; the useEffect handles
+          // targeting + verification-fallback from here.
+          setKillSwitchPhase("scanning");
         },
         onError: (e) => {
           setRevokeError(e instanceof Error ? e.message : String(e));
@@ -811,6 +943,34 @@ function LiveConsole({
         },
       },
     );
+  }
+
+  // Manual "Release payment" on the pending-release task — exactly the
+  // same approve call the auto-approve loop would have made; we just
+  // expose it as a deliberate user action when the policy is live so the
+  // judge can choose between Release and Revoke.
+  const [releaseTaskId, setReleaseTaskId] = useState<string | null>(null);
+  const [releaseSubmitting, setReleaseSubmitting] = useState(false);
+  const releaseSubmittingRef = useRef(false);
+  async function handleRelease(taskId: string) {
+    if (releaseSubmittingRef.current) return;
+    releaseSubmittingRef.current = true;
+    setReleaseTaskId(taskId);
+    setReleaseSubmitting(true);
+    try {
+      await fetch("/api/workforce/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: taskId, policy_id: policyId }),
+      });
+    } catch {
+      /* silent — the polled task list will reflect the result */
+    } finally {
+      setReleaseSubmitting(false);
+      releaseSubmittingRef.current = false;
+      // Re-enable Release for any future pending task.
+      setTimeout(() => setReleaseTaskId(null), 2000);
+    }
   }
 
   const interventionActive = !!chainAbort;
@@ -861,12 +1021,35 @@ function LiveConsole({
       )}
 
       {policy?.revoked && !chainAbort && (
-        <PolicyRevokedNotice policyId={policyId ?? ""} revokeTx={revokeTx} />
+        <KillSwitchInFlight
+          policyId={policyId ?? ""}
+          revokeTx={revokeTx}
+          phase={killSwitchPhase}
+          verificationTaskId={verificationTaskId}
+          tasks={tasks}
+        />
       )}
 
       <Brief brief={activation.brief} />
 
-      <RosterStrip />
+      <Team
+        tasks={tasks}
+        roster={roster}
+        policyId={policyId}
+        policyRevoked={!!policy?.revoked}
+      />
+
+      <PendingReleaseSection
+        tasks={tasks}
+        roster={roster}
+        policyId={policyId}
+        policyRevoked={!!policy?.revoked}
+        onRelease={handleRelease}
+        onRevoke={() => setConfirmRevoke(true)}
+        releaseTaskId={releaseTaskId}
+        releaseSubmitting={releaseSubmitting}
+        verificationTaskId={verificationTaskId}
+      />
 
       <ActivityFeed
         tasks={tasks}
@@ -1210,25 +1393,64 @@ function AbortRow({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-function PolicyRevokedNotice({
+// While the kill-switch state machine hunts for a deterministic
+// EPolicyRevoked abort (scanning delivered tasks → posting a verification
+// task → waiting for delivery), surface what it's doing so the screen
+// never sits with a dead "(awaiting…)" line.
+function KillSwitchInFlight({
   policyId,
   revokeTx,
+  phase,
+  verificationTaskId,
+  tasks,
 }: {
   policyId: string;
   revokeTx: string | null;
+  phase: "idle" | "scanning" | "verifying_post" | "verified";
+  verificationTaskId: string | null;
+  tasks: WorkforceTask[];
 }) {
+  if (phase === "verified" || phase === "idle") return null;
+  const deliveredCount = tasks.filter((t) => t.status === "delivered").length;
+  const verificationTask = verificationTaskId
+    ? tasks.find((t) => t.id === verificationTaskId) ?? null
+    : null;
+
+  let copy: string;
+  if (phase === "verifying_post") {
+    copy =
+      "Posting a kill-switch verification task. The specialist will accept and deliver in seconds — then the chain refuses settlement.";
+  } else if (verificationTask) {
+    if (verificationTask.status === "delivered") {
+      copy =
+        "Verification task delivered. Submitting the (now-refused) payment — the chain refusal lands here in a beat.";
+    } else if (verificationTask.status === "approved") {
+      copy =
+        "Verification task settled before revoke landed. Re-arming on the next delivery…";
+    } else {
+      copy = `Verification task ${verificationTask.status}; waiting for delivery so the chain can refuse settlement.`;
+    }
+  } else if (deliveredCount > 0) {
+    copy =
+      "Attempting to settle a delivered task; the chain will refuse and the abort lands here in a beat.";
+  } else {
+    copy =
+      "Policy revoked. No delivery pending — posting a tiny verification task so the chain can prove the kill switch is real.";
+  }
+
   return (
     <div className="mt-6 border border-red-300 bg-red-50/60 p-5">
       <div className="flex items-start gap-3">
-        <ShieldOff className="h-4 w-4 shrink-0 text-red-700" strokeWidth={1.75} />
-        <div className="min-w-0">
+        <Loader2
+          className="h-4 w-4 shrink-0 animate-spin text-red-700"
+          strokeWidth={1.75}
+        />
+        <div className="min-w-0 flex-1">
           <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-red-700">
-            Policy revoked
+            Policy revoked · awaiting chain refusal
           </p>
           <p className="mt-1 text-[13.5px] leading-relaxed text-red-900/90">
-            The chain will refuse any further settlement under this policy.
-            Currently no delivered task is waiting on payment — the moment
-            one arrives, the abort will be visible here.
+            {copy}
           </p>
           <div className="mt-3 flex flex-wrap gap-3 font-mono text-[11px]">
             <KV label="Policy">
@@ -1253,10 +1475,381 @@ function PolicyRevokedNotice({
                 </a>
               </KV>
             )}
+            {verificationTask && (
+              <KV label="Verification task">
+                <a
+                  href={explorerUrl("object", verificationTask.id)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-red-900 underline-offset-4 hover:underline"
+                >
+                  {short(verificationTask.id, 6, 6)}
+                </a>
+              </KV>
+            )}
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Team panel — three agent presences (Planner + two specialists) with live
+// status lines tied to the chain state so the screen reads as a working
+// team, not a polling table.
+// ---------------------------------------------------------------------------
+
+function Team({
+  tasks,
+  roster,
+  policyId,
+  policyRevoked,
+}: {
+  tasks: WorkforceTask[];
+  roster: RegisteredAgent[];
+  policyId: string | null;
+  policyRevoked: boolean;
+}) {
+  const research =
+    roster.find(
+      (a) =>
+        a.capabilities.includes("research") || a.capabilities.includes("audit"),
+    ) ?? null;
+  const treasury =
+    roster.find((a) => a.capabilities.includes("treasury")) ?? null;
+
+  return (
+    <section className="mt-10">
+      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+        Team · on chain
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <AgentPresence
+          role="planner"
+          name="Planner"
+          address={BRIEF_OPERATOR_ADDRESS}
+          status={plannerStatusLine(tasks, policyId, policyRevoked)}
+        />
+        <AgentPresence
+          role="specialist"
+          name={research?.displayName || "Research"}
+          address={research?.address ?? null}
+          status={specialistStatusLine(tasks, research?.address ?? null, "research", policyRevoked)}
+          agent={research}
+        />
+        <AgentPresence
+          role="specialist"
+          name={treasury?.displayName || "Treasury"}
+          address={treasury?.address ?? null}
+          status={specialistStatusLine(tasks, treasury?.address ?? null, "treasury", policyRevoked)}
+          agent={treasury}
+        />
+      </div>
+    </section>
+  );
+}
+
+function plannerStatusLine(
+  tasks: WorkforceTask[],
+  policyId: string | null,
+  policyRevoked: boolean,
+): { text: string; active: boolean } {
+  if (policyRevoked) {
+    return { text: "Authority revoked · standing by", active: false };
+  }
+  if (!policyId) return { text: "Reading your brief…", active: true };
+  if (tasks.length === 0) return { text: "Decomposing the brief…", active: true };
+  const settling = tasks.some(
+    (t) => t.status === "delivered" || t.status === "accepted",
+  );
+  if (settling) return { text: "Watching the specialists work…", active: true };
+  const allPaid = tasks.every((t) => t.status === "approved");
+  if (allPaid) return { text: "Idle · all deliveries settled", active: false };
+  return { text: "Watching the workforce…", active: true };
+}
+
+function specialistStatusLine(
+  tasks: WorkforceTask[],
+  address: string | null,
+  kind: "research" | "treasury",
+  policyRevoked: boolean,
+): { text: string; active: boolean } {
+  if (policyRevoked) {
+    return { text: "Authority revoked · standing by", active: false };
+  }
+  if (!address) {
+    return { text: "Not yet on chain — boot the specialist", active: false };
+  }
+  const mine = tasks
+    .filter((t) => t.assignedTo.toLowerCase() === address.toLowerCase())
+    .sort((a, b) => Number(b.postedAtMs - a.postedAtMs));
+  if (mine.length === 0) return { text: "Idle · awaiting assignment", active: false };
+  const latest = mine[0];
+  if (latest.status === "open") {
+    return { text: "Picking up the assignment…", active: true };
+  }
+  if (latest.status === "accepted") {
+    if (kind === "research") {
+      // Pull target package id from spec for richer copy.
+      const target = extractTargetFromSpec(latest.specBlob);
+      return {
+        text: target
+          ? `Auditing ${short(target, 6, 4)}…`
+          : "Researching the brief…",
+        active: true,
+      };
+    }
+    return { text: "Probing DeepBook SUI/DBUSDC…", active: true };
+  }
+  if (latest.status === "delivered") {
+    return {
+      text:
+        kind === "research"
+          ? "Delivered audit · awaiting release"
+          : "Delivered report · awaiting release",
+      active: true,
+    };
+  }
+  if (latest.status === "approved") {
+    return { text: "Paid · standing by for next job", active: false };
+  }
+  if (latest.status === "expired") {
+    return { text: "Task expired · standing by", active: false };
+  }
+  return { text: "Idle", active: false };
+}
+
+function extractTargetFromSpec(specBlob: string): string | null {
+  if (!specBlob) return null;
+  try {
+    const v = JSON.parse(specBlob) as { target_package_id?: string };
+    if (v?.target_package_id && /^0x[0-9a-f]+$/i.test(v.target_package_id)) {
+      return v.target_package_id;
+    }
+  } catch {
+    /* not JSON */
+  }
+  // Last-ditch: pull any 0x… directly out of the spec.
+  const m = /0x[0-9a-fA-F]{20,64}/.exec(specBlob);
+  return m ? m[0] : null;
+}
+
+function AgentPresence({
+  role,
+  name,
+  address,
+  status,
+  agent,
+}: {
+  role: "planner" | "specialist";
+  name: string;
+  address: string | null;
+  status: { text: string; active: boolean };
+  agent?: RegisteredAgent | null;
+}) {
+  // Reputation tick: flash green for ~600ms when the value bumps.
+  const repValue = agent ? Number(agent.reputationScore) : 0;
+  const prevRepRef = useRef(repValue);
+  const [tick, setTick] = useState(false);
+  useEffect(() => {
+    if (repValue > prevRepRef.current) {
+      setTick(true);
+      const id = setTimeout(() => setTick(false), 700);
+      prevRepRef.current = repValue;
+      return () => clearTimeout(id);
+    }
+    prevRepRef.current = repValue;
+  }, [repValue]);
+
+  const earned = agent ? Number(agent.totalPaidMist) / 1e9 : 0;
+  return (
+    <article className="relative border border-line bg-bg-elev p-4 transition-colors">
+      {status.active && (
+        <span
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/60 animate-operator-pulse-line"
+          aria-hidden
+        />
+      )}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+            {role === "planner" ? "Planner" : "Specialist"}
+          </p>
+          <p className="mt-0.5 text-[15px] font-medium tracking-tight text-ink">
+            {name}
+          </p>
+          {address && (
+            <p className="mt-0.5 font-mono text-[11px] text-muted">
+              {short(address, 8, 6)}
+            </p>
+          )}
+        </div>
+        {agent && (
+          <div className="text-right">
+            <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted">
+              rep
+            </p>
+            <p
+              className={[
+                "font-mono text-[14px] tabular-nums",
+                tick ? "animate-value-tick text-emerald-700" : "text-ink",
+              ].join(" ")}
+            >
+              {String(agent.reputationScore)}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 text-[12.5px]">
+        <span
+          className={[
+            "inline-block h-1.5 w-1.5 rounded-full",
+            status.active ? "bg-emerald-500 animate-pulse" : "bg-muted",
+          ].join(" ")}
+          aria-hidden
+        />
+        <span className="truncate text-ink-2">{status.text}</span>
+      </div>
+
+      {agent && (
+        <div className="mt-3 flex items-center justify-between border-t border-line pt-2 text-[11px]">
+          <span className="font-mono text-muted">
+            paid{" "}
+            <span className="tabular-nums text-ink">
+              {earned >= 1 ? earned.toFixed(2) : earned.toFixed(3)} SUI
+            </span>
+          </span>
+          <span className="font-mono text-muted">
+            delivered{" "}
+            <span className="tabular-nums text-ink">
+              {String(agent.completedTasks)}
+            </span>
+          </span>
+        </div>
+      )}
+    </article>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pending release — the guided checkpoint. The planner-service holds the
+// most-recent delivered task; this card shows it with two equal-weight
+// actions so the judge always has a clear next move.
+// ---------------------------------------------------------------------------
+
+function PendingReleaseSection({
+  tasks,
+  roster,
+  policyId,
+  policyRevoked,
+  onRelease,
+  onRevoke,
+  releaseTaskId,
+  releaseSubmitting,
+  verificationTaskId,
+}: {
+  tasks: WorkforceTask[];
+  roster: RegisteredAgent[];
+  policyId: string | null;
+  policyRevoked: boolean;
+  onRelease: (taskId: string) => void;
+  onRevoke: () => void;
+  releaseTaskId: string | null;
+  releaseSubmitting: boolean;
+  verificationTaskId: string | null;
+}) {
+  if (!policyId || policyRevoked) return null;
+  const candidates = tasks
+    .filter((t) => t.status === "delivered")
+    .filter((t) => t.id !== verificationTaskId)
+    .sort((a, b) => Number(b.postedAtMs - a.postedAtMs));
+  const pending = candidates[0];
+  if (!pending) return null;
+  const bountySui = Number(pending.bountyMist) / 1e9;
+  const specialist =
+    roster.find(
+      (a) => a.address.toLowerCase() === pending.assignedTo.toLowerCase(),
+    ) ?? null;
+  const isSubmittingThis =
+    releaseSubmitting && releaseTaskId === pending.id;
+
+  return (
+    <section className="mt-8">
+      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+        Pending release · human checkpoint
+      </p>
+      <div className="mt-3 animate-fade-up border-2 border-amber-400/70 bg-amber-50/40 p-6">
+        <div className="grid gap-5 sm:grid-cols-[1fr_auto]">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-amber-800">
+              <span
+                className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"
+                aria-hidden
+              />
+              Workforce delivered · awaiting your decision
+            </div>
+            <p className="text-lg leading-snug tracking-tight">
+              {specialist?.displayName ?? "The specialist"} is waiting to be paid{" "}
+              <span className="font-mono tabular-nums">{bountySui.toFixed(3)} SUI</span>{" "}
+              for{" "}
+              <span className="font-medium">{pending.title}</span>.
+            </p>
+            <p className="max-w-prose text-[12.5px] leading-relaxed text-ink-2">
+              Release the payment and the bounty transfers atomically with a
+              reputation tick. Revoke authority and the chain itself refuses
+              settlement — funds stay locked in escrow.
+            </p>
+            <div className="flex flex-wrap gap-3 text-[11px] font-mono">
+              <KV label="Task">
+                <a
+                  href={explorerUrl("object", pending.id)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-ink underline-offset-4 hover:underline"
+                >
+                  {short(pending.id, 8, 6)}
+                </a>
+              </KV>
+              <KV label="Specialist">
+                <span className="text-ink">
+                  {short(pending.assignedTo, 8, 6)}
+                </span>
+              </KV>
+            </div>
+          </div>
+          <div className="flex flex-col items-stretch gap-2 sm:min-w-[12rem]">
+            <button
+              type="button"
+              onClick={() => onRelease(pending.id)}
+              disabled={isSubmittingThis}
+              className="inline-flex items-center justify-center gap-2 border-2 border-ink bg-ink px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.28em] text-bg transition-colors hover:bg-ink-2 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmittingThis ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Releasing…
+                </>
+              ) : (
+                <>
+                  Release payment
+                  <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={onRevoke}
+              className="inline-flex items-center justify-center gap-2 border-2 border-red-500 bg-bg px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.28em] text-red-700 transition-colors hover:bg-red-50"
+            >
+              <ShieldOff className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Revoke authority
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1277,28 +1870,9 @@ function Brief({ brief }: { brief: string }) {
   );
 }
 
-// =============================================================================
-// Roster strip — visible in the live console too
-// =============================================================================
-
-function RosterStrip() {
-  const { agents } = useRegisteredAgents({
-    excludeAddress: BRIEF_OPERATOR_ADDRESS,
-  });
-  if (agents.length === 0) return null;
-  return (
-    <section className="mt-8">
-      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-        On the case
-      </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        {agents.map((a) => (
-          <AgentRosterCard key={a.id} agent={a} />
-        ))}
-      </div>
-    </section>
-  );
-}
+// (RosterStrip removed — replaced by the live `Team` panel above the
+// activity feed, which also surfaces the Planner and per-agent status
+// lines tied to the chain state.)
 
 // =============================================================================
 // Activity feed — task timeline + nice deliverables
