@@ -444,6 +444,12 @@ async function postSubtasks(
     return tx;
   }
 
+  // Idempotency anchor: if a retryable error fires AFTER the chain
+  // accepted the one-PTB post, look for N matching TaskPosted events
+  // for THIS (poster, parent_policy) within the window. Don't
+  // re-execute — that would create 2N tasks.
+  const idempotencyAnchorMs = Date.now() - 5000;
+
   console.log(
     `[planner] posting ${plans.length} sub-task${plans.length === 1 ? "" : "s"} in one atomic PTB…`,
   );
@@ -455,7 +461,59 @@ async function postSubtasks(
       showObjectChanges: true,
       showEvents: true,
     },
-    { label: "planner:post-all" },
+    {
+      label: "planner:post-all",
+      attempts: 3,
+      alreadyDone: async () => {
+        try {
+          const evResp = await ctx.client.queryEvents({
+            query: {
+              MoveEventType: `${ctx.typeOriginId}::task::TaskPosted`,
+            },
+            order: "descending",
+            limit: 200,
+          });
+          // Find recent TaskPosted events under our (poster, policy).
+          const matches = evResp.data.filter((ev) => {
+            const p = ev.parsedJson as {
+              poster?: string;
+              parent_policy?: string | null | { vec?: string[] };
+              posted_at_ms?: string;
+            };
+            if (!p?.poster || p.poster.toLowerCase() !== ctx.address.toLowerCase()) {
+              return false;
+            }
+            const parent =
+              typeof p.parent_policy === "string"
+                ? p.parent_policy
+                : Array.isArray(p.parent_policy?.vec) && p.parent_policy.vec.length > 0
+                  ? p.parent_policy.vec[0]
+                  : null;
+            if (parent !== policyId) return false;
+            const postedAt = Number(p.posted_at_ms ?? "0");
+            return Number.isFinite(postedAt) && postedAt >= idempotencyAnchorMs;
+          });
+          if (matches.length >= routes.length) {
+            // The chain already has N matching posts. They all came
+            // from the same atomic PTB so they share a tx digest.
+            const matched = matches.slice(0, routes.length);
+            const digest = matched[0].id.txDigest;
+            const events = matched.map((ev) => ({
+              type: `${ctx.packageId}::task::TaskPosted`,
+              parsedJson: ev.parsedJson,
+            }));
+            return {
+              digest,
+              effects: { status: { status: "success" } },
+              events,
+            } as unknown as import("@mysten/sui/jsonRpc").SuiTransactionBlockResponse;
+          }
+        } catch {
+          /* fall through */
+        }
+        return null;
+      },
+    },
   );
   if (res.effects?.status?.status !== "success") {
     throw new Error(

@@ -281,7 +281,27 @@ async function handleTask(
       ctx,
       () => buildAcceptTaskTx(ctx, notice.taskId),
       { showEffects: true },
-      { label: "treasury:accept", attempts: 3 },
+      {
+        label: "treasury:accept",
+        attempts: 3,
+        alreadyDone: async () => {
+          try {
+            const cur = await fetchTask(ctx, notice.taskId);
+            if (
+              cur.status === "accepted" &&
+              cur.assignedTo.toLowerCase() === ctx.address.toLowerCase()
+            ) {
+              return "done";
+            }
+            if (cur.status === "delivered" || cur.status === "approved") {
+              return "done";
+            }
+          } catch {
+            /* fall through */
+          }
+          return null;
+        },
+      },
     );
     if (acceptRes.effects?.status?.status !== "success") {
       throw new Error(
@@ -388,7 +408,28 @@ async function handleTask(
       showEvents: true,
       showBalanceChanges: true,
     },
-    { label: "treasury:submit", attempts: 3 },
+    {
+      label: "treasury:submit",
+      attempts: 3,
+      // Idempotency: a retryable error after a successful submit
+      // means the task is already DELIVERED. Re-executing the
+      // mint+submit PTB would abort EWrongStatus on the submit step
+      // (Run #3 of P6 hit this). Detect and short-circuit.
+      alreadyDone: async () => {
+        try {
+          const cur = await fetchTask(ctx, notice.taskId);
+          if (
+            (cur.status === "delivered" || cur.status === "approved") &&
+            cur.deliverableId
+          ) {
+            return "done";
+          }
+        } catch {
+          /* fall through */
+        }
+        return null;
+      },
+    },
   );
 
   if (submitRes.effects?.status?.status !== "success") {

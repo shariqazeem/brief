@@ -94,7 +94,25 @@ async function main(): Promise<void> {
       ctx,
       buildTx,
       { showEffects: true, showEvents: true, showBalanceChanges: true },
-      { label: "approve-task", attempts: 3 },
+      {
+        label: "approve-task",
+        attempts: 3,
+        // Idempotency: a retryable error after a successful approve
+        // means the task is already APPROVED (or EXPIRED). The chain
+        // would refuse a second approve with EWrongStatus, masking the
+        // real "it already succeeded" outcome.
+        alreadyDone: async () => {
+          try {
+            const cur = await fetchTask(ctx, t.id);
+            if (cur.status === "approved" || cur.status === "expired") {
+              return "done";
+            }
+          } catch {
+            /* fall through */
+          }
+          return null;
+        },
+      },
     );
   } catch (e) {
     reportAbort(env.network, e);

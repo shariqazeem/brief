@@ -58,6 +58,12 @@ async function main(): Promise<void> {
     `[post-task] posting · poster=${ctx.address.slice(0, 10)}… to=${args.to.slice(0, 10)}… cap=${args.capability} bounty=${bountySui} SUI deadline=${deadlineMin}min`,
   );
 
+  // Idempotency window: if a retryable error fires AFTER the chain
+  // accepted the post, fetch any TaskPosted event from us within this
+  // window. Anchor *before* the build, with cushion for any clock skew
+  // between our process and the validator.
+  const idempotencyAnchorMs = Date.now() - 5000;
+
   const res = await signAndExecuteWithRetry(
     ctx,
     () =>
@@ -71,7 +77,57 @@ async function main(): Promise<void> {
         parentPolicyId: args["parent-policy"] || null,
       }),
     { showEffects: true, showObjectChanges: true, showEvents: true },
-    { label: "post-task", attempts: 3 },
+    {
+      label: "post-task",
+      attempts: 3,
+      // Idempotency: if our first attempt already produced a TaskPosted
+      // event matching (poster=us, assigned_to, capability) within the
+      // anchor window, return that event's tx digest. Re-executing
+      // would create a duplicate task.
+      alreadyDone: async () => {
+        try {
+          const evResp = await ctx.client.queryEvents({
+            query: {
+              MoveEventType: `${ctx.typeOriginId}::task::TaskPosted`,
+            },
+            order: "descending",
+            limit: 50,
+          });
+          for (const ev of evResp.data) {
+            const p = ev.parsedJson as {
+              poster?: string;
+              assigned_to?: string;
+              primary_capability?: string;
+              posted_at_ms?: string;
+              task_id?: string;
+            };
+            if (!p?.poster || !p.task_id) continue;
+            if (p.poster.toLowerCase() !== ctx.address.toLowerCase()) continue;
+            if (p.assigned_to?.toLowerCase() !== args.to.toLowerCase()) continue;
+            if (p.primary_capability !== args.capability) continue;
+            const postedAt = Number(p.posted_at_ms ?? "0");
+            if (!Number.isFinite(postedAt) || postedAt < idempotencyAnchorMs) continue;
+            // Found a matching post. Synthesize a response with the
+            // tx digest + objectChanges-equivalent so downstream code
+            // can pluck the Task object id.
+            return {
+              digest: ev.id.txDigest,
+              effects: { status: { status: "success" } },
+              objectChanges: [
+                {
+                  type: "created",
+                  objectId: p.task_id,
+                  objectType: `${ctx.packageId}::task::Task`,
+                },
+              ],
+            } as unknown as import("@mysten/sui/jsonRpc").SuiTransactionBlockResponse;
+          }
+        } catch {
+          /* fall through */
+        }
+        return null;
+      },
+    },
   );
 
   if (res.effects?.status?.status !== "success") {

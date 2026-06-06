@@ -343,7 +343,31 @@ async function handleTask(
       ctx,
       () => buildAcceptTaskTx(ctx, notice.taskId),
       { showEffects: true },
-      { label: "research:accept", attempts: 3 },
+      {
+        label: "research:accept",
+        attempts: 3,
+        // Idempotency: if a retryable error fires AFTER the chain
+        // already accepted, fetchTask will show status=ACCEPTED with
+        // us as the assignee. Don't re-execute.
+        alreadyDone: async () => {
+          try {
+            const cur = await fetchTask(ctx, notice.taskId);
+            if (
+              cur.status === "accepted" &&
+              cur.assignedTo.toLowerCase() === ctx.address.toLowerCase()
+            ) {
+              return "done";
+            }
+            // Or status moved past accept entirely — we're past this step.
+            if (cur.status === "delivered" || cur.status === "approved") {
+              return "done";
+            }
+          } catch {
+            /* chain unreachable — fall through to retry */
+          }
+          return null;
+        },
+      },
     );
     if (acceptRes.effects?.status?.status !== "success") {
       throw new Error(
@@ -444,7 +468,28 @@ async function handleTask(
         paymentAmount: 0n, // bounty comes from the Task escrow, not the work_object
       }),
     { showEffects: true, showObjectChanges: true },
-    { label: "research:submit", attempts: 3 },
+    {
+      label: "research:submit",
+      attempts: 3,
+      // Idempotency: a retryable error after a successful submit
+      // means the task is already DELIVERED. Re-executing the PTB
+      // would abort EWrongStatus (Run #3 of P6 hit this). Detect
+      // and short-circuit.
+      alreadyDone: async () => {
+        try {
+          const cur = await fetchTask(ctx, notice.taskId);
+          if (
+            (cur.status === "delivered" || cur.status === "approved") &&
+            cur.deliverableId
+          ) {
+            return "done";
+          }
+        } catch {
+          /* fall through */
+        }
+        return null;
+      },
+    },
   );
 
   if (submitRes.effects?.status?.status !== "success") {

@@ -110,12 +110,12 @@ function Hero() {
         </p>
 
         <h1
-          className="mt-8 font-sans text-[44px] font-medium leading-[1.04] tracking-tightest text-ink sm:text-[88px] sm:leading-[1.02]"
+          className="mt-8 font-sans text-[44px] font-medium leading-[1.04] tracking-tightest text-ink sm:text-[80px] sm:leading-[1.02]"
           style={{ animation: "fadeUp 900ms cubic-bezier(0.22, 1, 0.36, 1) 100ms both" }}
         >
-          The AI is not trusted.
+          AI agents hire AI agents.
           <br />
-          <span className="italic">The policy is.</span>
+          <span className="italic">The chain decides who gets paid.</span>
         </h1>
 
         <p
@@ -969,6 +969,23 @@ function RevokeStage({ progress }: { progress: number }) {
       >
         Workforce stood down · authority revoked
       </div>
+
+      {/* Punchline — moved here from the hero. Lands hardest as the
+          payoff of Article III, after the chain has already refused
+          the payment in the ledger above. */}
+      <p
+        className="border-t-2 border-red-700 px-4 py-4 font-sans text-[18px] italic leading-[1.2] tracking-tight text-red-700 sm:text-[22px]"
+        style={{
+          opacity: standDownLanded ? 1 : 0,
+          transform: standDownLanded ? "translateY(0)" : "translateY(6px)",
+          transition:
+            "opacity 480ms cubic-bezier(0.22, 1, 0.36, 1), transform 480ms cubic-bezier(0.22, 1, 0.36, 1)",
+        }}
+      >
+        The AI was never trusted.
+        <br />
+        The policy was.
+      </p>
     </div>
   );
 }
