@@ -10,8 +10,11 @@ import { fetchWorkObject, type DecodedWorkObject } from "./work-object";
  * The LATEST published package id. Use for `tx.moveCall({ target: ... })`
  * and for any module added in a later version (e.g. operator_policy).
  */
-export const BRIEF_PACKAGE_ID =
-  process.env.NEXT_PUBLIC_BRIEF_PACKAGE_ID ?? "0x0";
+// .trim() guards against stray whitespace on the platform env value —
+// Vercel envs sometimes ship with trailing newlines.
+export const BRIEF_PACKAGE_ID = (
+  process.env.NEXT_PUBLIC_BRIEF_PACKAGE_ID ?? "0x0"
+).trim();
 
 /**
  * The ORIGINAL publish-at id. Sui normalizes on-chain type ids to the
@@ -19,13 +22,15 @@ export const BRIEF_PACKAGE_ID =
  * `queryEvents({ filter: { MoveEventType } })` for any type defined in v1
  * must use this id. Falls back to BRIEF_PACKAGE_ID for pre-upgrade builds.
  */
-export const BRIEF_TYPE_ORIGIN_ID =
+export const BRIEF_TYPE_ORIGIN_ID = (
   process.env.NEXT_PUBLIC_BRIEF_TYPE_ORIGIN_ID ??
   process.env.NEXT_PUBLIC_BRIEF_PACKAGE_ID ??
-  "0x0";
+  "0x0"
+).trim();
 
-export const BRIEF_NETWORK =
-  (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet") as "testnet" | "mainnet";
+export const BRIEF_NETWORK = (
+  process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet"
+).trim() as "testnet" | "mainnet";
 
 /**
  * Sui Explorer URL. suiexplorer.com was retired in 2025; we use suiscan.xyz

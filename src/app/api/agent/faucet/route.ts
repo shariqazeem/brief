@@ -21,7 +21,9 @@ import {
   rateLimitedResponse,
 } from "@/lib/rate-limit";
 
-const AGENT_ADDRESS = process.env.NEXT_PUBLIC_BRIEF_OPERATOR_ADDRESS ?? "";
+const AGENT_ADDRESS = (
+  process.env.NEXT_PUBLIC_BRIEF_OPERATOR_ADDRESS ?? ""
+).trim();
 const SUI_ADDR_RE = /^0x[0-9a-fA-F]{40,64}$/;
 
 type Body = { recipient?: string };

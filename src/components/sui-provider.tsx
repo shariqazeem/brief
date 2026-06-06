@@ -12,9 +12,11 @@ const networks = {
   mainnet: { network: "mainnet" as const, url: getJsonRpcFullnodeUrl("mainnet") },
 };
 
-const DEFAULT_NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet") as
-  | "testnet"
-  | "mainnet";
+// Trim because Vercel's env values can ship with trailing whitespace —
+// a "testnet\n" value would miss the networks lookup and the SDK would
+// throw inside SuiClientProvider.
+const DEFAULT_NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet")
+  .trim() as "testnet" | "mainnet";
 
 export function SuiProvider({ children }: { children: React.ReactNode }) {
   // QueryClient must be created per-client-mount so it isn't shared across

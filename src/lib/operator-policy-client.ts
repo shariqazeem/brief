@@ -13,8 +13,9 @@ import { BRIEF_PACKAGE_ID } from "./brief-client";
 export const SUI_CLOCK_ID = "0x6";
 
 /** The OperatorAgent's wallet address; from .env.local. */
-export const BRIEF_OPERATOR_ADDRESS =
-  process.env.NEXT_PUBLIC_BRIEF_OPERATOR_ADDRESS ?? "0x0";
+export const BRIEF_OPERATOR_ADDRESS = (
+  process.env.NEXT_PUBLIC_BRIEF_OPERATOR_ADDRESS ?? "0x0"
+).trim();
 
 export type OperatorPolicyDecoded = {
   id: string;
