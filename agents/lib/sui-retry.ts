@@ -7,17 +7,18 @@
 // the second can hit a "version mismatch" / "not available for
 // consumption" / equivocation error because the SDK still holds the
 // stale version. The chain itself is fine — we just need to refetch and
-// retry. This helper does that:
+// retry.
 //
-//   1. Catch the specific error signatures (regex on message).
-//   2. Sleep with linear backoff + jitter.
-//   3. Re-build is not needed — calling signAndExecuteTransaction with
-//      the SAME Transaction triggers the SDK to fetch fresh coins on
-//      every call, so a retry uses fresh gas. (The Transaction is
-//      built-but-not-signed until the call.)
+// CRITICAL: @mysten/sui's Transaction object caches its serialized
+// bytes after the first build, so retrying with the SAME Transaction
+// object reuses the stale gas. To force a fresh build (and a fresh
+// gas-coin selection from the wallet's current coin set) the caller
+// passes a `buildTx()` function — we re-invoke it on every attempt.
+// The pre-existing buildPostTaskTx / buildRevokeTx / buildCreatePolicyTx
+// helpers are pure, so wrapping them in `() => buildXyz(...)` is cheap.
 //
 // Used by the planner CLI, the approve / post / revoke scripts, and the
-// inside-process planner-service loop.
+// specialist deliver paths.
 
 import type { Transaction } from "@mysten/sui/transactions";
 import type {
@@ -56,23 +57,31 @@ export type SignWithRetryOpts = {
 };
 
 /**
- * signAndExecuteTransaction(...) with retry-on-coin-race. Throws on the
- * final attempt or on any non-race error (Move aborts, validator
- * rejections, etc.) so callers' abort-fingerprint parsing still works.
+ * signAndExecuteTransaction(...) with retry-on-coin-race. The caller
+ * provides a `buildTx()` function — we INVOKE IT FRESH on every attempt
+ * so a retry uses a freshly-built Transaction with current gas (the
+ * SDK caches built bytes per-Transaction-instance; reusing the same
+ * instance reuses the stale gas selection that caused the race).
+ *
+ * Throws on the final attempt or on any non-race error (Move aborts,
+ * validator rejections, etc.) so callers' abort-fingerprint parsing
+ * still works.
  */
 export async function signAndExecuteWithRetry(
   ctx: AgentContext,
-  tx: Transaction,
+  buildTx: (() => Transaction) | Transaction,
   options: SuiTransactionBlockResponseOptions,
   opts: SignWithRetryOpts = {},
 ): Promise<SuiTransactionBlockResponse> {
   const attempts = Math.max(1, opts.attempts ?? 3);
   const base = opts.baseBackoffMs ?? 700;
   const label = opts.label ?? "tx";
+  const builder = typeof buildTx === "function" ? buildTx : () => buildTx;
 
   let lastErr: unknown;
   for (let i = 1; i <= attempts; i++) {
     try {
+      const tx = builder();
       return await ctx.client.signAndExecuteTransaction({
         signer: ctx.keypair,
         transaction: tx,

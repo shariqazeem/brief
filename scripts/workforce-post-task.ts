@@ -54,23 +54,22 @@ async function main(): Promise<void> {
   const bountyMist = BigInt(Math.floor(bountySui * 1_000_000_000));
   const deadlineMs = BigInt(Date.now() + deadlineMin * 60 * 1000);
 
-  const tx = buildPostTaskTx(ctx, {
-    bountyMist,
-    assignedTo: args.to,
-    title: args.title,
-    specBlob: args.spec ?? "",
-    primaryCapability: args.capability,
-    deadlineMs,
-    parentPolicyId: args["parent-policy"] || null,
-  });
-
   console.log(
     `[post-task] posting · poster=${ctx.address.slice(0, 10)}… to=${args.to.slice(0, 10)}… cap=${args.capability} bounty=${bountySui} SUI deadline=${deadlineMin}min`,
   );
 
   const res = await signAndExecuteWithRetry(
     ctx,
-    tx,
+    () =>
+      buildPostTaskTx(ctx, {
+        bountyMist,
+        assignedTo: args.to,
+        title: args.title,
+        specBlob: args.spec ?? "",
+        primaryCapability: args.capability,
+        deadlineMs,
+        parentPolicyId: args["parent-policy"] || null,
+      }),
     { showEffects: true, showObjectChanges: true, showEvents: true },
     { label: "post-task", attempts: 3 },
   );

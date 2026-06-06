@@ -277,10 +277,9 @@ async function handleTask(
   // ---- 1) Accept (or resume if previously accepted by this wallet) -------
   if (t.status === "open") {
     console.log("[treasury] accepting…");
-    const acceptTx = buildAcceptTaskTx(ctx, notice.taskId);
     const acceptRes = await signAndExecuteWithRetry(
       ctx,
-      acceptTx,
+      () => buildAcceptTaskTx(ctx, notice.taskId),
       { showEffects: true },
       { label: "treasury:accept", attempts: 3 },
     );
@@ -326,32 +325,10 @@ async function handleTask(
   }
 
   // ---- 3) Build the atomic delivery PTB ----------------------------------
-  const tx = new Transaction();
-
-  if (mode === "live") {
-    // Deposit + place each order in the same PTB so a partial failure
-    // reverts the deposit too.
-    dbCtx.db.balanceManager.depositIntoManager(
-      BALANCE_MANAGER_KEY,
-      "SUI",
-      DEPOSIT_SUI,
-    )(tx);
-    for (const p of plan) {
-      dbCtx.db.deepBook.placeLimitOrder({
-        poolKey: POOL_KEY,
-        balanceManagerKey: BALANCE_MANAGER_KEY,
-        clientOrderId: p.clientOrderId,
-        price: p.price,
-        quantity: p.quantitySui,
-        isBid: p.isBid,
-        orderType: OrderType.POST_ONLY,
-        selfMatchingOption: SelfMatchingOptions.SELF_MATCHING_ALLOWED,
-        payWithDeep: false,
-      })(tx);
-    }
-  }
-
-  // Compose + append the deliverable mint + task submit (atomic with orders).
+  // The deliverable is composed once (with the wall-clock metadata it
+  // carries) and the inlinePayload is reused; only the Transaction
+  // object is rebuilt on each retry so a coin-race retry picks up
+  // fresh gas without altering the on-chain effects.
   const deliverable = composeDeliverable({
     notice,
     spec,
@@ -364,21 +341,47 @@ async function handleTask(
   });
   const inlinePayload = new TextEncoder().encode(JSON.stringify(deliverable));
 
-  appendMintAndSubmit(tx, ctx, {
-    taskId: notice.taskId,
-    deliverableOwner: notice.poster,
-    schemaVersion: SCHEMA_VERSION,
-    inlinePayload,
-    walrusBlobId: null,
-    paymentAmount: 0n,
-  });
+  function buildTreasuryDeliverTx(): Transaction {
+    const tx = new Transaction();
+    if (mode === "live") {
+      // Deposit + place each order in the same PTB so a partial failure
+      // reverts the deposit too.
+      dbCtx.db.balanceManager.depositIntoManager(
+        BALANCE_MANAGER_KEY,
+        "SUI",
+        DEPOSIT_SUI,
+      )(tx);
+      for (const p of plan) {
+        dbCtx.db.deepBook.placeLimitOrder({
+          poolKey: POOL_KEY,
+          balanceManagerKey: BALANCE_MANAGER_KEY,
+          clientOrderId: p.clientOrderId,
+          price: p.price,
+          quantity: p.quantitySui,
+          isBid: p.isBid,
+          orderType: OrderType.POST_ONLY,
+          selfMatchingOption: SelfMatchingOptions.SELF_MATCHING_ALLOWED,
+          payWithDeep: false,
+        })(tx);
+      }
+    }
+    appendMintAndSubmit(tx, ctx, {
+      taskId: notice.taskId,
+      deliverableOwner: notice.poster,
+      schemaVersion: SCHEMA_VERSION,
+      inlinePayload,
+      walrusBlobId: null,
+      paymentAmount: 0n,
+    });
+    return tx;
+  }
 
   console.log(
     `[treasury] submitting atomic PTB (mode=${mode}, ${plan.length} order${plan.length === 1 ? "" : "s"} + mint + submit)…`,
   );
   const submitRes = await signAndExecuteWithRetry(
     ctx,
-    tx,
+    buildTreasuryDeliverTx,
     {
       showEffects: true,
       showObjectChanges: true,

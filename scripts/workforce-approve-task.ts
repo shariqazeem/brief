@@ -71,8 +71,9 @@ async function main(): Promise<void> {
   }
 
   const policyId = args.policy ?? t.parentPolicy;
-  const tx =
-    policyId && policyId !== "true"
+  const usingPolicy = policyId && policyId !== "true";
+  const buildTx = () =>
+    usingPolicy
       ? buildApproveWithPolicyTx(ctx, {
           taskId: t.id,
           policyId,
@@ -84,14 +85,14 @@ async function main(): Promise<void> {
         });
 
   console.log(
-    `[approve] sending ${policyId ? "approve_with_policy" : "approve_direct"} · policy=${policyId?.slice(0, 10) ?? "none"} reg=${agentRegId.slice(0, 10)}…`,
+    `[approve] sending ${usingPolicy ? "approve_with_policy" : "approve_direct"} · policy=${policyId?.slice(0, 10) ?? "none"} reg=${agentRegId.slice(0, 10)}…`,
   );
 
   let res;
   try {
     res = await signAndExecuteWithRetry(
       ctx,
-      tx,
+      buildTx,
       { showEffects: true, showEvents: true, showBalanceChanges: true },
       { label: "approve-task", attempts: 3 },
     );

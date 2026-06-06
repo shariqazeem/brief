@@ -17,10 +17,9 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const ctx = makeAgentContext(env);
 
-  const tx = buildRevokeTx({ packageId: env.packageId, policyId: id });
   const res = await signAndExecuteWithRetry(
     ctx,
-    tx,
+    () => buildRevokeTx({ packageId: env.packageId, policyId: id }),
     { showEffects: true, showEvents: true },
     { label: "revoke", attempts: 3 },
   );

@@ -413,36 +413,43 @@ async function postSubtasks(
     );
   }
 
-  // Build the single PTB: split N bounty coins out of gas, then N posts.
-  const tx = new Transaction();
+  // Pre-compute deterministic inputs (bounty amounts, deadlines) so each
+  // build of the Transaction reproduces the same on-chain effects;
+  // only the Transaction object itself is rebuilt on retry so fresh
+  // gas is selected.
   const bountyMists = routes.map((r) =>
     BigInt(Math.floor(r.plan.bounty_sui * 1e9)),
-  );
-  const bountyCoins = tx.splitCoins(
-    tx.gas,
-    bountyMists.map((m) => tx.pure.u64(m)),
   );
   const deadlineMses = routes.map((r) =>
     BigInt(Date.now() + r.plan.deadline_minutes * 60 * 1000),
   );
-  routes.forEach((r, i) => {
-    appendPostTask(tx, ctx, {
-      bountyCoin: bountyCoins[i],
-      assignedTo: r.specialist.address,
-      title: r.plan.title,
-      specBlob: JSON.stringify(r.plan.spec),
-      primaryCapability: r.plan.capability,
-      deadlineMs: deadlineMses[i],
-      parentPolicyId: policyId,
+
+  function buildPostAllTx(): Transaction {
+    const tx = new Transaction();
+    const bountyCoins = tx.splitCoins(
+      tx.gas,
+      bountyMists.map((m) => tx.pure.u64(m)),
+    );
+    routes.forEach((r, i) => {
+      appendPostTask(tx, ctx, {
+        bountyCoin: bountyCoins[i],
+        assignedTo: r.specialist.address,
+        title: r.plan.title,
+        specBlob: JSON.stringify(r.plan.spec),
+        primaryCapability: r.plan.capability,
+        deadlineMs: deadlineMses[i],
+        parentPolicyId: policyId,
+      });
     });
-  });
+    return tx;
+  }
 
   console.log(
     `[planner] posting ${plans.length} sub-task${plans.length === 1 ? "" : "s"} in one atomic PTB…`,
   );
   const res = await signAndExecuteWithRetry(
     ctx,
-    tx,
+    buildPostAllTx,
     {
       showEffects: true,
       showObjectChanges: true,

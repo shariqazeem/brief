@@ -339,10 +339,9 @@ async function handleTask(
 
   if (t.status === "open") {
     console.log("[research] accepting…");
-    const acceptTx = buildAcceptTaskTx(ctx, notice.taskId);
     const acceptRes = await signAndExecuteWithRetry(
       ctx,
-      acceptTx,
+      () => buildAcceptTaskTx(ctx, notice.taskId),
       { showEffects: true },
       { label: "research:accept", attempts: 3 },
     );
@@ -433,18 +432,17 @@ async function handleTask(
     : payloadBytes;
 
   console.log("[research] submitting deliverable…");
-  const submitTx = buildMintAndSubmitTx(ctx, {
-    taskId: notice.taskId,
-    deliverableOwner: notice.poster,
-    schemaVersion: SCHEMA_VERSION,
-    inlinePayload,
-    walrusBlobId,
-    paymentAmount: 0n, // bounty comes from the Task escrow, not the work_object
-  });
-
   const submitRes = await signAndExecuteWithRetry(
     ctx,
-    submitTx,
+    () =>
+      buildMintAndSubmitTx(ctx, {
+        taskId: notice.taskId,
+        deliverableOwner: notice.poster,
+        schemaVersion: SCHEMA_VERSION,
+        inlinePayload,
+        walrusBlobId,
+        paymentAmount: 0n, // bounty comes from the Task escrow, not the work_object
+      }),
     { showEffects: true, showObjectChanges: true },
     { label: "research:submit", attempts: 3 },
   );

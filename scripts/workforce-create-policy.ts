@@ -63,21 +63,20 @@ async function main(): Promise<void> {
     `[create-policy] creating "${name}" budget=${budgetSui} SUI venues=[${venues.join(",")}] expires_in=${durationHours}h agent=${planner.slice(0, 10)}…`,
   );
 
-  const tx = buildCreatePolicyTx({
-    packageId: env.packageId,
-    agent: planner,
-    name,
-    budgetCap,
-    allowedVenues: venues,
-    maxConcentrationBps,
-    expiresAtMs,
-    autoApprovePct,
-    riskTolerance: risk,
-  });
-
   const res = await signAndExecuteWithRetry(
     ctx,
-    tx,
+    () =>
+      buildCreatePolicyTx({
+        packageId: env.packageId,
+        agent: planner,
+        name,
+        budgetCap,
+        allowedVenues: venues,
+        maxConcentrationBps,
+        expiresAtMs,
+        autoApprovePct,
+        riskTolerance: risk,
+      }),
     { showEffects: true, showObjectChanges: true, showEvents: true },
     { label: "create-policy", attempts: 3 },
   );

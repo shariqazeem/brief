@@ -1,12 +1,15 @@
 # Brief — reverse-proxy in front of `next start` on :3000.
 #
-# Substitute {$BRIEF_HOST} with the public hostname before placing this
-# file at /etc/caddy/Caddyfile (deploy.sh handles this). For an
-# sslip.io host like `141-148-215-239.sslip.io` Caddy auto-fetches a
-# Let's Encrypt certificate on first request as long as inbound 80 + 443
-# are reachable from the public internet.
+# The string __BRIEF_HOST__ below is replaced by deploy.sh with the real
+# public hostname before this file is placed at /etc/caddy/Caddyfile.
+# We use a sentinel rather than Caddy's own {$VAR} env-sub because the
+# enclosing braces would otherwise make Caddy parse the directive as a
+# snippet rather than a hostname. For an sslip.io host like
+# 141-148-215-239.sslip.io Caddy auto-fetches a Let's Encrypt cert on
+# first request as long as inbound 80 + 443 are reachable from the
+# public internet.
 
-{$BRIEF_HOST} {
+__BRIEF_HOST__ {
     encode gzip zstd
     log {
         output stdout
