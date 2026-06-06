@@ -452,8 +452,7 @@ function Chapter({
   return (
     <section
       ref={sectionRef}
-      className="relative border-b border-line"
-      style={{ height: "220vh" }}
+      className="relative h-[180vh] border-b border-line sm:h-[220vh]"
     >
       <div className="sticky top-0 flex h-[100svh] items-center overflow-hidden">
         <div className="mx-auto grid w-full max-w-page grid-cols-1 gap-10 px-6 sm:px-10 lg:grid-cols-[260px_1fr] lg:gap-16">

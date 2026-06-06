@@ -430,65 +430,78 @@ function ColdStartFaucet({ address }: { address: string }) {
   if (balanceSui >= COLD_START_MIN_SUI) return null;
 
   return (
-    <div className="mb-10 animate-fade-up border border-amber-300 bg-amber-50/60 p-5">
-      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
-        <div className="flex items-start gap-3">
-          <Droplets
-            className="mt-0.5 h-5 w-5 shrink-0 text-amber-700"
-            strokeWidth={1.75}
-          />
-          <div className="min-w-0">
-            <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-amber-800">
-              Your wallet needs testnet SUI
-            </p>
-            <p className="mt-1 text-[13.5px] leading-relaxed text-ink-2">
-              Brief runs on Sui testnet. You need a tiny bit of SUI to
-              sign the grant transaction. We&apos;ll request{" "}
-              <span className="font-mono">1 SUI</span> from the public faucet
-              for{" "}
-              <span className="font-mono">
-                {short(address, 6, 4)}
-              </span>{" "}
-              — costs nothing, takes a few seconds.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={handleFaucet}
-          disabled={phase === "fetching" || phase === "ok"}
-          className="inline-flex items-center justify-center gap-2 border-2 border-amber-500 bg-amber-500 px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.28em] text-bg transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {phase === "fetching" ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Requesting…
-            </>
-          ) : phase === "ok" ? (
-            <>
-              <Check className="h-3.5 w-3.5" strokeWidth={2} />
-              Sent — refreshing balance…
-            </>
-          ) : (
-            <>
-              <Droplets className="h-3.5 w-3.5" strokeWidth={1.75} />
-              Get 1 SUI
-            </>
-          )}
-        </button>
+    <div className="mb-6 animate-fade-up border-2 border-ink bg-bg-elev">
+      {/* Stepper rail so the cold-start clearly reads as "step 1 of 2". */}
+      <div className="flex items-center gap-2 border-b border-line px-5 py-2.5 font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
+        <span className="inline-flex h-4 w-4 items-center justify-center bg-ink text-bg" aria-hidden>
+          1
+        </span>
+        Get testnet SUI
+        <span className="text-muted/60">→</span>
+        <span className="text-muted/60">2 · Write your brief</span>
       </div>
-      {phase === "err" && errMsg && (
-        <p className="mt-3 border border-red-300 bg-red-50 p-2 font-mono text-[11.5px] text-red-700">
-          {errMsg.slice(0, 200)}
+
+      <div className="px-5 py-5 sm:px-6 sm:py-6">
+        <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-end">
+          <div className="flex items-start gap-3">
+            <Droplets
+              className="mt-1 h-5 w-5 shrink-0 text-amber-700"
+              strokeWidth={1.75}
+            />
+            <div className="min-w-0">
+              <p className="font-sans text-[20px] font-medium leading-snug tracking-tight text-ink sm:text-[22px]">
+                Your wallet needs a sip of testnet SUI.
+              </p>
+              <p className="mt-1.5 max-w-prose text-[13.5px] leading-relaxed text-ink-2">
+                Brief runs on Sui testnet. We&apos;ll request{" "}
+                <span className="font-mono tabular-nums text-ink">1 SUI</span>{" "}
+                from the public faucet for{" "}
+                <span className="font-mono text-ink">{short(address, 6, 4)}</span>{" "}
+                — costs nothing, takes a few seconds. Then the brief form below
+                unlocks.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleFaucet}
+            disabled={phase === "fetching" || phase === "ok"}
+            className="inline-flex items-center justify-center gap-2 border-2 border-ink bg-ink px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.32em] text-bg transition-colors hover:bg-ink-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:border-line disabled:bg-line disabled:text-muted"
+          >
+            {phase === "fetching" ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Requesting…
+              </>
+            ) : phase === "ok" ? (
+              <>
+                <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                Sent · syncing balance
+              </>
+            ) : (
+              <>
+                <Droplets className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Get 1 SUI
+              </>
+            )}
+          </button>
+        </div>
+        {phase === "err" && errMsg && (
+          <p className="mt-4 border border-red-300 bg-red-50/70 p-2.5 font-mono text-[11.5px] text-red-700">
+            {errMsg.slice(0, 200)}
+          </p>
+        )}
+        <p className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-3 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          <span>
+            Balance{" "}
+            <span className="tabular-nums text-ink-2">
+              {balanceSui.toFixed(3)} SUI
+            </span>
+          </span>
+          <span className="text-muted/60">·</span>
+          <span>need ≥ {COLD_START_MIN_SUI.toFixed(2)} to sign</span>
         </p>
-      )}
-      <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-        balance ·{" "}
-        <span className="tabular-nums text-ink-2">
-          {balanceSui.toFixed(3)} SUI
-        </span>{" "}
-        · need ≥ {COLD_START_MIN_SUI.toFixed(2)} SUI to sign the grant
-      </p>
+      </div>
     </div>
   );
 }
@@ -589,7 +602,7 @@ function HireForm({
         on-chain jobs and the specialists pick them up.
       </p>
 
-      <div className="mt-8 space-y-3">
+      <div className="mt-8 space-y-4">
         <label className="block">
           <span className="sr-only">Your brief</span>
           <textarea
@@ -599,10 +612,14 @@ function HireForm({
               "Evaluate this Move contract for a $50,000 DAO grant — recommend approve / reject and probe DeepBook depth to size the disbursement."}
             rows={4}
             maxLength={1600}
-            className="w-full resize-none border border-line bg-bg-elev px-4 py-3 text-base leading-relaxed outline-none transition-colors focus:border-ink"
+            className="w-full resize-none border-2 border-line bg-bg-elev px-4 py-3 text-base leading-relaxed outline-none transition-colors focus:border-ink focus-visible:border-ink"
           />
         </label>
-        <div className="flex flex-wrap gap-2">
+        <div className="-mt-1 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+          <Sparkles className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+          One-click briefs · pick one to start
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
           {WORKFORCE_TEMPLATES.map((t) => {
             const on = t.id === templateId;
             return (
@@ -616,14 +633,39 @@ function HireForm({
                   }
                 }}
                 className={[
-                  "inline-flex items-center gap-1.5 border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
+                  "group relative flex flex-col items-start gap-1.5 border-2 px-4 py-3 text-left transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
                   on
-                    ? "border-ink bg-ink text-bg"
-                    : "border-line text-ink-2 hover:border-line-strong",
+                    ? "border-ink bg-ink/[0.03]"
+                    : "border-line bg-bg-elev hover:-translate-y-px hover:border-line-strong hover:bg-bg-elev",
                 ].join(" ")}
               >
-                <Sparkles className="h-3 w-3" strokeWidth={1.75} />
-                {t.label}
+                <span
+                  aria-hidden
+                  className={[
+                    "absolute inset-x-0 top-0 h-px transition-opacity",
+                    on
+                      ? "bg-emerald-500/70 opacity-100"
+                      : "bg-emerald-500/0 opacity-0 group-hover:bg-emerald-500/40 group-hover:opacity-100",
+                  ].join(" ")}
+                />
+                <p
+                  className={[
+                    "text-[14.5px] font-medium tracking-tight",
+                    on ? "text-ink" : "text-ink-2 group-hover:text-ink",
+                  ].join(" ")}
+                >
+                  {t.label}
+                </p>
+                <p className="text-[12px] leading-snug text-muted">
+                  {t.blurb}
+                </p>
+                <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                  <span className="tabular-nums">
+                    {t.defaults.budgetSui.toFixed(2)} SUI
+                  </span>
+                  <span className="text-muted/60">·</span>
+                  <span>{t.defaults.allowedVenues.join(" · ")}</span>
+                </p>
               </button>
             );
           })}
@@ -658,7 +700,7 @@ function HireForm({
               type="button"
               onClick={() => setBudgetSui(b)}
               className={[
-                "border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
+                "border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink",
                 budgetSui === b
                   ? "border-ink text-ink"
                   : "border-line text-muted hover:text-ink",
@@ -703,7 +745,7 @@ function HireForm({
                       )
                     }
                     className={[
-                      "border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
+                      "border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink",
                       on
                         ? "border-ink bg-ink text-bg"
                         : "border-line text-ink-2 hover:border-line-strong",
@@ -725,7 +767,7 @@ function HireForm({
                     type="button"
                     onClick={() => setExpiryHours(h)}
                     className={[
-                      "border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
+                      "border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink",
                       on
                         ? "border-ink bg-ink text-bg"
                         : "border-line text-ink-2 hover:border-line-strong",
@@ -747,7 +789,7 @@ function HireForm({
                     type="button"
                     onClick={() => setRiskTolerance(r)}
                     className={[
-                      "border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
+                      "border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink",
                       on
                         ? "border-ink bg-ink text-bg"
                         : "border-line text-ink-2 hover:border-line-strong",
@@ -768,16 +810,47 @@ function HireForm({
         </p>
       )}
 
-      <div className="mt-8 flex items-center justify-between gap-4">
-        <p className="max-w-xs font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
-          one signature · creates the policy on chain · auto-dispatches the
-          brief
+      {/* "What happens when you sign" — three concrete beats so the judge
+          isn't signing a black box. Reads top-to-bottom like a contract,
+          not a sales line. */}
+      <div className="mt-8 border-l-2 border-line-strong pl-4">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          When you sign
+        </p>
+        <ol className="mt-2 space-y-1.5 text-[13px] leading-relaxed text-ink-2">
+          <li className="flex gap-2.5">
+            <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-ink/40" aria-hidden />
+            A Move <span className="font-mono text-ink">OperatorPolicy</span> is
+            minted on chain — owned by you, capped at{" "}
+            <span className="font-mono tabular-nums text-ink">
+              {budgetSui.toFixed(2)} SUI
+            </span>
+            , revocable in one signature.
+          </li>
+          <li className="flex gap-2.5">
+            <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-ink/40" aria-hidden />
+            The Planner reads your brief and hires the specialists above; each
+            sub-task posts atomically with escrowed SUI.
+          </li>
+          <li className="flex gap-2.5">
+            <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-ink/40" aria-hidden />
+            When work is delivered you choose{" "}
+            <span className="text-ink">Release</span> or{" "}
+            <span className="text-red-700">Revoke</span> — the chain enforces
+            either way.
+          </li>
+        </ol>
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-[18rem] font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+          one signature · creates the policy · auto-dispatches the brief
         </p>
         <button
           type="button"
           onClick={handleHire}
           disabled={isPending || briefTooShort}
-          className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-6 py-3 font-mono text-[11px] uppercase tracking-[0.32em] text-bg transition-colors hover:bg-ink-2 disabled:cursor-not-allowed disabled:border-line disabled:bg-line disabled:text-muted"
+          className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-6 py-3 font-mono text-[11px] uppercase tracking-[0.32em] text-bg transition-colors hover:bg-ink-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:border-line disabled:bg-line disabled:text-muted"
         >
           {isPending ? (
             <>
@@ -1141,14 +1214,14 @@ function LiveConsole({
       <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
         Workforce · {status ? statusLabel(status) : "ACTIVATING"}
       </p>
-      <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
-        <h1 className="font-sans text-3xl font-medium tracking-tighter sm:text-4xl">
+      <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <h1 className="font-sans text-[28px] font-medium tracking-tightest text-ink sm:text-[40px]">
           {activation.name} is at work.
         </h1>
         <button
           type="button"
           onClick={onReset}
-          className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink"
+          className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink focus-visible:text-ink"
         >
           ← Hire another
         </button>
@@ -1336,7 +1409,7 @@ function PolicyCard({
             </KV>
           </div>
         </div>
-        <div className="flex flex-col items-end justify-between gap-3">
+        <div className="flex flex-col items-start justify-between gap-2 border-t border-line pt-4 sm:items-end sm:border-0 sm:pt-0">
           <span className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
             Kill switch
           </span>
@@ -1345,7 +1418,7 @@ function PolicyCard({
             disabled={!policyId || revokeSubmitting || isRevoked}
             onClick={onRequestRevoke}
             className={[
-              "inline-flex items-center gap-2 border-2 px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.32em] transition-colors",
+              "inline-flex items-center gap-2 border-2 px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.32em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500",
               isRevoked
                 ? "cursor-not-allowed border-line bg-line text-muted"
                 : "border-red-500 bg-bg text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60",
@@ -1462,73 +1535,119 @@ function ChainRefusedCard({
       : named ?? "—";
 
   return (
-    <div className="mt-6 animate-rejection-flash border-2 border-red-500 bg-red-50/70 p-6 text-red-900">
-      <div className="flex items-start gap-3">
-        <AlertTriangle className="h-5 w-5 shrink-0" strokeWidth={1.75} />
-        <div className="min-w-0 flex-1">
-          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-red-700">
-            Chain intervention · settlement refused
-          </p>
-          <h2 className="mt-2 font-sans text-2xl font-medium tracking-tight">
-            The blockchain refused the workforce&apos;s next payment.
+    <div className="mt-6 animate-rejection-flash overflow-hidden border-2 border-red-500 bg-red-50/70 text-red-900">
+      {/* Overline banner — runs full bleed inside the card, mono caps. */}
+      <div className="border-b-2 border-red-500 bg-red-500 px-5 py-2 text-center font-mono text-[10.5px] uppercase tracking-[0.5em] text-bg sm:text-[11px]">
+        ✕ Chain intervention · settlement refused
+      </div>
+
+      <div className="grid gap-6 px-5 py-6 sm:grid-cols-[1fr_auto] sm:items-start sm:gap-8 sm:px-7 sm:py-8">
+        <div className="min-w-0">
+          <h2 className="font-sans text-[28px] font-medium leading-[1.06] tracking-tightest text-red-900 sm:text-[40px]">
+            The blockchain refused
+            <br />
+            the workforce&apos;s payment.
           </h2>
-          <p className="mt-3 max-w-prose text-[13.5px] leading-relaxed text-red-900/90">
+          <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-red-900/85 sm:text-[15px]">
             The Planner tried to settle a delivered task under this policy.
-            The Move runtime checked the policy, saw it was revoked, and
-            aborted the transaction. Funds stay locked in escrow until the
-            task expires; the specialist never gets paid.
+            The Move runtime checked the policy, saw it was revoked, and{" "}
+            <span className="font-medium text-red-900">aborted the entire transaction</span>.
+            Funds stay locked in escrow until the task expires; the specialist
+            never gets paid.
           </p>
-          <dl className="mt-5 grid gap-2 font-mono text-[12px] sm:grid-cols-2">
-            <AbortRow label="Abort code">{codeLabel}</AbortRow>
-            <AbortRow label="Module / function">
-              {abort.abortModule ?? "?"}::{abort.abortFn ?? "?"}
-            </AbortRow>
-            <AbortRow label="Refused on task">
-              <a
-                href={explorerUrl("object", abort.taskId)}
-                target="_blank"
-                rel="noreferrer"
-                className="text-red-900 underline-offset-4 hover:underline"
-              >
-                {short(abort.taskId, 8, 6)}
-              </a>
-            </AbortRow>
-            <AbortRow label="Policy (revoked)">
-              <a
-                href={explorerUrl("object", policyId)}
-                target="_blank"
-                rel="noreferrer"
-                className="text-red-900 underline-offset-4 hover:underline"
-              >
-                {short(policyId, 8, 6)}
-              </a>
-            </AbortRow>
-            {revokeTx && (
-              <AbortRow label="Revoke tx">
-                <a
-                  href={explorerUrl("txblock", revokeTx)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-red-900 underline-offset-4 hover:underline"
-                >
-                  {short(revokeTx, 6, 6)}
-                </a>
-              </AbortRow>
-            )}
-            {abort.txDigest && (
-              <AbortRow label="Aborted attempt">
-                <a
-                  href={explorerUrl("txblock", abort.txDigest)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-red-900 underline-offset-4 hover:underline"
-                >
-                  {short(abort.txDigest, 6, 6)}
-                </a>
-              </AbortRow>
-            )}
-          </dl>
         </div>
+
+        {/* "REFUSED" stamp — visual seal that locks the fingerprint in.
+            The rotation + double-border feels stamped, not rendered. */}
+        <div
+          className="relative shrink-0 self-start"
+          style={{
+            transform: "rotate(-3deg)",
+            transformOrigin: "center center",
+          }}
+        >
+          <div className="border-[3px] border-double border-red-700 bg-red-50 px-5 py-3 text-center">
+            <p className="font-mono text-[10px] uppercase tracking-[0.4em] text-red-700">
+              refused
+            </p>
+            <p className="mt-1 font-mono text-[22px] font-medium tabular-nums text-red-800 sm:text-[26px]">
+              {code ?? "—"}
+            </p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-red-700">
+              {named ?? "EPolicyRevoked"}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Abort fingerprint — read like a chain receipt. */}
+      <dl className="grid gap-3 border-t-2 border-red-300 bg-red-50/40 px-5 py-5 font-mono text-[12px] sm:grid-cols-2 sm:gap-y-2 sm:px-7">
+        <AbortRow label="Abort code">{codeLabel}</AbortRow>
+        <AbortRow label="Module / function">
+          <span className="text-red-900">
+            {abort.abortModule ?? "?"}::{abort.abortFn ?? "?"}
+          </span>
+        </AbortRow>
+        <AbortRow label="Refused on task">
+          <a
+            href={explorerUrl("object", abort.taskId)}
+            target="_blank"
+            rel="noreferrer"
+            className="text-red-900 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-red-700"
+          >
+            {short(abort.taskId, 8, 6)}
+          </a>
+        </AbortRow>
+        <AbortRow label="Policy (revoked)">
+          <a
+            href={explorerUrl("object", policyId)}
+            target="_blank"
+            rel="noreferrer"
+            className="text-red-900 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-red-700"
+          >
+            {short(policyId, 8, 6)}
+          </a>
+        </AbortRow>
+        {revokeTx && (
+          <AbortRow label="Revoke tx">
+            <a
+              href={explorerUrl("txblock", revokeTx)}
+              target="_blank"
+              rel="noreferrer"
+              className="text-red-900 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-red-700"
+            >
+              {short(revokeTx, 6, 6)}
+            </a>
+          </AbortRow>
+        )}
+        {abort.txDigest && (
+          <AbortRow label="Aborted attempt">
+            <a
+              href={explorerUrl("txblock", abort.txDigest)}
+              target="_blank"
+              rel="noreferrer"
+              className="text-red-900 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-red-700"
+            >
+              {short(abort.txDigest, 6, 6)}
+            </a>
+          </AbortRow>
+        )}
+      </dl>
+
+      {/* Punchline — the line that has anchored Article III of the
+          landing now closes the console payoff. Sealed by a 2px ink
+          divider so it reads as the final beat, not body text. */}
+      <div className="border-t-2 border-red-700/80 bg-red-100/40 px-5 py-5 sm:px-7 sm:py-6">
+        <AlertTriangle
+          className="h-4 w-4 text-red-700 sm:hidden"
+          aria-hidden
+          strokeWidth={1.75}
+        />
+        <p className="font-sans text-[20px] font-medium italic leading-[1.15] tracking-tight text-red-700 sm:text-[26px]">
+          The AI was never trusted.
+          <br />
+          The policy was.
+        </p>
       </div>
     </div>
   );
@@ -1591,17 +1710,22 @@ function KillSwitchInFlight({
   }
 
   return (
-    <div className="mt-6 border border-red-300 bg-red-50/60 p-5">
-      <div className="flex items-start gap-3">
+    <div className="mt-6 overflow-hidden border-2 border-red-400 bg-red-50/60">
+      {/* Heartbeat top line — the chain is making up its mind. */}
+      <span
+        className="block h-px w-full bg-red-500 animate-operator-pulse-line"
+        aria-hidden
+      />
+      <div className="flex items-start gap-3 px-5 py-4 sm:px-6 sm:py-5">
         <Loader2
-          className="h-4 w-4 shrink-0 animate-spin text-red-700"
+          className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-red-700"
           strokeWidth={1.75}
         />
         <div className="min-w-0 flex-1">
-          <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-red-700">
+          <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-red-700">
             Policy revoked · awaiting chain refusal
           </p>
-          <p className="mt-1 text-[13.5px] leading-relaxed text-red-900/90">
+          <p className="mt-1.5 text-[14px] italic leading-relaxed text-red-900/90 sm:text-[14.5px]">
             {copy}
           </p>
           <div className="mt-3 flex flex-wrap gap-3 font-mono text-[11px]">
@@ -1610,7 +1734,7 @@ function KillSwitchInFlight({
                 href={explorerUrl("object", policyId)}
                 target="_blank"
                 rel="noreferrer"
-                className="text-red-900 underline-offset-4 hover:underline"
+                className="text-red-900 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-red-700"
               >
                 {short(policyId, 8, 6)}
               </a>
@@ -1816,14 +1940,29 @@ function AgentPresence({
 
   const earned = agent ? Number(agent.totalPaidMist) / 1e9 : 0;
   return (
-    <article className="relative border border-line bg-bg-elev p-4 transition-colors">
+    <article
+      className={[
+        "relative overflow-hidden border bg-bg-elev p-4 transition-colors",
+        status.active ? "border-line-strong" : "border-line",
+      ].join(" ")}
+    >
       {status.active && (
-        <span
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/60 animate-operator-pulse-line"
-          aria-hidden
-        />
+        <>
+          {/* Top heartbeat */}
+          <span
+            className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/60 animate-operator-pulse-line"
+            aria-hidden
+          />
+          {/* Ambient scan — very low-contrast emerald sweep, 7s loop.
+              Sells "this thing is alive" without nagging the eye. */}
+          <span
+            className="pointer-events-none absolute inset-y-0 left-0 w-[40%] -translate-x-full bg-gradient-to-r from-transparent via-emerald-500/[0.04] to-transparent animate-operator-scan"
+            aria-hidden
+          />
+        </>
       )}
-      <div className="flex items-start justify-between gap-3">
+
+      <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
             {role === "planner" ? "Planner" : "Specialist"}
@@ -1844,7 +1983,7 @@ function AgentPresence({
             </p>
             <p
               className={[
-                "font-mono text-[14px] tabular-nums",
+                "font-mono text-[14px] tabular-nums transition-colors",
                 tick ? "animate-value-tick text-emerald-700" : "text-ink",
               ].join(" ")}
             >
@@ -1854,19 +1993,26 @@ function AgentPresence({
         )}
       </div>
 
-      <div className="mt-3 flex items-center gap-2 text-[12.5px]">
+      <div className="relative mt-3 flex items-center gap-2 text-[12.5px]">
         <span
           className={[
-            "inline-block h-1.5 w-1.5 rounded-full",
+            "inline-block h-1.5 w-1.5 shrink-0 rounded-full transition-colors",
             status.active ? "bg-emerald-500 animate-pulse" : "bg-muted",
           ].join(" ")}
           aria-hidden
         />
-        <span className="truncate text-ink-2">{status.text}</span>
+        <span
+          className={[
+            "truncate",
+            status.active ? "italic text-ink-2" : "text-muted",
+          ].join(" ")}
+        >
+          {status.text}
+        </span>
       </div>
 
       {agent && (
-        <div className="mt-3 flex items-center justify-between border-t border-line pt-2 text-[11px]">
+        <div className="relative mt-3 flex items-center justify-between border-t border-line pt-2 text-[11px]">
           <span className="font-mono text-muted">
             paid{" "}
             <span className="tabular-nums text-ink">
@@ -1930,53 +2076,77 @@ function PendingReleaseSection({
   return (
     <section className="mt-8">
       <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-        Pending release · human checkpoint
+        Human checkpoint · your call
       </p>
-      <div className="mt-3 animate-fade-up border-2 border-amber-400/70 bg-amber-50/40 p-6">
-        <div className="grid gap-5 sm:grid-cols-[1fr_auto]">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-amber-800">
-              <span
-                className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"
-                aria-hidden
-              />
-              Workforce delivered · awaiting your decision
-            </div>
-            <p className="text-lg leading-snug tracking-tight">
-              {specialist?.displayName ?? "The specialist"} is waiting to be paid{" "}
-              <span className="font-mono tabular-nums">{bountySui.toFixed(3)} SUI</span>{" "}
-              for{" "}
-              <span className="font-medium">{pending.title}</span>.
-            </p>
-            <p className="max-w-prose text-[12.5px] leading-relaxed text-ink-2">
-              Release the payment and the bounty transfers atomically with a
-              reputation tick. Revoke authority and the chain itself refuses
-              settlement — funds stay locked in escrow.
-            </p>
-            <div className="flex flex-wrap gap-3 text-[11px] font-mono">
-              <KV label="Task">
-                <a
-                  href={explorerUrl("object", pending.id)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-ink underline-offset-4 hover:underline"
-                >
-                  {short(pending.id, 8, 6)}
-                </a>
-              </KV>
-              <KV label="Specialist">
-                <span className="text-ink">
-                  {short(pending.assignedTo, 8, 6)}
-                </span>
-              </KV>
-            </div>
+
+      <div className="mt-3 animate-fade-up overflow-hidden border-2 border-ink bg-bg-elev">
+        {/* Top heartbeat — the chain is waiting for your signal. */}
+        <span
+          className="block h-px w-full bg-amber-400/70 animate-operator-pulse-line"
+          aria-hidden
+        />
+
+        {/* Brief delivery card. */}
+        <div className="px-5 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-amber-800">
+            <span
+              className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"
+              aria-hidden
+            />
+            Delivered · waiting to be paid
           </div>
-          <div className="flex flex-col items-stretch gap-2 sm:min-w-[12rem]">
+          <p className="mt-3 text-[18px] leading-snug tracking-tight text-ink sm:text-[20px]">
+            <span className="font-medium">
+              {specialist?.displayName ?? "The specialist"}
+            </span>{" "}
+            wants{" "}
+            <span className="font-mono tabular-nums text-ink">
+              {bountySui.toFixed(3)} SUI
+            </span>{" "}
+            for{" "}
+            <span className="italic text-ink-2">“{pending.title}”</span>.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-3 text-[11px] font-mono">
+            <KV label="Task">
+              <a
+                href={explorerUrl("object", pending.id)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-ink underline-offset-4 hover:underline"
+              >
+                {short(pending.id, 8, 6)}
+              </a>
+            </KV>
+            <KV label="Specialist">
+              <span className="text-ink">
+                {short(pending.assignedTo, 8, 6)}
+              </span>
+            </KV>
+          </div>
+        </div>
+
+        {/* The two branches — equal visual weight, opposite tones, each
+            with explicit "what happens" copy underneath. The judge can
+            see the consequence of each choice without reading docs. */}
+        <div className="grid border-t border-line sm:grid-cols-2">
+          {/* RELEASE — happy path */}
+          <div className="border-b border-line bg-bg-elev p-5 sm:border-b-0 sm:border-r">
+            <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-ink-2">
+              Release payment
+            </p>
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+              The chain transfers{" "}
+              <span className="font-mono tabular-nums text-ink">
+                {bountySui.toFixed(3)} SUI
+              </span>{" "}
+              to {specialist?.displayName ?? "the specialist"} atomically, bumps
+              their on-chain reputation, and the workforce keeps running.
+            </p>
             <button
               type="button"
               onClick={() => onRelease(pending.id)}
               disabled={isSubmittingThis}
-              className="inline-flex items-center justify-center gap-2 border-2 border-ink bg-ink px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.28em] text-bg transition-colors hover:bg-ink-2 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 border-2 border-ink bg-ink px-5 py-3 font-mono text-[11px] uppercase tracking-[0.28em] text-bg transition-colors hover:bg-ink-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmittingThis ? (
                 <>
@@ -1985,18 +2155,33 @@ function PendingReleaseSection({
                 </>
               ) : (
                 <>
-                  Release payment
-                  <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                  Release{" "}
+                  <span className="font-mono tabular-nums">
+                    {bountySui.toFixed(3)} SUI
+                  </span>
+                  <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
                 </>
               )}
             </button>
+          </div>
+
+          {/* REVOKE — the kill switch */}
+          <div className="bg-red-50/30 p-5">
+            <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-red-700">
+              Revoke authority
+            </p>
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+              You sign once. The chain refuses this payment — and every payment
+              under this policy from now on. Funds stay locked in escrow until
+              the task expires.
+            </p>
             <button
               type="button"
               onClick={onRevoke}
-              className="inline-flex items-center justify-center gap-2 border-2 border-red-500 bg-bg px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.28em] text-red-700 transition-colors hover:bg-red-50"
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 border-2 border-red-500 bg-bg px-5 py-3 font-mono text-[11px] uppercase tracking-[0.28em] text-red-700 transition-colors hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
             >
               <ShieldOff className="h-3.5 w-3.5" strokeWidth={1.75} />
-              Revoke authority
+              Revoke the policy
             </button>
           </div>
         </div>
@@ -2011,11 +2196,11 @@ function PendingReleaseSection({
 
 function Brief({ brief }: { brief: string }) {
   return (
-    <section className="mt-8">
+    <section className="mt-10">
       <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-        The brief
+        The brief · what the workforce is working from
       </p>
-      <blockquote className="mt-3 border-l-2 border-line-strong bg-bg-elev px-5 py-4 text-[15px] leading-relaxed italic text-ink-2">
+      <blockquote className="mt-3 border-l-2 border-ink bg-bg-elev px-5 py-4 text-[15.5px] leading-relaxed italic text-ink-2 sm:px-6 sm:py-5 sm:text-[16px]">
         “{brief}”
       </blockquote>
     </section>
@@ -2113,16 +2298,29 @@ function TaskCard({
   const tone = STATUS_TONE[task.status];
   const bountySui = Number(task.bountyMist) / 1e9;
   return (
-    <li className="animate-land-in" style={{ animationDelay: `${index * 60}ms` }}>
+    <li
+      className="relative animate-land-in"
+      style={{ animationDelay: `${index * 60}ms` }}
+    >
+      {/* Timeline rail — connects rows so the activity reads as a
+          sequence, not a table. Hidden when expanded so the deliverable
+          surface owns the vertical space. */}
+      {!expanded && (
+        <span
+          className="pointer-events-none absolute left-[1.65rem] top-[2.4rem] h-[calc(100%-1.5rem)] w-px bg-line"
+          aria-hidden
+        />
+      )}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-bg/60"
+        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-bg-elev-2/40 focus-visible:bg-bg-elev-2/40 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-ink"
+        aria-expanded={expanded}
       >
         <div className="flex min-w-0 items-center gap-3">
           <span
             className={[
-              "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+              "relative z-10 inline-block h-2 w-2 shrink-0 rounded-full ring-2 ring-bg-elev",
               tone.dot,
             ].join(" ")}
             aria-hidden
@@ -2130,10 +2328,12 @@ function TaskCard({
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
             {task.primaryCapability}
           </span>
-          <span className="truncate text-[14px] text-ink">{task.title}</span>
+          <span className="min-w-0 truncate text-[14px] text-ink">
+            {task.title}
+          </span>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
-          <span className="font-mono text-[11px] tabular-nums text-ink-2">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <span className="hidden font-mono text-[11px] tabular-nums text-ink-2 sm:inline">
             {bountySui.toFixed(2)} SUI
           </span>
           <span
@@ -2464,7 +2664,7 @@ function TreasuryView({ raw }: { raw: string }) {
 function Markdown({ source }: { source: string }) {
   const blocks = useMemo(() => parseMarkdown(source), [source]);
   return (
-    <div className="space-y-4 text-[13.5px] leading-relaxed text-ink-2">
+    <div className="space-y-5 text-[14px] leading-[1.65] text-ink-2 [&_a]:underline-offset-4 [&_a]:transition-colors hover:[&_a]:text-ink">
       {blocks.map((b, i) => (
         <MarkdownBlock key={i} block={b} />
       ))}
@@ -2577,19 +2777,19 @@ function MarkdownBlock({ block }: { block: MdBlock }) {
   switch (block.kind) {
     case "h1":
       return (
-        <h2 className="font-sans text-xl font-medium tracking-tight text-ink">
+        <h2 className="mt-2 border-b border-line pb-2 font-sans text-[22px] font-medium tracking-tightest text-ink">
           {inline(block.text)}
         </h2>
       );
     case "h2":
       return (
-        <h3 className="font-sans text-lg font-medium tracking-tight text-ink">
+        <h3 className="font-sans text-[18px] font-medium tracking-tight text-ink">
           {inline(block.text)}
         </h3>
       );
     case "h3":
       return (
-        <h4 className="font-mono text-[11px] uppercase tracking-[0.22em] text-ink-2">
+        <h4 className="mt-3 font-mono text-[10.5px] uppercase tracking-[0.28em] text-muted">
           {inline(block.text)}
         </h4>
       );
@@ -2597,15 +2797,21 @@ function MarkdownBlock({ block }: { block: MdBlock }) {
       return <p>{inline(block.text)}</p>;
     case "ul":
       return (
-        <ul className="list-inside list-disc space-y-1">
+        <ul className="space-y-1.5 [&>li]:relative [&>li]:pl-4">
           {block.items.map((it, j) => (
-            <li key={j}>{inline(it)}</li>
+            <li key={j}>
+              <span
+                className="absolute left-0 top-[0.7em] inline-block h-1 w-1 rounded-full bg-ink/40"
+                aria-hidden
+              />
+              {inline(it)}
+            </li>
           ))}
         </ul>
       );
     case "ol":
       return (
-        <ol className="list-inside list-decimal space-y-1">
+        <ol className="list-inside list-decimal space-y-1.5 marker:font-mono marker:text-[12px] marker:text-muted">
           {block.items.map((it, j) => (
             <li key={j}>{inline(it)}</li>
           ))}
@@ -2613,7 +2819,7 @@ function MarkdownBlock({ block }: { block: MdBlock }) {
       );
     case "code":
       return (
-        <pre className="overflow-auto border border-line bg-bg-elev p-3 font-mono text-[11.5px] leading-relaxed text-ink">
+        <pre className="overflow-auto border border-line bg-bg-elev-2 p-3 font-mono text-[12px] leading-relaxed text-ink">
           {block.text}
         </pre>
       );
@@ -2621,7 +2827,7 @@ function MarkdownBlock({ block }: { block: MdBlock }) {
       return <hr className="border-line" />;
     case "blockquote":
       return (
-        <blockquote className="border-l-2 border-line-strong pl-3 italic text-ink-2">
+        <blockquote className="border-l-2 border-line-strong bg-bg-elev-2/40 px-4 py-2 italic text-ink-2">
           {inline(block.text)}
         </blockquote>
       );
@@ -2688,55 +2894,92 @@ function RevokeModal({
       document.body.style.overflow = prev;
     };
   }, []);
+
+  // Allow Esc to dismiss.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !submitting) onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel, submitting]);
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 backdrop-blur-sm animate-fade-up"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-5 backdrop-blur-sm animate-fade-up"
       onClick={onCancel}
+      role="dialog"
+      aria-modal
+      aria-labelledby="revoke-title"
     >
       <div
-        className="mx-6 w-full max-w-md border-2 border-red-500 bg-bg-elev p-6 shadow-2xl"
+        className="w-full max-w-md overflow-hidden border-2 border-red-500 bg-bg-elev shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.32em] text-red-700">
-          <ShieldOff className="h-3.5 w-3.5" strokeWidth={1.75} />
+        {/* Banner header — matches the climax card's vocabulary. */}
+        <div className="flex items-center gap-2 border-b-2 border-red-500 bg-red-500 px-5 py-2 font-mono text-[10.5px] uppercase tracking-[0.4em] text-bg">
+          <ShieldOff className="h-3.5 w-3.5" strokeWidth={2} />
           Halt the workforce
         </div>
-        <h3 className="mt-3 font-sans text-2xl font-medium tracking-tight">
-          Revoke {name}?
-        </h3>
-        <p className="mt-3 text-[13.5px] leading-relaxed text-ink-2">
-          You&apos;ll sign one transaction. The chain itself will refuse the
-          workforce&apos;s next settlement — funds stay locked in escrow,
-          the specialist never gets paid. This is final until you grant a
-          new policy.
-        </p>
-        <div className="mt-6 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={submitting}
-            className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink disabled:opacity-50"
+
+        <div className="px-5 py-5 sm:px-6 sm:py-6">
+          <h3
+            id="revoke-title"
+            className="font-sans text-[26px] font-medium leading-[1.1] tracking-tightest text-ink"
           >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={submitting}
-            className="inline-flex items-center gap-2 border-2 border-red-500 bg-red-500 px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.32em] text-bg transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Signing…
-              </>
-            ) : (
-              <>
-                <ShieldOff className="h-3.5 w-3.5" strokeWidth={1.75} />
-                Revoke now
-              </>
-            )}
-          </button>
+            Revoke {name}?
+          </h3>
+          <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
+            You&apos;ll sign one transaction. The chain itself will refuse the
+            workforce&apos;s next settlement — funds stay locked in escrow, the
+            specialist never gets paid. Final until you grant a new policy.
+          </p>
+
+          {/* Tiny preview of the abort fingerprint the judge is about to
+              earn — frames the "this is the actual on-chain receipt"
+              feel without being overbearing. */}
+          <div className="mt-5 grid gap-1 border border-line bg-bg-elev-2/60 px-4 py-3 font-mono text-[10.5px] uppercase tracking-[0.22em] text-muted">
+            <div className="flex items-center justify-between gap-3">
+              <span>The chain will return</span>
+              <span className="text-red-700">EPolicyRevoked · code 3</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span>From</span>
+              <span className="text-ink-2">
+                operator_policy::assert_can_spend
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-6 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={submitting}
+              className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink focus-visible:text-ink disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={submitting}
+              className="inline-flex items-center gap-2 border-2 border-red-500 bg-red-500 px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.32em] text-bg transition-colors hover:bg-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+              autoFocus
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Signing…
+                </>
+              ) : (
+                <>
+                  <ShieldOff className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Revoke now
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
