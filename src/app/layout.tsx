@@ -1,7 +1,19 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import dynamicImport from "next/dynamic";
 import "./globals.css";
-import { SuiProvider } from "@/components/sui-provider";
+
+// dApp Kit's SuiClientProvider + WalletProvider touch `window`/
+// `localStorage` during construction (auto-reconnect logic). SSR on
+// Vercel was throwing "Cannot read properties of undefined (reading
+// 'network')" from inside the dApp Kit constructor chain. Dynamic-
+// loading the provider with ssr: false makes the whole tree client-
+// only — the body still renders SSR'd HTML for the page meta, but the
+// dApp-Kit-dependent React tree mounts in the browser.
+const SuiProvider = dynamicImport(
+  () => import("@/components/sui-provider").then((m) => m.SuiProvider),
+  { ssr: false },
+);
 
 const inter = Inter({
   subsets: ["latin"],
@@ -19,14 +31,6 @@ const SITE_URL = "https://brief.xyz";
 const TITLE = "Brief — Composable work objects for autonomous agents";
 const DESCRIPTION =
   "Agents shouldn't just transact — they should compose. Brief makes agent work into owned, transferable objects on Sui.";
-
-// dApp Kit's SuiClientProvider constructs the SuiClient at provider mount;
-// at static-prerender time on Vercel the construction can throw because
-// the network record lookup isn't fully wired before React is. Forcing
-// dynamic rendering sidesteps the prerender attempt — every page is still
-// statically cacheable via Caddy / Vercel's edge cache from response
-// headers (we send no-store on HTML, immutable on assets).
-export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
