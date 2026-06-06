@@ -31,6 +31,7 @@ import {
 
 import { loadEnv } from "../../lib/env.js";
 import { makeAgentContextFor, type AgentContext } from "../../lib/sui.js";
+import { signAndExecuteWithRetry } from "../../lib/sui-retry.js";
 import { augmentRegistration } from "../lib/agent-registry.js";
 import { startTaskInbox, type TaskPostedNotice } from "../lib/inbox.js";
 import { recoverStuckTasks } from "../lib/recovery.js";
@@ -277,11 +278,12 @@ async function handleTask(
   if (t.status === "open") {
     console.log("[treasury] accepting…");
     const acceptTx = buildAcceptTaskTx(ctx, notice.taskId);
-    const acceptRes = await ctx.client.signAndExecuteTransaction({
-      signer: ctx.keypair,
-      transaction: acceptTx,
-      options: { showEffects: true },
-    });
+    const acceptRes = await signAndExecuteWithRetry(
+      ctx,
+      acceptTx,
+      { showEffects: true },
+      { label: "treasury:accept", attempts: 3 },
+    );
     if (acceptRes.effects?.status?.status !== "success") {
       throw new Error(
         `accept failed: ${acceptRes.effects?.status?.error ?? "unknown"}`,
@@ -374,16 +376,17 @@ async function handleTask(
   console.log(
     `[treasury] submitting atomic PTB (mode=${mode}, ${plan.length} order${plan.length === 1 ? "" : "s"} + mint + submit)…`,
   );
-  const submitRes = await ctx.client.signAndExecuteTransaction({
-    signer: ctx.keypair,
-    transaction: tx,
-    options: {
+  const submitRes = await signAndExecuteWithRetry(
+    ctx,
+    tx,
+    {
       showEffects: true,
       showObjectChanges: true,
       showEvents: true,
       showBalanceChanges: true,
     },
-  });
+    { label: "treasury:submit", attempts: 3 },
+  );
 
   if (submitRes.effects?.status?.status !== "success") {
     throw new Error(

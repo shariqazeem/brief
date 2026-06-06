@@ -10,6 +10,7 @@
 
 import { loadEnv } from "../../lib/env.js";
 import { makeAgentContextFor } from "../../lib/sui.js";
+import { signAndExecuteWithRetry } from "../../lib/sui-retry.js";
 import { callLlm, llmMode } from "../../lib/llm.js";
 import { hasWalrusFunding, uploadToWalrus, walrusEnabled } from "../../lib/walrus.js";
 import {
@@ -339,11 +340,12 @@ async function handleTask(
   if (t.status === "open") {
     console.log("[research] accepting…");
     const acceptTx = buildAcceptTaskTx(ctx, notice.taskId);
-    const acceptRes = await ctx.client.signAndExecuteTransaction({
-      signer: ctx.keypair,
-      transaction: acceptTx,
-      options: { showEffects: true },
-    });
+    const acceptRes = await signAndExecuteWithRetry(
+      ctx,
+      acceptTx,
+      { showEffects: true },
+      { label: "research:accept", attempts: 3 },
+    );
     if (acceptRes.effects?.status?.status !== "success") {
       throw new Error(
         `accept failed: ${acceptRes.effects?.status?.error ?? "unknown"}`,
@@ -440,11 +442,12 @@ async function handleTask(
     paymentAmount: 0n, // bounty comes from the Task escrow, not the work_object
   });
 
-  const submitRes = await ctx.client.signAndExecuteTransaction({
-    signer: ctx.keypair,
-    transaction: submitTx,
-    options: { showEffects: true, showObjectChanges: true },
-  });
+  const submitRes = await signAndExecuteWithRetry(
+    ctx,
+    submitTx,
+    { showEffects: true, showObjectChanges: true },
+    { label: "research:submit", attempts: 3 },
+  );
 
   if (submitRes.effects?.status?.status !== "success") {
     throw new Error(

@@ -66,8 +66,12 @@ pm2 save
 if [[ -n "${BRIEF_HOST:-}" ]]; then
   if command -v caddy >/dev/null 2>&1 && [[ -d /etc/caddy ]]; then
     echo "==> rendering /etc/caddy/Caddyfile for host=$BRIEF_HOST"
-    sudo env BRIEF_HOST="$BRIEF_HOST" sh -c \
-      "envsubst '\$BRIEF_HOST' < $REPO_ROOT/deploy/Caddyfile > /etc/caddy/Caddyfile"
+    # The template uses Caddy's `{$BRIEF_HOST}` syntax — envsubst would
+    # leave the curly braces around the substituted value, which Caddy
+    # then can't parse as a hostname. Use sed with the exact literal
+    # so the substitution removes the braces too.
+    sed "s|{\$BRIEF_HOST}|${BRIEF_HOST}|g" "$REPO_ROOT/deploy/Caddyfile" \
+      | sudo tee /etc/caddy/Caddyfile >/dev/null
     echo "==> caddy reload"
     sudo systemctl reload caddy || sudo systemctl restart caddy
   else
