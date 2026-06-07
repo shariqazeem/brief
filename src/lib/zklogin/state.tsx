@@ -19,6 +19,7 @@ import {
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { useSuiClient } from "@mysten/dapp-kit";
 import {
+  genAddressSeed,
   generateNonce,
   generateRandomness,
   getExtendedEphemeralPublicKey,
@@ -269,7 +270,7 @@ async function completeCallback({
         keyClaimName: "sub",
       }),
     });
-    const j = (await r.json()) as { ok?: boolean; proof?: ZkLoginProof; error?: string };
+    const j = (await r.json()) as { ok?: boolean; proof?: Partial<ZkLoginProof>; error?: string };
     if (!j.ok || !j.proof) {
       setPhase({
         kind: "error",
@@ -277,7 +278,23 @@ async function completeCallback({
       });
       return;
     }
-    proof = j.proof;
+    // The Mysten prover returns proofPoints + issBase64Details +
+    // headerBase64 but NOT addressSeed. We compute it client-side from
+    // the salt + JWT claims so the resulting proof object matches the
+    // BCS shape `getZkLoginSignature` expects. Without this the sig
+    // assembly fails with "Invalid string value: undefined."
+    const addressSeed = genAddressSeed(
+      BigInt(salt),
+      "sub",
+      claims.sub,
+      claims.aud,
+    ).toString();
+    proof = {
+      proofPoints: j.proof.proofPoints!,
+      issBase64Details: j.proof.issBase64Details!,
+      headerBase64: j.proof.headerBase64!,
+      addressSeed,
+    };
   } catch (e) {
     setPhase({
       kind: "error",

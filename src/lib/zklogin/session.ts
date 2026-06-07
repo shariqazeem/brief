@@ -91,7 +91,20 @@ export function loadSession(): ZkLoginSession | null {
   const raw = s.getItem(POST_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as ZkLoginSession;
+    const v = JSON.parse(raw) as ZkLoginSession;
+    // Sanity-check the shape — an older build stored proofs without
+    // the addressSeed field, which BCS-fails at signing time. Drop
+    // those so the user gets a clean re-auth on refresh.
+    if (
+      !v?.proof?.addressSeed ||
+      !v.proof.proofPoints ||
+      !v.proof.issBase64Details ||
+      !v.proof.headerBase64
+    ) {
+      s.removeItem(POST_KEY);
+      return null;
+    }
+    return v;
   } catch {
     return null;
   }
