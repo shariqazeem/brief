@@ -2,6 +2,11 @@
 // signer OR the zkLogin signer. Components that just want "I have a
 // connected account, sign this tx for me" use this so they don't have
 // to know which auth method is active.
+//
+// Lightweight on purpose: the zkLogin signing path dynamic-imports
+// `./flow` only when there's an active zkLogin session AND a tx is
+// actually being signed. Visitors and wallet-only users never pull
+// the prover/Poseidon/BCS code into the bundle.
 
 "use client";
 
@@ -13,7 +18,6 @@ import {
 } from "@mysten/dapp-kit";
 import type { Transaction } from "@mysten/sui/transactions";
 
-import { signAndExecuteWithZkLogin } from "./sign";
 import { useZkLogin } from "./state";
 
 export type AccountSource = "wallet" | "zklogin" | "none";
@@ -50,7 +54,11 @@ export function useAccountSigner(): AccountSigner {
       if (zkSession) {
         void (async () => {
           try {
-            const r = await signAndExecuteWithZkLogin({
+            // Lazy: pull the crypto chunk only when the user is
+            // actually signing. The "Sign in your wallet…" phase in
+            // the mission launcher covers the few-ms chunk download.
+            const flow = await import("./flow");
+            const r = await flow.signTxWithZkLogin({
               sui,
               session: zkSession,
               transaction,

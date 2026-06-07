@@ -2,10 +2,14 @@
 // redirect URI as a URL fragment (#id_token=…) so we never need a
 // server-side code exchange. Per the zkLogin docs the JWT must include
 // the nonce we computed from (ephemeralPublicKey, maxEpoch, randomness).
+//
+// This module is intentionally crypto-free: it only builds the OAuth
+// URL, reads the URL fragment, and base64url-decodes the JWT *payload*
+// (no signature verification — that happens on chain via zkLogin). We
+// avoid importing from `@mysten/sui/zklogin` here so the eager bundle
+// stays small.
 
 "use client";
-
-import { decodeJwt as decodeJwtMysten } from "@mysten/sui/zklogin";
 
 /** Public Google OAuth client id — must be set or the button stays hidden. */
 export const GOOGLE_CLIENT_ID = (
@@ -84,19 +88,30 @@ export type GoogleJwtClaims = {
 
 export function decodeGoogleJwt(jwt: string): GoogleJwtClaims | null {
   try {
-    const payload = decodeJwtMysten(jwt) as Partial<GoogleJwtClaims>;
-    if (typeof payload.sub !== "string" || typeof payload.iss !== "string") {
-      return null;
-    }
-    const aud = Array.isArray(payload.aud) ? payload.aud[0] : payload.aud;
+    const parts = jwt.split(".");
+    if (parts.length < 2) return null;
+    // base64url → base64
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64.padEnd(b64.length + ((4 - (b64.length % 4)) % 4), "=");
+    // base64 → UTF-8 string. `atob` gives bytes-as-latin1; we widen via
+    // TextDecoder so non-ASCII fields (names with accents, etc.) survive.
+    const raw = atob(padded);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    const json = new TextDecoder("utf-8").decode(bytes);
+    const p = JSON.parse(json) as Partial<GoogleJwtClaims> & {
+      aud?: string | string[];
+    };
+    if (typeof p.sub !== "string" || typeof p.iss !== "string") return null;
+    const aud = Array.isArray(p.aud) ? p.aud[0] : p.aud;
     if (typeof aud !== "string") return null;
     return {
-      sub: payload.sub,
+      sub: p.sub,
       aud,
-      iss: payload.iss,
-      email: payload.email,
-      nonce: payload.nonce,
-      exp: payload.exp,
+      iss: p.iss,
+      email: p.email,
+      nonce: p.nonce,
+      exp: p.exp,
     };
   } catch {
     return null;

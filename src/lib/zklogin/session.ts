@@ -12,9 +12,11 @@
 //      maxEpoch + derived address. Persisted under "brief:zkLogin"
 //      and used by the signing path.
 
-"use client";
+// Pure types + sessionStorage helpers. No `@mysten/sui/zklogin` imports
+// live here so this module stays in the eager bundle without dragging
+// the prover/Poseidon/BCS code along.
 
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+"use client";
 
 const PRE_KEY = "brief:zkLogin:pre";
 const POST_KEY = "brief:zkLogin";
@@ -116,11 +118,6 @@ export function saveSession(v: ZkLoginSession): void {
 
 export function clearSession(): void {
   safeStorage()?.removeItem(POST_KEY);
-}
-
-/** Reconstruct the ephemeral keypair from its base64-encoded secret. */
-export function ephemeralKeypairFromSecret(secret: string): Ed25519Keypair {
-  return Ed25519Keypair.fromSecretKey(secret);
 }
 
 /** Returns true if the session is past its maxEpoch and should be wiped. */
