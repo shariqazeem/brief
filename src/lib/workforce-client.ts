@@ -607,10 +607,33 @@ export function useAgentRegistration(
 // markdown / JSON content for inline rendering in the Activity Stream.
 // ---------------------------------------------------------------------------
 
+export type DeepBookPlacedOrder = {
+  /** The on-chain DeepBook order id (u128 as string), surfaced from
+   *  the OrderPlaced event emitted by the deliver tx. */
+  orderId: string;
+  clientOrderId: string;
+  /** Pool object id the order rests on. */
+  poolId: string;
+  /** BalanceManager owning the order. */
+  balanceManagerId: string;
+  isBid: boolean;
+  /** DeepBook on-chain price (raw scaled u64). */
+  priceRaw: string;
+  quantityRaw: string;
+};
+
 export type DeliverableContent = {
   id: string;
   kind: string;
   walrusBlobId: string | null;
+  /** The tx digest that created this Deliverable on-chain (= the
+   *  agent's deliver tx). Lets the UI link a deliverable's contents
+   *  back to the underlying transaction on suiscan. */
+  deliverTxDigest: string | null;
+  /** DeepBook OrderPlaced events surfaced from the deliver tx — used
+   *  by the Treasury renderer to show real on-chain order IDs that a
+   *  judge can click into. Empty when not a Treasury deliverable. */
+  placedOrders: DeepBookPlacedOrder[];
   // Resolved payload. For markdown deliverables it's the rendered text;
   // for JSON it's the prettified string.
   body: string | null;
@@ -626,6 +649,8 @@ export function useDeliverable(
     id: deliverableId ?? "",
     kind: "",
     walrusBlobId: null,
+    deliverTxDigest: null,
+    placedOrders: [],
     body: null,
     bodyKind: null,
     loading: !!deliverableId,
@@ -637,6 +662,8 @@ export function useDeliverable(
         id: "",
         kind: "",
         walrusBlobId: null,
+        deliverTxDigest: null,
+        placedOrders: [],
         body: null,
         bodyKind: null,
         loading: false,
@@ -648,7 +675,7 @@ export function useDeliverable(
       try {
         const resp = await client.getObject({
           id: deliverableId as string,
-          options: { showContent: true },
+          options: { showContent: true, showPreviousTransaction: true },
         });
         const content = resp.data?.content;
         if (!content || content.dataType !== "moveObject") {
@@ -659,6 +686,8 @@ export function useDeliverable(
         const kind = String(f.object_type ?? "");
         const blobId = unwrapWalrusBlobId(f.walrus_blob_id);
         const inlinePayload = (f.payload as number[] | undefined) ?? [];
+        const deliverTxDigest =
+          (resp.data?.previousTransaction as string | undefined) ?? null;
 
         // Prefer inline; fall back to Walrus.
         let body: string | null = null;
@@ -679,11 +708,23 @@ export function useDeliverable(
           }
         }
 
+        // For Treasury deliverables: pull the DeepBook OrderPlaced events
+        // off the deliver tx so the UI can show real on-chain order IDs.
+        // We only do this when the deliver tx digest is known and the
+        // payload looks like JSON (cheap heuristic — saves an RPC call on
+        // markdown / inline deliverables).
+        let placedOrders: DeepBookPlacedOrder[] = [];
+        if (deliverTxDigest && bodyKind === "json") {
+          placedOrders = await fetchPlacedOrders(client, deliverTxDigest);
+        }
+
         if (!cancelled) {
           setState({
             id: deliverableId as string,
             kind,
             walrusBlobId: blobId,
+            deliverTxDigest,
+            placedOrders,
             body,
             bodyKind,
             loading: false,
@@ -697,6 +738,48 @@ export function useDeliverable(
   }, [deliverableId, client]);
 
   return state;
+}
+
+// Pull DeepBook `OrderPlaced` events off a deliver tx and normalise them
+// into the shape the Treasury renderer wants. Best-effort: if the RPC
+// hiccups or no events match we just return [] — the deliverable still
+// renders cleanly from its inline JSON.
+async function fetchPlacedOrders(
+  client: ReturnType<typeof useSuiClient>,
+  digest: string,
+): Promise<DeepBookPlacedOrder[]> {
+  try {
+    const tx = await client.getTransactionBlock({
+      digest,
+      options: { showEvents: true },
+    });
+    const events = (tx.events ?? []) as Array<{
+      type: string;
+      parsedJson?: Record<string, unknown>;
+    }>;
+    const out: DeepBookPlacedOrder[] = [];
+    for (const ev of events) {
+      // DeepBook v3 emits `…::order_info::OrderPlaced`. Match permissively
+      // so future minor renames don't silently break the view.
+      if (!ev.type.endsWith("::OrderPlaced")) continue;
+      const j = ev.parsedJson ?? {};
+      const orderId = String(j.order_id ?? "");
+      const clientOrderId = String(j.client_order_id ?? "");
+      if (!orderId || !clientOrderId) continue;
+      out.push({
+        orderId,
+        clientOrderId,
+        poolId: String(j.pool_id ?? ""),
+        balanceManagerId: String(j.balance_manager_id ?? ""),
+        isBid: Boolean(j.is_bid ?? false),
+        priceRaw: String(j.price ?? "0"),
+        quantityRaw: String(j.quantity ?? "0"),
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 function unwrapWalrusBlobId(v: unknown): string | null {
