@@ -40,6 +40,8 @@ import {
   type WorkforceTask,
   type WorkforceTemplate,
 } from "@/lib/workforce-client";
+import { useAccountSigner } from "@/lib/zklogin/signer";
+import { useZkLogin } from "@/lib/zklogin/state";
 import {
   buildRevokeTx,
   policyStatus,
@@ -68,13 +70,24 @@ type ActivationResult = {
 };
 
 export default function WorkforcePage() {
-  const account = useCurrentAccount();
+  // zkLogin and the dApp Kit wallet are equally valid sources of an
+  // "I have a Sui address" identity. Either one keys the connected
+  // console; if neither is present we render the disconnected screen
+  // that offers both paths.
+  const signer = useAccountSigner();
+  const zk = useZkLogin();
 
   return (
     <main className="min-h-screen bg-bg text-ink">
-      <Header connected={account?.address} />
-      {account ? (
-        <Connected address={account.address} />
+      <Header
+        connected={signer.address ?? undefined}
+        accountLabel={signer.label ?? undefined}
+        source={signer.source}
+      />
+      {zk.phase.kind === "callback" ? (
+        <ZkLoginCallbackPanel />
+      ) : signer.address ? (
+        <Connected address={signer.address} />
       ) : (
         <Disconnected />
       )}
@@ -82,11 +95,52 @@ export default function WorkforcePage() {
   );
 }
 
+// Shown while the OAuth callback is finishing (salt + prove +
+// address derivation). The prover takes 2-4s so this is never blank.
+function ZkLoginCallbackPanel() {
+  return (
+    <section className="mx-auto max-w-page px-6 pt-24 pb-24 sm:px-10">
+      <div className="mx-auto max-w-md border-2 border-ink bg-bg-elev">
+        <span
+          aria-hidden
+          className="block h-px w-full bg-emerald-500/70 animate-operator-pulse-line"
+        />
+        <div className="px-6 py-8 sm:px-8 sm:py-10">
+          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+            Continuing as Google
+          </p>
+          <h2 className="mt-3 font-sans text-[26px] font-medium leading-[1.1] tracking-tightest text-ink">
+            Preparing your secure session…
+          </h2>
+          <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
+            We&apos;re deriving your Sui address and generating a
+            zero-knowledge proof so you can sign transactions without ever
+            handing Google your wallet. This takes a few seconds.
+          </p>
+          <div className="mt-5 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-ink-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Talking to the Mysten testnet prover…
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // =============================================================================
 // Header
 // =============================================================================
 
-function Header({ connected }: { connected?: string }) {
+function Header({
+  connected,
+  accountLabel,
+  source,
+}: {
+  connected?: string;
+  accountLabel?: string;
+  source?: "wallet" | "zklogin" | "none";
+}) {
+  const zk = useZkLogin();
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
       <div className="mx-auto flex max-w-page items-center justify-between gap-4 px-6 py-4 sm:px-10">
@@ -99,11 +153,32 @@ function Header({ connected }: { connected?: string }) {
         </Link>
         <div className="flex items-center gap-3">
           {connected && (
-            <span className="hidden font-mono text-[10px] uppercase tracking-[0.28em] text-ink-2 sm:inline">
-              {short(connected)}
+            <span
+              className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-ink-2 sm:inline-flex"
+              title={accountLabel ?? undefined}
+            >
+              {source === "zklogin" && (
+                <span
+                  aria-hidden
+                  className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600"
+                />
+              )}
+              {source === "zklogin"
+                ? `Google · ${short(connected)}`
+                : short(connected)}
             </span>
           )}
-          <ConnectButton />
+          {source === "zklogin" ? (
+            <button
+              type="button"
+              onClick={zk.signOut}
+              className="border border-line bg-bg-elev px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-ink-2 transition-colors hover:border-line-strong hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink"
+            >
+              Sign out
+            </button>
+          ) : (
+            <ConnectButton />
+          )}
         </div>
       </div>
     </header>
@@ -124,6 +199,9 @@ function Mark() {
 // =============================================================================
 
 function Disconnected() {
+  const zk = useZkLogin();
+  const phaseStarting =
+    zk.phase.kind === "starting" || zk.phase.kind === "callback";
   return (
     <section className="mx-auto max-w-page px-6 pt-12 pb-24 sm:px-10 sm:pt-16">
       <div className="mx-auto max-w-3xl">
@@ -134,12 +212,33 @@ function Disconnected() {
           Hire an autonomous workforce.
         </h1>
         <p className="mt-5 max-w-prose text-lg leading-relaxed text-ink-2">
-          Write one sentence — a brief. Sign once. Specialist AI agents
-          accept the work, deliver it on chain, and get paid. Revoke any
-          time, and the blockchain itself refuses the next payment.
+          A team of AI agents that hire each other, do real work, and get
+          paid on-chain — and you hold a kill switch the blockchain itself
+          enforces. No wallet required: sign in with Google and we&apos;ll
+          give you a real Sui address.
         </p>
-        <div className="mt-8 flex items-center gap-3">
-          <ConnectButton connectText="Connect wallet to hire" />
+        <div className="mt-8 flex flex-wrap items-center gap-3">
+          {zk.available && (
+            <button
+              type="button"
+              onClick={zk.signIn}
+              disabled={phaseStarting}
+              className="inline-flex items-center gap-2.5 border-2 border-ink bg-ink px-5 py-3 font-mono text-[11px] uppercase tracking-[0.32em] text-bg transition-colors hover:bg-ink-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {phaseStarting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Signing in…
+                </>
+              ) : (
+                <>
+                  <GoogleGlyph />
+                  Continue with Google
+                </>
+              )}
+            </button>
+          )}
+          <ConnectButton connectText="Or connect a wallet" />
           <Link
             href="/"
             className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink"
@@ -147,10 +246,58 @@ function Disconnected() {
             ← Back to landing
           </Link>
         </div>
+        {zk.available ? (
+          <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+            zkLogin · no wallet install · the chain verifies your
+            Google identity with zero-knowledge
+          </p>
+        ) : (
+          <p className="mt-4 max-w-prose text-[12.5px] leading-relaxed text-muted">
+            Google sign-in isn&apos;t configured for this deployment. Use
+            a Sui wallet to continue.
+          </p>
+        )}
+        {zk.phase.kind === "error" && (
+          <p className="mt-4 border border-red-300 bg-red-50 p-3 font-mono text-[12px] text-red-700">
+            {zk.phase.msg}
+          </p>
+        )}
       </div>
 
       <RosterAndActivity />
     </section>
+  );
+}
+
+function GoogleGlyph() {
+  // A small Google G mark in mono colour so it sits naturally alongside
+  // the ink button. Designed to be unobtrusive — the button copy carries
+  // the brand recognition.
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 18 18"
+      aria-hidden
+      className="text-bg"
+    >
+      <path
+        fill="currentColor"
+        d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z"
+      />
+      <path
+        fill="currentColor"
+        d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A9 9 0 0 0 9 18Z"
+      />
+      <path
+        fill="currentColor"
+        d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A9 9 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z"
+      />
+      <path
+        fill="currentColor"
+        d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A9 9 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z"
+      />
+    </svg>
   );
 }
 
@@ -645,7 +792,10 @@ function useMissionLauncher({
   launch: (template: WorkforceTemplate) => void;
 } {
   const client = useSuiClient();
-  const { mutate: signAndExecute } = useSignAndExecuteTransaction();
+  // Unified signer — routes the activation tx through dApp Kit OR the
+  // zkLogin path depending on which one is signed in. The button copy
+  // and the cold-start faucet flow are identical for both.
+  const { signAndExecute } = useAccountSigner();
   const [phase, setPhase] = useState<LaunchPhase>({ kind: "idle" });
 
   const launch = useCallback(
@@ -750,28 +900,25 @@ function useMissionLauncher({
           });
           return;
         }
-        signAndExecute(
-          { transaction: tx },
-          {
-            onSuccess: (res) => {
-              onActivated({
-                policyId: null,
-                txDigest: res.digest,
-                templateId: template.id,
-                name: template.defaults.name,
-                brief: briefTrim,
-                budgetSui: template.defaults.budgetSui,
-                allowedVenues: template.defaults.allowedVenues,
-              });
-            },
-            onError: (e) =>
-              setPhase({
-                kind: "error",
-                templateId: template.id,
-                msg: e instanceof Error ? e.message : String(e),
-              }),
+        signAndExecute(tx, {
+          onSuccess: (res) => {
+            onActivated({
+              policyId: null,
+              txDigest: res.digest,
+              templateId: template.id,
+              name: template.defaults.name,
+              brief: briefTrim,
+              budgetSui: template.defaults.budgetSui,
+              allowedVenues: template.defaults.allowedVenues,
+            });
           },
-        );
+          onError: (e) =>
+            setPhase({
+              kind: "error",
+              templateId: template.id,
+              msg: e instanceof Error ? e.message : String(e),
+            }),
+        });
       })();
     },
     [address, client, onActivated, signAndExecute],
@@ -1115,7 +1262,8 @@ function HireForm({
     setRiskTolerance(template.defaults.riskTolerance);
   }, [templateId, template]);
 
-  const { mutate: signAndExecute, isPending } = useSignAndExecuteTransaction();
+  const { signAndExecute } = useAccountSigner();
+  const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // After the policy is created we POST the mission automatically in the
@@ -1142,23 +1290,25 @@ function HireForm({
       setError(e instanceof Error ? e.message : String(e));
       return;
     }
-    signAndExecute(
-      { transaction: tx },
-      {
-        onSuccess: (res) => {
-          onActivated({
-            policyId: null,
-            txDigest: res.digest,
-            templateId,
-            name: template.defaults.name,
-            brief: briefTrim,
-            budgetSui,
-            allowedVenues,
-          });
-        },
-        onError: (e) => setError(e instanceof Error ? e.message : String(e)),
+    setIsPending(true);
+    signAndExecute(tx, {
+      onSuccess: (res) => {
+        setIsPending(false);
+        onActivated({
+          policyId: null,
+          txDigest: res.digest,
+          templateId,
+          name: template.defaults.name,
+          brief: briefTrim,
+          budgetSui,
+          allowedVenues,
+        });
       },
-    );
+      onError: (e) => {
+        setIsPending(false);
+        setError(e instanceof Error ? e.message : String(e));
+      },
+    });
   }
 
   const briefTooShort = brief.trim().length < 4;
@@ -1562,7 +1712,9 @@ function LiveConsole({
   const triedTaskIdsRef = useRef<Set<string>>(new Set());
   const verificationPostedRef = useRef(false);
   const inFlightRef = useRef(false);
-  const { mutate: signRevoke } = useSignAndExecuteTransaction();
+  // The revoke tx goes through the SAME unified signer as the grant —
+  // works whether the owner signed in with Google or a Sui wallet.
+  const { signAndExecute: signRevoke } = useAccountSigner();
 
   function isVerifiedEPolicyRevoked(j: Partial<AbortRecord>): boolean {
     if (j.abortCode !== 3) return false;
@@ -1725,23 +1877,20 @@ function LiveConsole({
       policyId,
     });
     setRevokeSubmitting(true);
-    signRevoke(
-      { transaction: tx },
-      {
-        onSuccess: (res) => {
-          setRevokeTx(res.digest);
-          setRevokeSubmitting(false);
-          setConfirmRevoke(false);
-          // Arm the kill-switch state machine; the useEffect handles
-          // targeting + verification-fallback from here.
-          setKillSwitchPhase("scanning");
-        },
-        onError: (e) => {
-          setRevokeError(e instanceof Error ? e.message : String(e));
-          setRevokeSubmitting(false);
-        },
+    signRevoke(tx, {
+      onSuccess: (res) => {
+        setRevokeTx(res.digest);
+        setRevokeSubmitting(false);
+        setConfirmRevoke(false);
+        // Arm the kill-switch state machine; the useEffect handles
+        // targeting + verification-fallback from here.
+        setKillSwitchPhase("scanning");
       },
-    );
+      onError: (e) => {
+        setRevokeError(e instanceof Error ? e.message : String(e));
+        setRevokeSubmitting(false);
+      },
+    });
   }
 
   // Manual "Release payment" on the pending-release task — exactly the
