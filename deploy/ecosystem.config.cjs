@@ -1,4 +1,4 @@
-// PM2 ecosystem for Brief — four long-running processes that share one
+// PM2 ecosystem for Brief — five long-running processes that share one
 // repo checkout + one .env.local on the VM. Launched by deploy.sh.
 
 const path = require("node:path");
@@ -54,6 +54,21 @@ module.exports = {
       cwd: REPO_ROOT,
       script: "node_modules/.bin/tsx",
       args: tsxArgs("scripts/workforce-planner-service.ts"),
+      max_memory_restart: "400M",
+      autorestart: true,
+      max_restarts: 30,
+      restart_delay: 5000,
+      env: baseEnv,
+    },
+    {
+      // Phase-2 trader: BTC up/down on DeepBook Predict, gated by
+      // the same OperatorPolicy. Shares the TREASURY_SECRET_KEY wallet
+      // so the on-chain AgentRegistration carries both `treasury` and
+      // `predict-btc` capabilities.
+      name: "brief-trader",
+      cwd: REPO_ROOT,
+      script: "node_modules/.bin/tsx",
+      args: tsxArgs("agents/workforce/trader/index.ts"),
       max_memory_restart: "400M",
       autorestart: true,
       max_restarts: 30,
