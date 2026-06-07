@@ -887,11 +887,10 @@ function MissionCardHero({
   const errMsg =
     phase.kind === "error" && phase.templateId === template.id ? phase.msg : null;
   return (
-    <article className="relative mt-4 overflow-hidden border-2 border-ink bg-bg-elev">
-      <span
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/70 animate-operator-pulse-line"
-        aria-hidden
-      />
+    <article className="relative mt-4 border-2 border-ink bg-bg-elev">
+      {/* No heartbeat here — animate-operator-pulse-line is reserved
+          for the live console where it signals real on-chain activity.
+          The gallery surface stays calm and premium. */}
       <div className="grid gap-8 px-6 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.35fr_1fr] lg:items-start">
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-2.5">

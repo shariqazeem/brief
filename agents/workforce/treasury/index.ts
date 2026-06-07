@@ -49,13 +49,18 @@ const POOL_KEY = "SUI_DBUSDC";
 const BALANCE_MANAGER_KEY = "primary";
 
 // Two test orders, sized to clear the pool's 1-SUI minimum when live.
-const DEPOSIT_SUI = 2.2;
 const TEST_ORDER_SIZES_SUI = [1.0, 1.0];
 const PRICE_OFFSETS_BPS = [50, 200]; // sells 0.5% and 2% above mid
 const FALLBACK_MID_PRICE = 2.0;
 
-// Wallet has to cover: deposit + a gas buffer. Below this, drop to simulated.
-const LIVE_MODE_MIN_BALANCE_SUI = 2.5;
+// Sum of TEST_ORDER_SIZES_SUI — the manager needs this much tradable SUI
+// before we can place the orders. Anything already deposited counts.
+const PLANNED_TOTAL_SUI = TEST_ORDER_SIZES_SUI.reduce((a, b) => a + b, 0);
+
+// Headroom above the deposit shortfall the wallet must keep for gas + a
+// little safety. Tuned for the 4-call PTB (deposit + 2 orders + mint +
+// submit) which has historically priced around 0.05–0.10 SUI.
+const GAS_BUFFER_SUI = 0.2;
 
 // ---------------------------------------------------------------------------
 // DeepBook wiring
@@ -143,15 +148,92 @@ function composeOrderPlan(
 
 type ExecutionMode = "live" | "simulated";
 
-async function chooseMode(ctx: AgentContext): Promise<{
+type ModeDecision = {
   mode: ExecutionMode;
-  balanceSui: number;
-}> {
+  /** SUI in the agent's wallet at decision time. */
+  walletSui: number;
+  /** Tradable SUI already free inside the BalanceManager (i.e. NOT
+   *  locked under any resting order). */
+  managerFreeSui: number;
+  /** SUI we expect to recover by cancelling our resting orders on
+   *  POOL_KEY in the same PTB before placing new ones. Each open order
+   *  locks `TEST_ORDER_SIZES_SUI[i]` of base SUI; cancel_all_orders
+   *  releases that collateral back into the manager's free balance
+   *  inside the same atomic PTB, so it's available for the new orders. */
+  recoverableSui: number;
+  /** Number of existing open orders we'll cancel — non-zero means the
+   *  PTB starts with a cancel_all_orders step. */
+  openOrders: number;
+  /** Fresh SUI we need to pull from the wallet into the manager. 0 when
+   *  the manager's free + recoverable already covers the plan. */
+  topupSui: number;
+};
+
+async function readManagerSui(dbCtx: DeepBookCtx): Promise<number> {
+  // Best-effort — if the simulation fails (RPC blip, manager just
+  // created and not indexed yet) we treat it as 0 so the agent errs on
+  // the side of "deposit the plan and run live."
+  try {
+    const r = await dbCtx.db.checkManagerBalanceWithAddress(
+      dbCtx.balanceManagerId,
+      "SUI",
+    );
+    const b = Number(r.balance);
+    return Number.isFinite(b) && b >= 0 ? b : 0;
+  } catch (e) {
+    console.warn(
+      `[treasury] manager-balance check failed, treating as 0: ${(e as Error).message}`,
+    );
+    return 0;
+  }
+}
+
+async function readOpenOrderCount(dbCtx: DeepBookCtx): Promise<number> {
+  try {
+    const orders = await dbCtx.db.accountOpenOrders(
+      POOL_KEY,
+      BALANCE_MANAGER_KEY,
+    );
+    if (Array.isArray(orders)) return orders.length;
+    // The SDK occasionally returns a Set / iterable. Normalise.
+    return Array.from(orders as Iterable<unknown>).length;
+  } catch (e) {
+    console.warn(
+      `[treasury] open-orders check failed, treating as 0: ${(e as Error).message}`,
+    );
+    return 0;
+  }
+}
+
+async function chooseMode(
+  ctx: AgentContext,
+  dbCtx: DeepBookCtx,
+): Promise<ModeDecision> {
   const b = await ctx.client.getBalance({ owner: ctx.address });
-  const balanceSui = Number(b.totalBalance) / 1e9;
+  const walletSui = Number(b.totalBalance) / 1e9;
+  const managerFreeSui = await readManagerSui(dbCtx);
+  const openOrders = await readOpenOrderCount(dbCtx);
+  // Each resting order from a prior run was sized 1 SUI (see
+  // TEST_ORDER_SIZES_SUI). Cancelling them in the same PTB releases
+  // that collateral *before* the new orders consume it — so it counts
+  // toward what the manager can back this run. This is what lets a
+  // single 3 SUI wallet top-up sustain many back-to-back live runs:
+  // cancel + re-place recycles the same ~PLANNED_TOTAL_SUI of
+  // collateral instead of paying a fresh deposit every time.
+  const recoverableSui = Math.min(
+    openOrders * TEST_ORDER_SIZES_SUI[0],
+    PLANNED_TOTAL_SUI,
+  );
+  const effectiveManagerSui = managerFreeSui + recoverableSui;
+  const topupSui = Math.max(0, PLANNED_TOTAL_SUI - effectiveManagerSui);
+  const walletNeeded = topupSui + GAS_BUFFER_SUI;
   return {
-    balanceSui,
-    mode: balanceSui >= LIVE_MODE_MIN_BALANCE_SUI ? "live" : "simulated",
+    mode: walletSui >= walletNeeded ? "live" : "simulated",
+    walletSui,
+    managerFreeSui,
+    recoverableSui,
+    openOrders,
+    topupSui,
   };
 }
 
@@ -199,6 +281,8 @@ function composeDeliverable(args: {
   priceSource: "deepbook" | "fallback";
   plan: OrderPlan[];
   mode: ExecutionMode;
+  topupSui: number;
+  managerSui: number;
   balanceManagerId: string;
   agentAddress: string;
 }): TreasuryDeliverable {
@@ -206,7 +290,7 @@ function composeDeliverable(args: {
   const recommendation =
     args.mode === "live"
       ? `Posted ${args.plan.length} live ask${args.plan.length === 1 ? "" : "s"} totalling ${totalSize.toFixed(2)} SUI at +${PRICE_OFFSETS_BPS.join("/")}bps over mid. Recommended initial disbursement tranche size: ${totalSize.toFixed(2)} SUI; if all fill, ladder by ${totalSize.toFixed(2)} SUI per hour over the disbursement window.`
-      : `Simulated test orders (wallet below live threshold ${LIVE_MODE_MIN_BALANCE_SUI} SUI). Recommended initial disbursement tranche size: ${totalSize.toFixed(2)} SUI based on hardcoded reference price; re-run in live mode after wallet top-up to validate against real DeepBook depth.`;
+      : `Simulated test orders (wallet couldn't cover the ${PLANNED_TOTAL_SUI.toFixed(2)} SUI plan + gas). Recommended initial disbursement tranche size: ${totalSize.toFixed(2)} SUI based on hardcoded reference price; re-run in live mode after wallet top-up to validate against real DeepBook depth.`;
 
   return {
     task_title: args.notice.title,
@@ -234,7 +318,10 @@ function composeDeliverable(args: {
       produced_at_ms: Date.now(),
       schema_version: Number(SCHEMA_VERSION),
       mode: args.mode,
-      deposit_sui: args.mode === "live" ? DEPOSIT_SUI : 0,
+      // Only the fresh SUI we pulled from the wallet on *this* delivery.
+      // The full collateral backing the orders is topup + already-on-deposit
+      // (= PLANNED_TOTAL_SUI in live mode).
+      deposit_sui: args.mode === "live" ? args.topupSui : 0,
       balance_manager: args.balanceManagerId,
     },
   };
@@ -330,9 +417,24 @@ async function handleTask(
   }
 
   // ---- 2) Snapshot pool mid + choose mode --------------------------------
-  const { mode, balanceSui } = await chooseMode(ctx);
+  // Live mode is decided on funds *available to the manager* (wallet +
+  // free balance + collateral we'll recover by cancelling our resting
+  // orders in the same PTB), not the wallet alone. This is what lets a
+  // single 3 SUI wallet top-up back many back-to-back live deliveries:
+  // each run cancels the prior orders, releases that ~2 SUI of locked
+  // collateral, and re-uses it for the new orders instead of paying a
+  // fresh deposit.
+  const decision = await chooseMode(ctx, dbCtx);
+  const {
+    mode,
+    walletSui,
+    managerFreeSui,
+    recoverableSui,
+    openOrders,
+    topupSui,
+  } = decision;
   console.log(
-    `[treasury] mode=${mode} (wallet ${balanceSui.toFixed(3)} SUI; live threshold ${LIVE_MODE_MIN_BALANCE_SUI})`,
+    `[treasury] mode=${mode} (wallet ${walletSui.toFixed(3)} SUI · manager free ${managerFreeSui.toFixed(3)} SUI · ${openOrders} resting orders → recoverable ${recoverableSui.toFixed(3)} SUI · planned ${PLANNED_TOTAL_SUI.toFixed(2)} SUI · topup ${topupSui.toFixed(3)} SUI · gas buffer ${GAS_BUFFER_SUI.toFixed(2)})`,
   );
 
   const midPrice = await readMidPrice(dbCtx);
@@ -363,6 +465,8 @@ async function handleTask(
     priceSource,
     plan,
     mode,
+    topupSui,
+    managerSui: managerFreeSui,
     balanceManagerId: dbCtx.balanceManagerId,
     agentAddress: ctx.address,
   });
@@ -371,13 +475,28 @@ async function handleTask(
   function buildTreasuryDeliverTx(): Transaction {
     const tx = new Transaction();
     if (mode === "live") {
-      // Deposit + place each order in the same PTB so a partial failure
-      // reverts the deposit too.
-      dbCtx.db.balanceManager.depositIntoManager(
-        BALANCE_MANAGER_KEY,
-        "SUI",
-        DEPOSIT_SUI,
-      )(tx);
+      // Optional cancel: if we already have resting orders on this pool
+      // from a previous delivery, cancel them first. cancel_all_orders
+      // releases the locked collateral back into the manager's free
+      // balance *inside this PTB* — the new orders below then consume
+      // that recovered balance instead of waiting for a fresh deposit.
+      if (openOrders > 0) {
+        dbCtx.db.deepBook.cancelAllOrders(
+          POOL_KEY,
+          BALANCE_MANAGER_KEY,
+        )(tx);
+      }
+      // Conditional top-up: only deposit the shortfall the manager
+      // needs to back the planned orders. When recoverable + free
+      // already cover the plan we skip the deposit entirely. This is
+      // what stops the wallet self-draining below the live threshold.
+      if (topupSui > 0) {
+        dbCtx.db.balanceManager.depositIntoManager(
+          BALANCE_MANAGER_KEY,
+          "SUI",
+          topupSui,
+        )(tx);
+      }
       for (const p of plan) {
         dbCtx.db.deepBook.placeLimitOrder({
           poolKey: POOL_KEY,
