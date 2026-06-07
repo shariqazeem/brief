@@ -773,7 +773,10 @@ async function fetchPlacedOrders(
         balanceManagerId: String(j.balance_manager_id ?? ""),
         isBid: Boolean(j.is_bid ?? false),
         priceRaw: String(j.price ?? "0"),
-        quantityRaw: String(j.quantity ?? "0"),
+        // DeepBook v3's OrderPlaced event emits the quantity field as
+        // `placed_quantity` (not `quantity`). Fall back to `quantity`
+        // for compatibility with any older DeepBook version.
+        quantityRaw: String(j.placed_quantity ?? j.quantity ?? "0"),
       });
     }
     return out;
