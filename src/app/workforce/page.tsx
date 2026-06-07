@@ -140,7 +140,6 @@ function Header({
   accountLabel?: string;
   source?: "wallet" | "zklogin" | "none";
 }) {
-  const zk = useZkLogin();
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
       <div className="mx-auto flex max-w-page items-center justify-between gap-4 px-6 py-4 sm:px-10">
@@ -152,36 +151,213 @@ function Header({
           </span>
         </Link>
         <div className="flex items-center gap-3">
-          {connected && (
-            <span
-              className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-ink-2 sm:inline-flex"
-              title={accountLabel ?? undefined}
-            >
-              {source === "zklogin" && (
-                <span
-                  aria-hidden
-                  className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600"
-                />
-              )}
-              {source === "zklogin"
-                ? `Google · ${short(connected)}`
-                : short(connected)}
-            </span>
-          )}
-          {source === "zklogin" ? (
-            <button
-              type="button"
-              onClick={zk.signOut}
-              className="border border-line bg-bg-elev px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-ink-2 transition-colors hover:border-line-strong hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink"
-            >
-              Sign out
-            </button>
+          {connected ? (
+            <AccountChip
+              address={connected}
+              source={source}
+              label={accountLabel}
+            />
           ) : (
             <ConnectButton />
           )}
         </div>
       </div>
     </header>
+  );
+}
+
+// AccountChip — collapsed it reads as a small status pill (Google ·
+// 0x12…ab); clicking expands a panel with the FULL address (copyable),
+// the live SUI balance, a suiscan link, and Sign Out for zkLogin. Same
+// component for both auth paths so the affordance is consistent.
+function AccountChip({
+  address,
+  source,
+  label,
+}: {
+  address: string;
+  source?: "wallet" | "zklogin" | "none";
+  label?: string;
+}) {
+  const zk = useZkLogin();
+  const sui = useSuiClient();
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [balanceSui, setBalanceSui] = useState<number | null>(null);
+
+  // Live balance polling — visible whether the panel is open or not so
+  // there's never a "did the funds land?" mystery.
+  useEffect(() => {
+    let cancelled = false;
+    async function tick() {
+      try {
+        const b = await sui.getBalance({ owner: address });
+        if (!cancelled) setBalanceSui(Number(b.totalBalance) / 1e9);
+      } catch {
+        /* ignore */
+      }
+    }
+    tick();
+    const id = setInterval(tick, 6000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [sui, address]);
+
+  // Click-outside to close.
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (
+        panelRef.current &&
+        !panelRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [open]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* ignore — fallback below shows the address selectable */
+    }
+  }
+
+  const balLabel =
+    balanceSui === null
+      ? "—"
+      : balanceSui < 0.001
+        ? "0 SUI"
+        : `${balanceSui.toFixed(3)} SUI`;
+
+  return (
+    <div className="relative" ref={panelRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 border border-line bg-bg-elev px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-ink-2 transition-colors hover:border-line-strong hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink"
+        title={label ?? "Account"}
+        aria-expanded={open}
+      >
+        {source === "zklogin" && (
+          <span
+            aria-hidden
+            className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600"
+          />
+        )}
+        <span>
+          {source === "zklogin" ? "Google · " : ""}
+          {short(address)}
+        </span>
+        <span aria-hidden className="hidden font-mono text-ink sm:inline">
+          · {balLabel}
+        </span>
+        <ChevronDown
+          className={[
+            "h-3 w-3 transition-transform",
+            open ? "rotate-180" : "",
+          ].join(" ")}
+          strokeWidth={1.75}
+          aria-hidden
+        />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-[calc(100%+6px)] z-40 w-[min(92vw,360px)] border-2 border-ink bg-bg-elev shadow-2xl">
+          <div className="border-b border-line px-4 py-2 font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
+            {source === "zklogin" ? "Google · zkLogin" : "Connected wallet"}
+          </div>
+          <div className="space-y-4 px-4 py-4">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+                Sui address
+              </p>
+              <p
+                className="mt-1 break-all font-mono text-[12px] leading-relaxed text-ink"
+                onClick={() => {
+                  const sel = window.getSelection();
+                  const range = document.createRange();
+                  range.selectNodeContents(
+                    (sel?.anchorNode?.parentElement ??
+                      panelRef.current!) as Node,
+                  );
+                  sel?.removeAllRanges();
+                  sel?.addRange(range);
+                }}
+              >
+                {address}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={copy}
+                  className="inline-flex items-center gap-1.5 border border-ink bg-ink px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-bg transition-colors hover:bg-ink-2 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-3 w-3" strokeWidth={2} />
+                      Copied
+                    </>
+                  ) : (
+                    "Copy address"
+                  )}
+                </button>
+                <a
+                  href={explorerUrl("object", address)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 border border-line bg-bg-elev-2/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-ink transition-colors hover:border-line-strong focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink"
+                >
+                  View on suiscan
+                  <ArrowUpRight
+                    className="h-3 w-3"
+                    strokeWidth={1.75}
+                    aria-hidden
+                  />
+                </a>
+              </div>
+            </div>
+            <div className="border-t border-line pt-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+                Balance · live
+              </p>
+              <p className="mt-1 font-mono text-[16px] tabular-nums text-ink">
+                {balLabel}
+              </p>
+              {balanceSui !== null && balanceSui < 0.05 && (
+                <p className="mt-1 text-[12px] leading-relaxed text-ink-2">
+                  Need testnet SUI? Tap a mission card — we&apos;ll
+                  auto-fund the first time. If the public faucet is
+                  rate-limited, copy the address above and send any
+                  amount of testnet SUI from another wallet.
+                </p>
+              )}
+            </div>
+            {source === "zklogin" && (
+              <div className="border-t border-line pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    zk.signOut();
+                    setOpen(false);
+                  }}
+                  className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-red-700 focus-visible:text-red-700"
+                >
+                  Sign out of Google
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -832,14 +1008,18 @@ function useMissionLauncher({
               retry_after_sec?: number;
             };
             if (!j.ok) {
+              const raw = j.message ?? "";
+              const isRateLimit =
+                /rate.*limit|too many requests|429/i.test(raw) ||
+                !!j.retry_after_sec;
+              const shortAddr = `${address.slice(0, 8)}…${address.slice(-4)}`;
+              const msg = isRateLimit
+                ? `The public testnet faucet is cooling down for your address. Open the account chip (top right) to copy ${shortAddr} and send testnet SUI to it from another wallet — or wait ~30 minutes and tap the mission again.`
+                : raw || "Faucet failed.";
               setPhase({
                 kind: "error",
                 templateId: template.id,
-                msg:
-                  j.message ??
-                  (j.retry_after_sec
-                    ? `Faucet is rate-limited. Try again in ${j.retry_after_sec}s.`
-                    : "Faucet failed."),
+                msg,
               });
               return;
             }
