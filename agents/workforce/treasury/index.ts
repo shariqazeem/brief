@@ -120,7 +120,14 @@ function composeOrderPlan(
     const offset = PRICE_OFFSETS_BPS[i] ?? PRICE_OFFSETS_BPS[PRICE_OFFSETS_BPS.length - 1];
     const price = midPrice * (1 + offset / 10_000);
     out.push({
-      clientOrderId: `${baseNonce}-${i}`,
+      // DeepBook v3's placeLimitOrder parses clientOrderId as a BigInt
+      // (u128). The hyphen-separated `${nonce}-${i}` form we used to
+      // emit was fine in simulated mode but threw "Cannot convert
+      // {…}-{…} to a BigInt" the moment the wallet crossed the live
+      // threshold. Encode the index as the last two digits of a pure
+      // numeric id so each order in a plan stays unique while the
+      // SDK can parse it.
+      clientOrderId: `${baseNonce}${i.toString().padStart(2, "0")}`,
       price: Number(price.toFixed(6)),
       quantitySui: TEST_ORDER_SIZES_SUI[i],
       isBid: false, // sell SUI for DBUSDC — test asks
