@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Droplets,
   Loader2,
+  Pencil,
   ShieldOff,
   Sparkles,
 } from "lucide-react";
@@ -37,6 +38,7 @@ import {
   type RegisteredAgent,
   type TaskStatus,
   type WorkforceTask,
+  type WorkforceTemplate,
 } from "@/lib/workforce-client";
 import {
   buildRevokeTx,
@@ -335,22 +337,50 @@ function Connected({ address }: { address: string }) {
 
   if (!activation) {
     return (
-      <section className="mx-auto max-w-page px-6 pt-12 pb-24 sm:px-10 sm:pt-16">
-        <ColdStartFaucet address={address} />
-        <div className="grid gap-12 lg:grid-cols-[1.2fr_1fr]">
-          <HireForm address={address} onActivated={setActivation} />
+      <section className="mx-auto max-w-page px-6 pt-10 pb-24 sm:px-10 sm:pt-14">
+        <TeachingIntro />
+        <MissionGallery
+          address={address}
+          onActivated={setActivation}
+        />
+        <div className="mt-16 grid gap-12 lg:grid-cols-[1.4fr_1fr]">
+          <RecentActivityPanel />
           <aside className="space-y-8">
             <Roster />
           </aside>
-        </div>
-        <div className="mt-16">
-          <RecentActivityPanel />
         </div>
       </section>
     );
   }
   return (
     <LiveConsole activation={activation} onReset={() => setActivation(null)} />
+  );
+}
+
+// =============================================================================
+// Teaching intro — the single line a first-time visitor reads. The whole
+// console exists in service of these 18 words. Everything below it should
+// teach by doing, not by adding more sentences.
+// =============================================================================
+
+function TeachingIntro() {
+  return (
+    <header className="max-w-3xl">
+      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+        Brief · Sui workforce
+      </p>
+      <h1 className="mt-3 font-sans text-[28px] font-medium leading-[1.12] tracking-tightest text-ink sm:text-[40px]">
+        Hire a team of AI agents.{" "}
+        <span className="text-ink-2">
+          They hire each other, do real work, and get paid on-chain — and you
+          hold a kill switch the blockchain itself enforces.
+        </span>
+      </h1>
+      <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-muted">
+        Tap a mission below — we&apos;ll fund your wallet if it&apos;s empty,
+        you sign once, and you watch the team work. No forms. No writing.
+      </p>
+    </header>
   );
 }
 
@@ -510,6 +540,550 @@ function ColdStartFaucet({ address }: { address: string }) {
 // =============================================================================
 // Single-step hire form — one screen, one signature, mission auto-dispatched
 // =============================================================================
+
+// =============================================================================
+// Mission Gallery — the "tap and watch" front door.
+//
+// A beginner shouldn't have to author or configure anything. The cards
+// below are complete, pre-baked missions. Tapping one = template + brief +
+// budget + capabilities, all chosen at once. If the wallet is empty we
+// fund it from the public testnet faucet and roll straight into signing
+// so the momentum is never broken.
+//
+// `HireForm` (below) is preserved verbatim as the power-user escape
+// hatch — wrapped in a collapsed "Write your own mission" disclosure.
+// =============================================================================
+
+type MissionDetails = {
+  hero: boolean;
+  outcomeHeadline: string;
+  outcomeDetail: string;
+  team: Array<{ role: string; capability?: string; does: string }>;
+  ctaCopy: string;
+};
+
+const MISSION_DETAILS: Record<string, MissionDetails> = {
+  "investment-committee": {
+    hero: true,
+    outcomeHeadline:
+      "A Move audit report you can read + a real DeepBook-sized payout plan.",
+    outcomeDetail:
+      "Three agents work together: the contract gets audited, the report is stored on Walrus, and the disbursement is sized against live SUI/USDC depth on DeepBook v3.",
+    team: [
+      { role: "Planner", does: "splits the mission into jobs and hires the team" },
+      {
+        role: "Research",
+        capability: "research",
+        does: "reads the contract and writes the report",
+      },
+      {
+        role: "Treasury",
+        capability: "treasury",
+        does: "probes pool depth and posts test orders",
+      },
+    ],
+    ctaCopy: "Hire the committee →",
+  },
+  "move-audit-sprint": {
+    hero: false,
+    outcomeHeadline: "A single audit report on a Move package.",
+    outcomeDetail:
+      "Capability surface, abort coverage, public entry points, and concrete risks — stored on Walrus, signed off by Planner.",
+    team: [
+      { role: "Planner", does: "scopes the audit and hires Research" },
+      {
+        role: "Research",
+        capability: "research",
+        does: "reads the source and writes the audit",
+      },
+    ],
+    ctaCopy: "Start the audit →",
+  },
+  "disbursement-planner": {
+    hero: false,
+    outcomeHeadline: "Tranche sizing for a payout, sanity-checked by DeepBook.",
+    outcomeDetail:
+      "Treasury probes real SUI/USDC depth and posts POST_ONLY orders to validate slippage; Planner writes up the recommended schedule.",
+    team: [
+      { role: "Planner", does: "lays out the disbursement schedule" },
+      {
+        role: "Treasury",
+        capability: "treasury",
+        does: "tests pool depth with real orders",
+      },
+    ],
+    ctaCopy: "Plan the disbursement →",
+  },
+};
+
+// Templates we actually show in the gallery. `open-workforce` is a
+// blank-canvas power-user template (empty missionPlaceholder) — it lives
+// behind the "Write your own" disclosure, not in the gallery.
+const GALLERY_TEMPLATE_IDS = [
+  "investment-committee",
+  "move-audit-sprint",
+  "disbursement-planner",
+] as const;
+
+type LaunchPhase =
+  | { kind: "idle" }
+  | { kind: "checking-balance"; templateId: string }
+  | { kind: "funding"; templateId: string }
+  | { kind: "signing"; templateId: string }
+  | { kind: "error"; templateId: string; msg: string };
+
+const COLD_START_FAUCET_TIMEOUT_MS = 15000;
+
+function useMissionLauncher({
+  address,
+  onActivated,
+}: {
+  address: string;
+  onActivated: (a: ActivationResult) => void;
+}): {
+  phase: LaunchPhase;
+  launch: (template: WorkforceTemplate) => void;
+} {
+  const client = useSuiClient();
+  const { mutate: signAndExecute } = useSignAndExecuteTransaction();
+  const [phase, setPhase] = useState<LaunchPhase>({ kind: "idle" });
+
+  const launch = useCallback(
+    (template: WorkforceTemplate) => {
+      void (async () => {
+        const briefTrim = (template.defaults.missionPlaceholder || "").trim();
+        if (briefTrim.length < 4) {
+          setPhase({
+            kind: "error",
+            templateId: template.id,
+            msg: "This mission has no pre-filled brief. Use Write your own.",
+          });
+          return;
+        }
+
+        // 1) Cold-start: top up the wallet from the testnet faucet if
+        //    it can't cover the activation tx's gas. We poll for the
+        //    balance to land before moving on so the next signature
+        //    doesn't fail with InsufficientGas.
+        try {
+          setPhase({ kind: "checking-balance", templateId: template.id });
+          const b = await client.getBalance({ owner: address });
+          const balSui = Number(b.totalBalance) / 1e9;
+          if (balSui < COLD_START_MIN_SUI) {
+            setPhase({ kind: "funding", templateId: template.id });
+            const r = await fetch(apiUrl("/api/agent/faucet"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ recipient: address }),
+            });
+            const j = (await r.json()) as {
+              ok?: boolean;
+              message?: string;
+              retry_after_sec?: number;
+            };
+            if (!j.ok) {
+              setPhase({
+                kind: "error",
+                templateId: template.id,
+                msg:
+                  j.message ??
+                  (j.retry_after_sec
+                    ? `Faucet is rate-limited. Try again in ${j.retry_after_sec}s.`
+                    : "Faucet failed."),
+              });
+              return;
+            }
+            // Poll for the balance to land. The faucet pays into the
+            // user's wallet but the validator needs a moment to settle
+            // the coin. We give it up to 15s.
+            const t0 = Date.now();
+            let funded = false;
+            while (Date.now() - t0 < COLD_START_FAUCET_TIMEOUT_MS) {
+              await new Promise((res) => setTimeout(res, 1200));
+              try {
+                const nb = await client.getBalance({ owner: address });
+                if (Number(nb.totalBalance) / 1e9 >= COLD_START_MIN_SUI) {
+                  funded = true;
+                  break;
+                }
+              } catch {
+                /* keep polling */
+              }
+            }
+            if (!funded) {
+              setPhase({
+                kind: "error",
+                templateId: template.id,
+                msg: "Faucet sent the SUI but it hasn't settled yet — try again in a few seconds.",
+              });
+              return;
+            }
+          }
+        } catch (e) {
+          setPhase({
+            kind: "error",
+            templateId: template.id,
+            msg: e instanceof Error ? e.message : String(e),
+          });
+          return;
+        }
+
+        // 2) Sign the activation. We hand the template's defaults
+        //    verbatim — no UI for the user to override here.
+        setPhase({ kind: "signing", templateId: template.id });
+        let tx;
+        try {
+          tx = buildActivateTx({
+            packageId: BRIEF_PACKAGE_ID,
+            templateId: template.id,
+            name: template.defaults.name,
+            budgetSui: template.defaults.budgetSui,
+            allowedVenues: template.defaults.allowedVenues,
+            expiryHours: template.defaults.expiryHours,
+            riskTolerance: template.defaults.riskTolerance,
+          });
+        } catch (e) {
+          setPhase({
+            kind: "error",
+            templateId: template.id,
+            msg: e instanceof Error ? e.message : String(e),
+          });
+          return;
+        }
+        signAndExecute(
+          { transaction: tx },
+          {
+            onSuccess: (res) => {
+              onActivated({
+                policyId: null,
+                txDigest: res.digest,
+                templateId: template.id,
+                name: template.defaults.name,
+                brief: briefTrim,
+                budgetSui: template.defaults.budgetSui,
+                allowedVenues: template.defaults.allowedVenues,
+              });
+            },
+            onError: (e) =>
+              setPhase({
+                kind: "error",
+                templateId: template.id,
+                msg: e instanceof Error ? e.message : String(e),
+              }),
+          },
+        );
+      })();
+    },
+    [address, client, onActivated, signAndExecute],
+  );
+
+  return { phase, launch };
+}
+
+function MissionGallery({
+  address,
+  onActivated,
+}: {
+  address: string;
+  onActivated: (a: ActivationResult) => void;
+}) {
+  const { phase, launch } = useMissionLauncher({ address, onActivated });
+  const [showWriteYourOwn, setShowWriteYourOwn] = useState(false);
+
+  const templates = GALLERY_TEMPLATE_IDS
+    .map((id) => templateById(id))
+    .filter((t): t is WorkforceTemplate => !!t);
+  const hero = templates.find((t) => MISSION_DETAILS[t.id]?.hero);
+  const others = templates.filter((t) => !MISSION_DETAILS[t.id]?.hero);
+
+  return (
+    <section className="mt-12">
+      <div className="flex items-end justify-between gap-4">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          Tap a mission
+        </p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          {templates.length} ready · sign once
+        </p>
+      </div>
+
+      {hero && (
+        <MissionCardHero
+          template={hero}
+          launch={launch}
+          phase={phase}
+        />
+      )}
+
+      {others.length > 0 && (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {others.map((t) => (
+            <MissionCard key={t.id} template={t} launch={launch} phase={phase} />
+          ))}
+        </div>
+      )}
+
+      <ControlReassurance />
+
+      {/* Escape hatch — power-user / write-your-own. Collapsed by
+          default so a beginner never sees the form. */}
+      <details
+        className="group mt-10 border border-line bg-bg-elev"
+        open={showWriteYourOwn}
+        onToggle={(e) =>
+          setShowWriteYourOwn((e.target as HTMLDetailsElement).open)
+        }
+      >
+        <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-mono text-[10.5px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink focus-visible:text-ink">
+          <span className="inline-flex items-center gap-2">
+            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+            Write your own mission
+          </span>
+          <ChevronDown
+            className="h-3.5 w-3.5 transition-transform group-open:rotate-180"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+        </summary>
+        <div className="border-t border-line px-5 py-6 sm:px-7">
+          <HireForm address={address} onActivated={onActivated} />
+        </div>
+      </details>
+    </section>
+  );
+}
+
+// Calm, ever-present reminder. Sits below the gallery so the user knows
+// the safety net is real before they tap anything.
+function ControlReassurance() {
+  return (
+    <div className="mt-6 flex flex-wrap items-center gap-2.5 border-l-2 border-line-strong pl-4 font-mono text-[10.5px] uppercase tracking-[0.28em] text-ink-2">
+      <ShieldOff
+        className="h-3.5 w-3.5 text-ink"
+        strokeWidth={1.75}
+        aria-hidden
+      />
+      <span>You&apos;re in control · revoke any time</span>
+      <span className="text-muted/60">·</span>
+      <span className="normal-case tracking-normal text-muted">
+        the chain itself refuses the next payment
+      </span>
+    </div>
+  );
+}
+
+function MissionCardHero({
+  template,
+  launch,
+  phase,
+}: {
+  template: WorkforceTemplate;
+  launch: (t: WorkforceTemplate) => void;
+  phase: LaunchPhase;
+}) {
+  const d = MISSION_DETAILS[template.id];
+  const busy =
+    phase.kind !== "idle" && phase.kind !== "error" && phase.templateId === template.id;
+  const errMsg =
+    phase.kind === "error" && phase.templateId === template.id ? phase.msg : null;
+  return (
+    <article className="relative mt-4 overflow-hidden border-2 border-ink bg-bg-elev">
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/70 animate-operator-pulse-line"
+        aria-hidden
+      />
+      <div className="grid gap-8 px-6 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.35fr_1fr] lg:items-start">
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="inline-flex items-center gap-1.5 border border-emerald-600/40 bg-emerald-50/70 px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.28em] text-emerald-800">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600" aria-hidden />
+              Recommended
+            </span>
+            <span className="font-mono text-[9.5px] uppercase tracking-[0.28em] text-muted">
+              {template.defaults.budgetSui.toFixed(2)} SUI cap ·{" "}
+              {template.defaults.allowedVenues.length} specialists
+            </span>
+          </div>
+          <h2 className="font-sans text-[26px] font-medium leading-[1.1] tracking-tightest text-ink sm:text-[32px]">
+            {template.label}
+          </h2>
+          <p className="text-[15px] leading-relaxed text-ink">
+            <span className="font-medium text-ink">You get:</span>{" "}
+            <span className="text-ink-2">{d.outcomeHeadline}</span>
+          </p>
+          <p className="text-[13.5px] leading-relaxed text-muted">
+            {d.outcomeDetail}
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+            The team
+          </p>
+          <ul className="space-y-2.5">
+            {d.team.map((t) => (
+              <TeamRow key={t.role} role={t.role} does={t.does} capability={t.capability} />
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line bg-bg-elev-2/50 px-6 py-5 sm:px-8">
+        <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+          One tap · one signature · auto-funded if empty
+        </p>
+        <MissionLaunchButton
+          onClick={() => launch(template)}
+          busy={busy}
+          phase={phase}
+          ctaCopy={d.ctaCopy}
+          primary
+        />
+      </div>
+
+      {errMsg && (
+        <p className="border-t border-red-200 bg-red-50 px-6 py-3 font-mono text-[11px] text-red-700 sm:px-8">
+          {errMsg.slice(0, 240)}
+        </p>
+      )}
+    </article>
+  );
+}
+
+function MissionCard({
+  template,
+  launch,
+  phase,
+}: {
+  template: WorkforceTemplate;
+  launch: (t: WorkforceTemplate) => void;
+  phase: LaunchPhase;
+}) {
+  const d = MISSION_DETAILS[template.id];
+  if (!d) return null;
+  const busy =
+    phase.kind !== "idle" && phase.kind !== "error" && phase.templateId === template.id;
+  const errMsg =
+    phase.kind === "error" && phase.templateId === template.id ? phase.msg : null;
+  return (
+    <article className="flex flex-col border border-line bg-bg-elev transition-colors hover:border-line-strong">
+      <div className="flex flex-1 flex-col gap-4 px-5 py-6 sm:px-6">
+        <div className="space-y-3">
+          <h3 className="font-sans text-[20px] font-medium leading-[1.15] tracking-tight text-ink">
+            {template.label}
+          </h3>
+          <p className="text-[13.5px] leading-relaxed text-ink-2">
+            <span className="font-medium text-ink">You get:</span> {d.outcomeHeadline}
+          </p>
+        </div>
+
+        <ul className="space-y-1.5">
+          {d.team.map((t) => (
+            <TeamRow
+              key={t.role}
+              role={t.role}
+              does={t.does}
+              capability={t.capability}
+              compact
+            />
+          ))}
+        </ul>
+
+        <p className="mt-auto font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+          {template.defaults.budgetSui.toFixed(2)} SUI cap ·{" "}
+          {template.defaults.allowedVenues.join(" · ")}
+        </p>
+      </div>
+      <div className="flex items-center justify-end border-t border-line bg-bg-elev-2/40 px-5 py-3 sm:px-6">
+        <MissionLaunchButton
+          onClick={() => launch(template)}
+          busy={busy}
+          phase={phase}
+          ctaCopy={d.ctaCopy}
+        />
+      </div>
+      {errMsg && (
+        <p className="border-t border-red-200 bg-red-50 px-5 py-2 font-mono text-[11px] text-red-700 sm:px-6">
+          {errMsg.slice(0, 240)}
+        </p>
+      )}
+    </article>
+  );
+}
+
+function TeamRow({
+  role,
+  does,
+  capability,
+  compact,
+}: {
+  role: string;
+  does: string;
+  capability?: string;
+  compact?: boolean;
+}) {
+  void capability;
+  return (
+    <li
+      className={[
+        "flex items-start gap-2.5",
+        compact ? "text-[12.5px] leading-snug" : "text-[13.5px] leading-relaxed",
+      ].join(" ")}
+    >
+      <span
+        className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-ink/50"
+        aria-hidden
+      />
+      <span>
+        <span className="font-medium text-ink">{role}</span>
+        <span className="text-muted"> · {does}</span>
+      </span>
+    </li>
+  );
+}
+
+function MissionLaunchButton({
+  onClick,
+  busy,
+  phase,
+  ctaCopy,
+  primary,
+}: {
+  onClick: () => void;
+  busy: boolean;
+  phase: LaunchPhase;
+  ctaCopy: string;
+  primary?: boolean;
+}) {
+  let body: React.ReactNode = ctaCopy;
+  if (busy && phase.kind === "checking-balance") body = <BusyChip text="Checking wallet…" />;
+  else if (busy && phase.kind === "funding") body = <BusyChip text="Funding wallet…" />;
+  else if (busy && phase.kind === "signing") body = <BusyChip text="Sign in your wallet…" />;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className={[
+        "inline-flex items-center gap-2 border-2 px-5 py-2.5 font-mono uppercase tracking-[0.3em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60",
+        primary
+          ? "border-ink bg-ink text-bg text-[11px] hover:bg-ink-2 sm:text-[12px]"
+          : "border-ink text-ink text-[10.5px] hover:bg-ink hover:text-bg sm:text-[11px]",
+      ].join(" ")}
+    >
+      {body}
+    </button>
+  );
+}
+
+function BusyChip({ text }: { text: string }) {
+  return (
+    <>
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      {text}
+    </>
+  );
+}
 
 function HireForm({
   address,
@@ -1215,17 +1789,35 @@ function LiveConsole({
       <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
         Workforce · {status ? statusLabel(status) : "ACTIVATING"}
       </p>
-      <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+      <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <h1 className="font-sans text-[28px] font-medium tracking-tightest text-ink sm:text-[40px]">
           {activation.name} is at work.
         </h1>
-        <button
-          type="button"
-          onClick={onReset}
-          className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink focus-visible:text-ink"
-        >
-          ← Hire another
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Always-visible kill-switch affordance. Calm by design —
+              just a small chip framed as control, not as panic. Opens
+              the same RevokeModal as the PolicyCard's primary button.
+              Hidden once revoked / refused since the moment has passed. */}
+          {!policy?.revoked && (
+            <button
+              type="button"
+              onClick={() => setConfirmRevoke(true)}
+              disabled={!policyId || revokeSubmitting}
+              className="inline-flex items-center gap-1.5 border border-line bg-bg-elev px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-ink-2 transition-colors hover:border-red-400 hover:text-red-700 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Revoke the policy — the chain will refuse the next payment."
+            >
+              <ShieldOff className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+              You&apos;re in control · revoke
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onReset}
+            className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink focus-visible:text-ink"
+          >
+            ← Hire another
+          </button>
+        </div>
       </div>
 
       <PolicyCard
@@ -1255,6 +1847,15 @@ function LiveConsole({
           tasks={tasks}
         />
       )}
+
+      <MissionNarrator
+        activation={activation}
+        policyId={policyId}
+        policy={policy}
+        tasks={tasks}
+        roster={roster}
+        chainAbort={chainAbort}
+      />
 
       <Brief brief={activation.brief} />
 
@@ -2206,6 +2807,364 @@ function Brief({ brief }: { brief: string }) {
       </blockquote>
     </section>
   );
+}
+
+// =============================================================================
+// Mission Narrator — teaches a beginner what an "agent economy" is by
+// narrating the real on-chain state in plain language.
+//
+// Every beat is derived from a real source: the OperatorPolicy object,
+// the per-task status, the deliverable's walrus_blob_id, the abort record.
+// We never invent state; if a beat isn't true yet, it just isn't shown.
+// =============================================================================
+
+type NarratorBeatKind =
+  | "granted"
+  | "planner-working"
+  | "task-posted"
+  | "task-accepted"
+  | "task-delivered"
+  | "task-paid"
+  | "task-expired"
+  | "killswitch-armed"
+  | "killswitch-refused";
+
+type NarratorBeat = {
+  kind: NarratorBeatKind;
+  /** Real on-chain timestamp (ms) when known; falls back to render-stable
+   *  derived values so the beat order stays stable across renders. */
+  ts: number;
+  state: "done" | "active" | "pending";
+  title: string;
+  detail?: React.ReactNode;
+};
+
+function MissionNarrator({
+  activation,
+  policyId,
+  policy,
+  tasks,
+  roster,
+  chainAbort,
+}: {
+  activation: ActivationResult;
+  policyId: string | null;
+  policy: OperatorPolicyDecoded | null;
+  tasks: WorkforceTask[];
+  roster: RegisteredAgent[];
+  chainAbort: AbortRecord | null;
+}) {
+  const beats: NarratorBeat[] = [];
+
+  // 1) Funding — happens the moment the user signed the activation tx.
+  beats.push({
+    kind: "granted",
+    ts: 0,
+    state: "done",
+    title: `You gave the team a ${activation.budgetSui.toFixed(2)} SUI budget — minted on-chain.`,
+    detail: (
+      <>
+        A Move <span className="font-mono text-ink">OperatorPolicy</span> object
+        was created. The Planner can spend only inside this envelope, only on
+        these capabilities ({activation.allowedVenues.join(", ")}), and only
+        until expiry.
+        {policyId && (
+          <>
+            {" "}
+            <NarratorLink href={explorerUrl("object", policyId)}>
+              policy
+            </NarratorLink>
+          </>
+        )}{" "}
+        <NarratorLink href={explorerUrl("txblock", activation.txDigest)}>
+          grant tx
+        </NarratorLink>
+      </>
+    ),
+  });
+
+  // 2) Planner-working — between the grant landing and the first task
+  //    being posted, the planner-service is decomposing the brief.
+  const tasksSorted = [...tasks].sort((a, b) =>
+    Number(a.postedAtMs - b.postedAtMs),
+  );
+  if (tasksSorted.length === 0) {
+    beats.push({
+      kind: "planner-working",
+      ts: Date.now(),
+      state: "active",
+      title: "The Planner is splitting your mission into jobs…",
+      detail: (
+        <>
+          The Planner agent reads your brief and decides which specialists to
+          hire and what to ask them. Each sub-task posts on-chain in one
+          atomic transaction.
+        </>
+      ),
+    });
+  }
+
+  // 3) Per-task beats — posted / accepted / delivered / paid. Each is
+  //    derived from the task object's current `status` field.
+  const agentByAddress = new Map(
+    roster.map((a) => [a.address.toLowerCase(), a]),
+  );
+  for (const t of tasksSorted) {
+    const ts = Number(t.postedAtMs);
+    const agent = agentByAddress.get(t.assignedTo.toLowerCase());
+    const specialistName = agent?.displayName ?? capabilityName(t.primaryCapability);
+    const repBadge = agent ? ` (reputation ${agent.reputationScore})` : "";
+    const bountySui = Number(t.bountyMist) / 1e9;
+
+    // POSTED — always emit (the task exists on-chain).
+    beats.push({
+      kind: "task-posted",
+      ts,
+      state: t.status === "open" ? "active" : "done",
+      title: `Planner hired ${specialistName}${repBadge} to ${narratorActionFor(t.primaryCapability)}.`,
+      detail: (
+        <>
+          Sub-task posted with{" "}
+          <span className="font-mono tabular-nums text-ink">
+            {bountySui.toFixed(3)} SUI
+          </span>{" "}
+          escrowed.{" "}
+          <NarratorLink href={explorerUrl("object", t.id)}>task</NarratorLink>{" "}
+          <NarratorLink href={explorerUrl("txblock", t.postedTxDigest)}>
+            tx
+          </NarratorLink>
+        </>
+      ),
+    });
+
+    if (t.status === "accepted" || t.status === "delivered" || t.status === "approved") {
+      beats.push({
+        kind: "task-accepted",
+        ts: ts + 1,
+        state: t.status === "accepted" ? "active" : "done",
+        title: `${specialistName} accepted the job and started working.`,
+        detail:
+          t.primaryCapability === "research" ? (
+            <>Reading the contract and drafting the deliverable…</>
+          ) : t.primaryCapability === "treasury" ? (
+            <>Pulling DeepBook depth and preparing POST_ONLY orders…</>
+          ) : (
+            <>Working the brief and preparing the deliverable…</>
+          ),
+      });
+    }
+
+    if (t.status === "delivered" || t.status === "approved") {
+      beats.push({
+        kind: "task-delivered",
+        ts: ts + 2,
+        state: t.status === "delivered" ? "active" : "done",
+        title: `${specialistName} delivered.`,
+        detail: (
+          <>
+            {t.primaryCapability === "research" ? (
+              <>
+                Audit report written and stored content-addressed — fetchable
+                by anyone, not just from our server.
+              </>
+            ) : t.primaryCapability === "treasury" ? (
+              <>
+                Disbursement plan + real POST_ONLY orders resting on DeepBook
+                v3. Each order id is on-chain.
+              </>
+            ) : (
+              <>Deliverable minted on-chain and attached to the task.</>
+            )}
+            {t.deliverableId && (
+              <>
+                {" "}
+                <NarratorLink href={explorerUrl("object", t.deliverableId)}>
+                  deliverable
+                </NarratorLink>
+              </>
+            )}
+          </>
+        ),
+      });
+    }
+
+    if (t.status === "approved") {
+      beats.push({
+        kind: "task-paid",
+        ts: ts + 3,
+        state: "done",
+        title: `Planner paid ${specialistName} ${bountySui.toFixed(3)} SUI.`,
+        detail: (
+          <>
+            Settled atomically — the policy&apos;s spent counter went up,{" "}
+            {specialistName}&apos;s reputation went up, and a 10% holdback
+            stays parked until expiry.
+          </>
+        ),
+      });
+    }
+
+    if (t.status === "expired") {
+      beats.push({
+        kind: "task-expired",
+        ts: ts + 4,
+        state: "done",
+        title: `${specialistName}'s job expired before delivery — bounty returned to you.`,
+      });
+    }
+  }
+
+  // 4) Kill switch — always present at the bottom; the visual changes if
+  //    the chain has already refused a payment.
+  if (chainAbort) {
+    beats.push({
+      kind: "killswitch-refused",
+      ts: chainAbort.at,
+      state: "done",
+      title: "You hit the kill switch — the blockchain refused the next payment.",
+      detail: (
+        <>
+          The Move runtime aborted with{" "}
+          <span className="font-mono text-red-700">
+            {chainAbort.abortConst ?? "EPolicyRevoked"} · code{" "}
+            {chainAbort.abortCode ?? 3}
+          </span>
+          {chainAbort.txDigest && (
+            <>
+              {" "}
+              <NarratorLink href={explorerUrl("txblock", chainAbort.txDigest)}>
+                abort tx
+              </NarratorLink>
+            </>
+          )}
+          . Funds stayed locked. The agent had no path around it.
+        </>
+      ),
+    });
+  } else {
+    beats.push({
+      kind: "killswitch-armed",
+      ts: Number.MAX_SAFE_INTEGER,
+      state: "pending",
+      title:
+        "You hold the kill switch — revoke any time and the chain refuses the next payment.",
+      detail: (
+        <>
+          Revoke flips the policy&apos;s{" "}
+          <span className="font-mono text-ink">revoked</span> bit. The Move
+          runtime checks that bit before every settlement —{" "}
+          {policy?.revoked
+            ? "this policy is already revoked."
+            : "the agent literally cannot spend if it's set."}
+        </>
+      ),
+    });
+  }
+
+  return (
+    <section
+      aria-label="Mission narrator"
+      className="mt-6 border border-line bg-bg-elev"
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-line px-5 py-2.5 sm:px-6">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          The story so far
+        </p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          live · on chain
+        </p>
+      </header>
+      <ol className="relative px-5 py-5 sm:px-6 sm:py-6">
+        {/* Connecting rail behind the dots — calm vertical spine. */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-[1.55rem] top-7 h-[calc(100%-3.25rem)] w-px bg-line sm:left-[1.85rem]"
+        />
+        {beats.map((b, i) => (
+          <NarratorBeatRow key={`${b.kind}-${b.ts}-${i}`} beat={b} index={i} />
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function NarratorBeatRow({
+  beat,
+  index,
+}: {
+  beat: NarratorBeat;
+  index: number;
+}) {
+  // Dot color encodes state without leaning on a label the user has to read.
+  const dotClass =
+    beat.state === "done"
+      ? "bg-ink ring-2 ring-bg-elev"
+      : beat.state === "active"
+        ? "bg-emerald-500 ring-2 ring-bg-elev animate-pulse"
+        : "bg-bg-elev ring-2 ring-line-strong";
+  return (
+    <li
+      className="relative flex gap-3 animate-fade-up sm:gap-4"
+      style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
+    >
+      <span
+        aria-hidden
+        className={[
+          "relative z-10 mt-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full",
+          dotClass,
+        ].join(" ")}
+      />
+      <div className="min-w-0 pb-5 last:pb-0">
+        <p
+          className={[
+            "text-[14.5px] leading-snug",
+            beat.state === "pending" ? "text-ink-2" : "text-ink",
+            beat.kind === "killswitch-refused" ? "text-red-800" : "",
+          ].join(" ")}
+        >
+          {beat.title}
+        </p>
+        {beat.detail && (
+          <p className="mt-1 text-[13px] leading-relaxed text-muted">
+            {beat.detail}
+          </p>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function NarratorLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-0.5 font-mono text-[11px] uppercase tracking-[0.22em] text-ink underline-offset-4 hover:underline focus-visible:underline"
+    >
+      {children}
+      <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
+    </a>
+  );
+}
+
+function capabilityName(capability: string): string {
+  if (capability === "research" || capability === "audit") return "Research";
+  if (capability === "treasury") return "Treasury";
+  return "a specialist";
+}
+
+function narratorActionFor(capability: string): string {
+  if (capability === "research") return "audit the contract";
+  if (capability === "audit") return "audit the contract";
+  if (capability === "treasury") return "probe DeepBook depth and size the payout";
+  return "work the brief";
 }
 
 // (RosterStrip removed — replaced by the live `Team` panel above the
