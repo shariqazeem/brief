@@ -36,9 +36,16 @@ import {
   useTasksForPolicy,
   type DeepBookPlacedOrder,
   type RegisteredAgent,
+  type StrategyId,
   type TaskStatus,
+  type TraderPersonality,
   type WorkforceTask,
   type WorkforceTemplate,
+  TRADER_PERSONALITIES,
+  dispatchTraderTask,
+  loadTraderIdentity,
+  personalityById,
+  saveTraderIdentity,
 } from "@/lib/workforce-client";
 import { useAccountSigner } from "@/lib/zklogin/signer";
 import { useZkLogin } from "@/lib/zklogin/state";
@@ -67,6 +74,10 @@ type ActivationResult = {
   brief: string;
   budgetSui: number;
   allowedVenues: string[];
+  /** Phase-3 trader product — set when the adoption flow created the
+   *  policy. The workforce path leaves these undefined. */
+  traderName?: string;
+  traderStrategy?: StrategyId;
 };
 
 export default function WorkforcePage() {
@@ -657,27 +668,508 @@ function titleFromCapability(cap: string, kind: "posted" | "approved"): string {
 
 function Connected({ address }: { address: string }) {
   const [activation, setActivation] = useState<ActivationResult | null>(null);
+  // Default surface for Phase-3 is the Trader product. The workforce
+  // engine + UI are preserved verbatim and accessible via ?legacy=1 —
+  // keep the path live so we can re-enable it instantly.
+  const legacy =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("legacy") === "1";
 
   if (!activation) {
     return (
       <section className="mx-auto max-w-page px-6 pt-10 pb-24 sm:px-10 sm:pt-14">
-        <TeachingIntro />
-        <MissionGallery
-          address={address}
-          onActivated={setActivation}
-        />
-        <div className="mt-16 grid gap-12 lg:grid-cols-[1.4fr_1fr]">
-          <RecentActivityPanel />
-          <aside className="space-y-8">
-            <Roster />
-          </aside>
-        </div>
+        {legacy ? (
+          <>
+            <TeachingIntro />
+            <MissionGallery
+              address={address}
+              onActivated={setActivation}
+            />
+            <div className="mt-16 grid gap-12 lg:grid-cols-[1.4fr_1fr]">
+              <RecentActivityPanel />
+              <aside className="space-y-8">
+                <Roster />
+              </aside>
+            </div>
+          </>
+        ) : (
+          <>
+            <TraderIntro />
+            <TraderGallery address={address} onActivated={setActivation} />
+          </>
+        )}
       </section>
+    );
+  }
+  if (activation.traderStrategy) {
+    return (
+      <TraderDashboard
+        activation={activation}
+        onReset={() => setActivation(null)}
+      />
     );
   }
   return (
     <LiveConsole activation={activation} onReset={() => setActivation(null)} />
   );
+}
+
+// =============================================================================
+// Phase-3 product — Adopt-a-trader. Reuses the policy/zkLogin/cold-start
+// substrate; the on-chain action becomes a DeepBook Predict BTC up/down
+// mint signed by the same OperatorPolicy the user grants.
+// =============================================================================
+
+function TraderIntro() {
+  return (
+    <header className="max-w-3xl">
+      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+        Brief · adopt an AI trader
+      </p>
+      <h1 className="mt-3 font-sans text-[28px] font-medium leading-[1.12] tracking-tightest text-ink sm:text-[40px]">
+        Adopt a trader.{" "}
+        <span className="text-ink-2">
+          Pick a personality, give it a name, set how much it can bet on
+          your behalf — and watch it win or lose on chain. You hold the
+          leash, the blockchain enforces it.
+        </span>
+      </h1>
+      <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-muted">
+        Each trader takes BTC up/down positions on DeepBook Predict
+        within a chain-enforced budget. One signature adopts. One tap
+        yanks the leash.
+      </p>
+    </header>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trader Gallery — three personalities → name → leash → adopt in one PTB
+// ---------------------------------------------------------------------------
+
+type AdoptPhase =
+  | { kind: "idle" }
+  | { kind: "checking-balance" }
+  | { kind: "funding" }
+  | { kind: "signing" }
+  | { kind: "dispatching" }
+  | { kind: "error"; msg: string };
+
+const TRADER_BUDGET_PRESETS_SUI = [0.5, 1, 2, 5];
+const TRADER_DEFAULT_BUDGET_SUI = 1;
+const TRADER_EXPIRY_HOURS = 12;
+const TRADER_FAUCET_TIMEOUT_MS = 15_000;
+
+function useTraderLauncher({
+  address,
+  onActivated,
+}: {
+  address: string;
+  onActivated: (a: ActivationResult) => void;
+}): {
+  phase: AdoptPhase;
+  adopt: (args: {
+    personality: TraderPersonality;
+    traderName: string;
+    budgetSui: number;
+  }) => void;
+} {
+  const client = useSuiClient();
+  const { signAndExecute } = useAccountSigner();
+  const [phase, setPhase] = useState<AdoptPhase>({ kind: "idle" });
+
+  const adopt = useCallback(
+    ({
+      personality,
+      traderName,
+      budgetSui,
+    }: {
+      personality: TraderPersonality;
+      traderName: string;
+      budgetSui: number;
+    }) => {
+      void (async () => {
+        const name = traderName.trim().slice(0, 32) || personality.label;
+        // 1) Cold-start funding — identical to the mission launcher.
+        try {
+          setPhase({ kind: "checking-balance" });
+          const b = await client.getBalance({ owner: address });
+          if (Number(b.totalBalance) / 1e9 < COLD_START_MIN_SUI) {
+            setPhase({ kind: "funding" });
+            const r = await fetch(apiUrl("/api/agent/faucet"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ recipient: address }),
+            });
+            const j = (await r.json()) as {
+              ok?: boolean;
+              message?: string;
+              retry_after_sec?: number;
+            };
+            if (!j.ok) {
+              const isRateLimit =
+                /rate.*limit|too many requests|429/i.test(j.message ?? "") ||
+                !!j.retry_after_sec;
+              setPhase({
+                kind: "error",
+                msg: isRateLimit
+                  ? `The public testnet faucet is cooling down — open the account chip (top right) to copy your address and send any amount of testnet SUI, or wait ~30 min.`
+                  : (j.message ?? "Faucet failed."),
+              });
+              return;
+            }
+            const t0 = Date.now();
+            let funded = false;
+            while (Date.now() - t0 < TRADER_FAUCET_TIMEOUT_MS) {
+              await new Promise((res) => setTimeout(res, 1200));
+              try {
+                const nb = await client.getBalance({ owner: address });
+                if (Number(nb.totalBalance) / 1e9 >= COLD_START_MIN_SUI) {
+                  funded = true;
+                  break;
+                }
+              } catch {
+                /* keep polling */
+              }
+            }
+            if (!funded) {
+              setPhase({
+                kind: "error",
+                msg: "Faucet sent the SUI but it hasn't settled — try again in a few seconds.",
+              });
+              return;
+            }
+          }
+        } catch (e) {
+          setPhase({
+            kind: "error",
+            msg: e instanceof Error ? e.message : String(e),
+          });
+          return;
+        }
+
+        // 2) Sign the policy grant. agent = Planner (server posts the
+        //    task as Planner so the user only signs once), allowed
+        //    venues = ["predict-btc"], budget = the leash slider.
+        setPhase({ kind: "signing" });
+        let tx;
+        try {
+          tx = buildActivateTx({
+            packageId: BRIEF_PACKAGE_ID,
+            templateId: `trader-${personality.strategy}`,
+            name,
+            budgetSui,
+            allowedVenues: ["predict-btc"],
+            expiryHours: TRADER_EXPIRY_HOURS,
+            riskTolerance: "low",
+          });
+        } catch (e) {
+          setPhase({
+            kind: "error",
+            msg: e instanceof Error ? e.message : String(e),
+          });
+          return;
+        }
+        signAndExecute(tx, {
+          onSuccess: (res) => {
+            onActivated({
+              policyId: null,
+              txDigest: res.digest,
+              templateId: `trader-${personality.strategy}`,
+              name,
+              brief: personality.voice,
+              budgetSui,
+              allowedVenues: ["predict-btc"],
+              traderName: name,
+              traderStrategy: personality.strategy,
+            });
+            setPhase({ kind: "dispatching" });
+          },
+          onError: (e) =>
+            setPhase({
+              kind: "error",
+              msg: e instanceof Error ? e.message : String(e),
+            }),
+        });
+      })();
+    },
+    [address, client, onActivated, signAndExecute],
+  );
+
+  return { phase, adopt };
+}
+
+function TraderGallery({
+  address,
+  onActivated,
+}: {
+  address: string;
+  onActivated: (a: ActivationResult) => void;
+}) {
+  const { phase, adopt } = useTraderLauncher({ address, onActivated });
+  const [pickedId, setPickedId] = useState<StrategyId | null>(null);
+  const picked = pickedId ? personalityById(pickedId) ?? null : null;
+
+  return (
+    <section className="mt-10">
+      <div className="flex items-end justify-between gap-4">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          Pick a personality
+        </p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          {TRADER_PERSONALITIES.length} traders · one signature
+        </p>
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        {TRADER_PERSONALITIES.map((p) => (
+          <TraderPersonalityCard
+            key={p.strategy}
+            personality={p}
+            active={pickedId === p.strategy}
+            onPick={() => setPickedId(p.strategy)}
+          />
+        ))}
+      </div>
+
+      {picked && (
+        <TraderAdoptionPanel
+          personality={picked}
+          phase={phase}
+          onAdopt={(name, budgetSui) =>
+            adopt({ personality: picked, traderName: name, budgetSui })
+          }
+          onCancel={() => setPickedId(null)}
+        />
+      )}
+
+      <ControlReassurance />
+    </section>
+  );
+}
+
+function TraderPersonalityCard({
+  personality,
+  active,
+  onPick,
+}: {
+  personality: TraderPersonality;
+  active: boolean;
+  onPick: () => void;
+}) {
+  return (
+    <article
+      className={[
+        "flex flex-col border-2 bg-bg-elev transition-colors",
+        active ? "border-ink" : "border-line hover:border-line-strong",
+      ].join(" ")}
+    >
+      <div className="flex flex-1 flex-col gap-4 px-5 py-6 sm:px-6">
+        <div className="flex items-start justify-between">
+          <span
+            className="font-sans text-[40px] leading-none text-ink"
+            aria-hidden
+          >
+            {personality.glyph}
+          </span>
+          <span className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+            {personality.temperament}
+          </span>
+        </div>
+        <div className="space-y-2">
+          <h3 className="font-sans text-[20px] font-medium tracking-tight text-ink">
+            {personality.label}
+          </h3>
+          <p className="text-[14px] italic leading-snug text-ink-2">
+            &ldquo;{personality.voice}&rdquo;
+          </p>
+        </div>
+        <p className="text-[12.5px] leading-relaxed text-muted">
+          {personality.blurb}
+        </p>
+        <p className="mt-auto font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+          {personality.cadence}
+        </p>
+      </div>
+      <div className="flex items-center justify-end border-t border-line bg-bg-elev-2/40 px-5 py-3 sm:px-6">
+        <button
+          type="button"
+          onClick={onPick}
+          className={[
+            "inline-flex items-center gap-2 border-2 px-5 py-2 font-mono text-[10.5px] uppercase tracking-[0.3em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
+            active
+              ? "border-ink bg-ink text-bg"
+              : "border-ink text-ink hover:bg-ink hover:text-bg",
+          ].join(" ")}
+        >
+          {active ? "Selected ✓" : `Adopt ${personality.label} →`}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function TraderAdoptionPanel({
+  personality,
+  phase,
+  onAdopt,
+  onCancel,
+}: {
+  personality: TraderPersonality;
+  phase: AdoptPhase;
+  onAdopt: (name: string, budgetSui: number) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [budgetSui, setBudgetSui] = useState(personality.defaultBudgetSui);
+  const busy =
+    phase.kind === "checking-balance" ||
+    phase.kind === "funding" ||
+    phase.kind === "signing" ||
+    phase.kind === "dispatching";
+  const errMsg = phase.kind === "error" ? phase.msg : null;
+
+  return (
+    <div className="relative mt-6 animate-fade-up overflow-hidden border-2 border-ink bg-bg-elev">
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/70 animate-operator-pulse-line"
+        aria-hidden
+      />
+      <div className="grid gap-6 px-6 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1fr_1fr]">
+        <div className="space-y-5">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+              Step 1 · Name your trader
+            </p>
+            <label className="mt-2 block">
+              <span className="sr-only">Trader name</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={defaultNameSuggestion(personality.strategy)}
+                maxLength={32}
+                className="w-full border-2 border-line bg-bg-elev px-4 py-3 text-[18px] font-medium tracking-tight outline-none transition-colors focus:border-ink focus-visible:border-ink"
+              />
+            </label>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+              {name.trim().length > 0
+                ? `That's ${name.trim()}, your ${personality.label.toLowerCase()} trader.`
+                : `Give them a name you'll cheer for. Up to 32 characters.`}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-5 lg:border-l lg:border-line lg:pl-6">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+              Step 2 · Set the leash
+            </p>
+            <div className="mt-2 flex items-baseline gap-3">
+              <span className="font-sans text-[32px] font-medium tabular-nums tracking-tight text-ink">
+                {budgetSui.toFixed(2)}
+              </span>
+              <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
+                SUI to bet with
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0.2}
+              max={5}
+              step={0.1}
+              value={budgetSui}
+              onChange={(e) => setBudgetSui(Number(e.target.value))}
+              className="mt-3 w-full accent-ink"
+            />
+            <div className="mt-2 flex flex-wrap gap-2">
+              {TRADER_BUDGET_PRESETS_SUI.map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => setBudgetSui(b)}
+                  className={[
+                    "border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink",
+                    budgetSui === b
+                      ? "border-ink text-ink"
+                      : "border-line text-muted hover:text-ink",
+                  ].join(" ")}
+                >
+                  {b} SUI
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
+              <span className="text-ink">When the budget runs out</span>, the
+              chain itself stops the next bet — even if {name.trim() || "the trader"} wants to keep going. You
+              also hold a one-tap kill switch.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-bg-elev-2/50 px-6 py-5 sm:px-8">
+        <p className="max-w-[26rem] font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+          {busy
+            ? phaseLabel(phase)
+            : `One signature mints the leash · sets the budget · dispatches ${name.trim() || personality.label}'s first bet`}
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink focus-visible:text-ink disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onAdopt(name, budgetSui)}
+            disabled={busy}
+            className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-6 py-3 font-mono text-[11px] uppercase tracking-[0.3em] text-bg transition-colors hover:bg-ink-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {phaseLabel(phase)}
+              </>
+            ) : (
+              <>
+                Adopt {name.trim() || personality.label} →
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+      {errMsg && (
+        <p className="border-t border-red-200 bg-red-50 px-6 py-3 font-mono text-[11px] text-red-700 sm:px-8">
+          {errMsg.slice(0, 280)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function phaseLabel(p: AdoptPhase): string {
+  switch (p.kind) {
+    case "checking-balance":
+      return "Checking your wallet…";
+    case "funding":
+      return "Funding your wallet…";
+    case "signing":
+      return "Sign in your wallet…";
+    case "dispatching":
+      return "Sending your trader to work…";
+    default:
+      return "Adopt";
+  }
+}
+
+function defaultNameSuggestion(s: StrategyId): string {
+  if (s === "conservative") return "Atlas";
+  if (s === "momentum") return "Bolt";
+  return "Vega";
 }
 
 // =============================================================================
@@ -1804,6 +2296,961 @@ type AbortRecord = {
   error?: string;
   at: number;
 };
+
+// =============================================================================
+// Trader Dashboard — Phase-3 surface for an adopted trader.
+//
+// Reuses every primitive proven by the workforce path: PolicyCard,
+// ChainRefusedCard, KillSwitchInFlight, RevokeModal, the deterministic
+// kill-switch state machine, the cold-start affordance, the Walrus
+// badge, AccountChip and the always-visible "revoke" chip. New shells
+// on top: a trader identity header, an open-position drama panel, and
+// a first-person Narrator written in the trader's voice.
+// =============================================================================
+
+function TraderDashboard({
+  activation,
+  onReset,
+}: {
+  activation: ActivationResult;
+  onReset: () => void;
+}) {
+  const resolvedPolicyId = useResolvedPolicyId(activation.txDigest);
+  const policyId = resolvedPolicyId;
+  const { policy } = usePolicy(policyId);
+  const { tasks } = useTasksForPolicy(policyId);
+  const status = policy ? policyStatus(policy) : null;
+
+  const personality = activation.traderStrategy
+    ? personalityById(activation.traderStrategy) ?? null
+    : null;
+  const traderName = activation.traderName ?? activation.name;
+
+  // Persist trader identity once the policy materialises so a reload of
+  // the dashboard knows the trader's name without round-tripping
+  // through the chain.
+  useEffect(() => {
+    if (!policyId || !activation.traderStrategy) return;
+    saveTraderIdentity({
+      policyId,
+      name: traderName,
+      strategy: activation.traderStrategy,
+      adoptedAtMs: Date.now(),
+    });
+  }, [policyId, traderName, activation.traderStrategy]);
+
+  // Hydrate from local storage on first mount in case we landed on the
+  // dashboard via a back/forward navigation that lost activation state.
+  useEffect(() => {
+    if (!policyId) return;
+    const cached = loadTraderIdentity(policyId);
+    if (cached && (!activation.traderName || activation.traderName === activation.name)) {
+      activation.traderName = cached.name;
+      activation.traderStrategy = cached.strategy;
+    }
+  }, [policyId, activation]);
+
+  // Auto-dispatch a predict-btc task the moment the policy id resolves
+  // — the user only signed the grant; the trader's first bet is posted
+  // server-side by the Planner key so they don't see a second prompt.
+  const dispatchedRef = useRef(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!policyId || dispatchedRef.current) return;
+    if (!activation.traderStrategy) return;
+    dispatchedRef.current = true;
+    void (async () => {
+      try {
+        const r = await dispatchTraderTask({
+          policyId,
+          strategy: activation.traderStrategy!,
+          traderName,
+        });
+        if (!r.ok) setDispatchError(r.error ?? "dispatch failed");
+      } catch (e) {
+        setDispatchError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+  }, [policyId, activation.traderStrategy, traderName]);
+
+  // Kill-switch state machine — identical to LiveConsole. The revoke
+  // path proves the leash by waiting for an EPolicyRevoked abort on a
+  // delivered task. Past wins still auto-redeem via the trader agent's
+  // permissionless service (no policy gate on redeem_permissionless).
+  type KillSwitchPhase =
+    | "idle"
+    | "scanning"
+    | "verifying_post"
+    | "verified";
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [revokeSubmitting, setRevokeSubmitting] = useState(false);
+  const [revokeTx, setRevokeTx] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [chainAbort, setChainAbort] = useState<AbortRecord | null>(null);
+  const [killSwitchPhase, setKillSwitchPhase] = useState<KillSwitchPhase>("idle");
+  const [verificationTaskId, setVerificationTaskId] = useState<string | null>(
+    null,
+  );
+  const triedTaskIdsRef = useRef<Set<string>>(new Set());
+  const verificationPostedRef = useRef(false);
+  const inFlightRef = useRef(false);
+  const { signAndExecute: signRevoke } = useAccountSigner();
+  const { agents: roster } = useRegisteredAgents({
+    excludeAddress: BRIEF_OPERATOR_ADDRESS,
+  });
+
+  function isVerifiedEPolicyRevoked(j: Partial<AbortRecord>): boolean {
+    if (j.abortCode !== 3) return false;
+    if (j.abortModule !== "operator_policy") return false;
+    if (j.abortConst && j.abortConst !== "EPolicyRevoked") return false;
+    return true;
+  }
+  const attemptAbort = useCallback(
+    async (taskId: string): Promise<boolean> => {
+      if (triedTaskIdsRef.current.has(taskId)) return false;
+      triedTaskIdsRef.current.add(taskId);
+      try {
+        const r = await fetch(apiUrl("/api/workforce/approve"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task_id: taskId, policy_id: policyId }),
+        });
+        const j = (await r.json()) as Partial<AbortRecord> & { ok?: boolean };
+        if (j.ok) return false;
+        if (!isVerifiedEPolicyRevoked(j)) return false;
+        setChainAbort({
+          taskId,
+          txDigest: j.txDigest,
+          abortCode: j.abortCode,
+          abortConst: j.abortConst ?? "EPolicyRevoked",
+          abortModule: j.abortModule ?? "operator_policy",
+          abortFn: j.abortFn ?? "assert_can_spend",
+          at: Date.now(),
+        });
+        setKillSwitchPhase("verified");
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [policyId],
+  );
+  const postVerificationTask = useCallback(
+    async (allowedVenues: string[]): Promise<void> => {
+      if (!policyId || verificationPostedRef.current) return;
+      verificationPostedRef.current = true;
+      const pickFor = (cap: string) =>
+        roster.find((a) => a.capabilities.includes(cap));
+      const preferred = ["predict-btc", "treasury", "research", "audit"];
+      let chosen: { address: string; capability: string } | null = null;
+      for (const cap of preferred) {
+        if (!allowedVenues.includes(cap)) continue;
+        const a = pickFor(cap);
+        if (a) {
+          chosen = { address: a.address, capability: cap };
+          break;
+        }
+      }
+      if (!chosen) {
+        for (const a of roster) {
+          for (const cap of a.capabilities) {
+            if (allowedVenues.includes(cap)) {
+              chosen = { address: a.address, capability: cap };
+              break;
+            }
+          }
+          if (chosen) break;
+        }
+      }
+      if (!chosen) return;
+      try {
+        const r = await fetch(apiUrl("/api/workforce/post-verification"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            policy_id: policyId,
+            assigned_to: chosen.address,
+            capability: chosen.capability,
+          }),
+        });
+        const j = (await r.json()) as { ok?: boolean; task_id?: string };
+        if (j.ok && j.task_id) {
+          setVerificationTaskId(j.task_id);
+          setKillSwitchPhase("verifying_post");
+        }
+      } catch {
+        /* fall through */
+      }
+    },
+    [policyId, roster],
+  );
+  useEffect(() => {
+    if (
+      !policyId ||
+      !policy?.revoked ||
+      killSwitchPhase === "verified" ||
+      inFlightRef.current
+    ) {
+      return;
+    }
+    inFlightRef.current = true;
+    void (async () => {
+      try {
+        for (const t of tasks) {
+          if (t.status !== "delivered") continue;
+          if (triedTaskIdsRef.current.has(t.id)) continue;
+          const ok = await attemptAbort(t.id);
+          if (ok) return;
+        }
+        if (
+          killSwitchPhase === "scanning" &&
+          !verificationPostedRef.current
+        ) {
+          const venues = policy.allowedVenues ?? [];
+          await postVerificationTask(venues);
+        }
+        if (verificationTaskId) {
+          await attemptAbort(verificationTaskId);
+        }
+      } finally {
+        inFlightRef.current = false;
+      }
+    })();
+  }, [
+    policy,
+    policyId,
+    tasks,
+    killSwitchPhase,
+    verificationTaskId,
+    attemptAbort,
+    postVerificationTask,
+  ]);
+  function handleRevoke() {
+    if (!policyId) return;
+    setRevokeError(null);
+    const tx = buildRevokeTx({ packageId: BRIEF_PACKAGE_ID, policyId });
+    setRevokeSubmitting(true);
+    signRevoke(tx, {
+      onSuccess: (res) => {
+        setRevokeTx(res.digest);
+        setRevokeSubmitting(false);
+        setConfirmRevoke(false);
+        setKillSwitchPhase("scanning");
+      },
+      onError: (e) => {
+        setRevokeError(e instanceof Error ? e.message : String(e));
+        setRevokeSubmitting(false);
+      },
+    });
+  }
+  // Freeze CSS-only motion the moment the chain refuses a payment.
+  const interventionActive = !!chainAbort;
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (interventionActive) {
+      document.documentElement.setAttribute("data-chain-intervention", "1");
+    }
+    const t = setTimeout(() => {
+      document.documentElement.removeAttribute("data-chain-intervention");
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [interventionActive]);
+
+  return (
+    <section className="mx-auto max-w-page px-6 py-12 sm:px-10 sm:py-16">
+      <TraderHeader
+        traderName={traderName}
+        personality={personality}
+        statusLabel={status ? statusLabel(status) : "ACTIVATING"}
+        onReset={onReset}
+        onRevoke={
+          policy?.revoked ? undefined : () => setConfirmRevoke(true)
+        }
+        revokeSubmitting={revokeSubmitting}
+      />
+
+      <PolicyCard
+        activation={activation}
+        policyId={policyId}
+        policy={policy}
+        status={status}
+        onRequestRevoke={() => setConfirmRevoke(true)}
+        revokeSubmitting={revokeSubmitting}
+        revokeError={revokeError}
+      />
+
+      {chainAbort && (
+        <ChainRefusedCard
+          policyId={policyId ?? ""}
+          revokeTx={revokeTx}
+          abort={chainAbort}
+        />
+      )}
+
+      {chainAbort && (
+        <RedeemSurvivorNote traderName={traderName} />
+      )}
+
+      {policy?.revoked && !chainAbort && (
+        <KillSwitchInFlight
+          policyId={policyId ?? ""}
+          revokeTx={revokeTx}
+          phase={killSwitchPhase}
+          verificationTaskId={verificationTaskId}
+          tasks={tasks}
+        />
+      )}
+
+      <TraderOpenPositionPanel
+        traderName={traderName}
+        personality={personality}
+        tasks={tasks}
+        dispatchError={dispatchError}
+      />
+
+      <TraderTrackRecord traderName={traderName} tasks={tasks} />
+
+      <TraderNarrator
+        activation={activation}
+        traderName={traderName}
+        personality={personality}
+        policyId={policyId}
+        policy={policy}
+        tasks={tasks}
+        chainAbort={chainAbort}
+      />
+
+      {confirmRevoke && (
+        <RevokeModal
+          onConfirm={handleRevoke}
+          onCancel={() => setConfirmRevoke(false)}
+          submitting={revokeSubmitting}
+          name={traderName}
+        />
+      )}
+    </section>
+  );
+}
+
+function TraderHeader({
+  traderName,
+  personality,
+  statusLabel: label,
+  onReset,
+  onRevoke,
+  revokeSubmitting,
+}: {
+  traderName: string;
+  personality: TraderPersonality | null;
+  statusLabel: string;
+  onReset: () => void;
+  onRevoke?: () => void;
+  revokeSubmitting: boolean;
+}) {
+  return (
+    <header>
+      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+        Trader · {label}
+      </p>
+      <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className="flex items-end gap-4">
+          {personality && (
+            <span
+              className="font-sans text-[56px] leading-none text-ink sm:text-[72px]"
+              aria-hidden
+            >
+              {personality.glyph}
+            </span>
+          )}
+          <div>
+            <h1 className="font-sans text-[28px] font-medium leading-[1.05] tracking-tightest text-ink sm:text-[40px]">
+              {traderName}
+            </h1>
+            {personality && (
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+                {personality.label} · {personality.temperament}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {onRevoke && (
+            <button
+              type="button"
+              onClick={onRevoke}
+              disabled={revokeSubmitting}
+              className="inline-flex items-center gap-1.5 border-2 border-red-400 bg-bg-elev px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-red-700 transition-colors hover:border-red-600 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Yank the leash — the chain refuses the next bet"
+            >
+              <ShieldOff className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+              Yank the leash
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onReset}
+            className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink focus-visible:text-ink"
+          >
+            ← Adopt another
+          </button>
+        </div>
+      </div>
+      {personality && (
+        <p className="mt-4 max-w-2xl border-l-2 border-line-strong pl-4 text-[15px] italic leading-relaxed text-ink-2">
+          &ldquo;{personality.voice}&rdquo;
+          <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.28em] text-muted not-italic">
+            — {traderName}
+          </span>
+        </p>
+      )}
+    </header>
+  );
+}
+
+// "Past wins still pay out" — the lovely truth that pays off after a
+// revoke. Surfaced next to the ChainRefusedCard so the user sees the
+// contrast immediately.
+function RedeemSurvivorNote({ traderName }: { traderName: string }) {
+  return (
+    <aside className="mt-4 border-l-2 border-emerald-600 bg-emerald-50/40 px-5 py-4">
+      <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-emerald-800">
+        The leash blocks new bets, not your winnings
+      </p>
+      <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
+        The chain just refused {traderName}&apos;s next mint — that&apos;s the
+        kill switch working. But any position {traderName} already won is
+        permissionless to claim: our auto-redeem service will keep collecting
+        your payouts even though new bets are now impossible.
+      </p>
+    </aside>
+  );
+}
+
+// Decode the trader's deliverable JSON. Optional fields tolerate
+// schema drift so an older deliverable doesn't crash the panel.
+type DecodedTraderDeliverable = {
+  strategy?: StrategyId;
+  market?: {
+    oracle_id?: string;
+    underlying?: string;
+    expiry_ms?: number;
+    strike?: number;
+    tick_size?: number;
+    spot_at_decision?: number;
+  };
+  decision?: {
+    direction?: "up" | "down";
+    quantity?: number;
+    cost_dusdc_base?: number;
+    reasoning?: string;
+  };
+  execution?: {
+    mode?: "live" | "simulated";
+    mint_tx_digest?: string | null;
+    walrus_blob_id?: string | null;
+    reason_if_simulated?: string | null;
+  };
+  metadata?: {
+    manager_id?: string;
+    policy_id?: string | null;
+    venue?: string;
+  };
+};
+
+function parseTraderDeliverable(raw: string | null): DecodedTraderDeliverable | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as DecodedTraderDeliverable;
+  } catch {
+    return null;
+  }
+}
+
+// The big open-position card. When there's an in-flight task we
+// render the current bet with a countdown to settlement; when the
+// trader is still composing, a calm "thinking" state.
+function TraderOpenPositionPanel({
+  traderName,
+  personality,
+  tasks,
+  dispatchError,
+}: {
+  traderName: string;
+  personality: TraderPersonality | null;
+  tasks: WorkforceTask[];
+  dispatchError: string | null;
+}) {
+  // Newest first by postedAtMs.
+  const sorted = [...tasks].sort((a, b) =>
+    Number(b.postedAtMs - a.postedAtMs),
+  );
+  const latest = sorted[0];
+  const deliverable = useDeliverable(latest?.deliverableId ?? null);
+  const decoded = parseTraderDeliverable(deliverable.body);
+
+  // Live countdown — re-render every second when we have an expiry.
+  const expiryMs = decoded?.market?.expiry_ms;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!expiryMs) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [expiryMs]);
+
+  if (dispatchError) {
+    return (
+      <section className="mt-8 border-2 border-red-400 bg-red-50/40 px-5 py-5">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-red-800">
+          Dispatch failed
+        </p>
+        <p className="mt-2 text-[14px] leading-relaxed text-red-700">
+          {traderName} couldn&apos;t get a job posted: {dispatchError}
+        </p>
+      </section>
+    );
+  }
+
+  if (!latest) {
+    return (
+      <section className="relative mt-8 overflow-hidden border-2 border-line bg-bg-elev px-5 py-6 sm:px-7">
+        <span
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/70 animate-operator-pulse-line"
+          aria-hidden
+        />
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          The first bet
+        </p>
+        <p className="mt-2 text-[18px] italic leading-snug text-ink-2">
+          {traderName} is studying the order book…
+        </p>
+        <p className="mt-3 text-[13px] leading-relaxed text-muted">
+          The planner is posting the first {personality?.label.toLowerCase() ?? "trader"} job
+          on chain; the trader will pick the nearest BTC market and bet
+          within seconds.
+        </p>
+      </section>
+    );
+  }
+
+  // Task exists but no deliverable yet — trader is actively working.
+  if (!deliverable.body || !decoded) {
+    return (
+      <section className="mt-8 border-2 border-ink bg-bg-elev">
+        <span
+          className="pointer-events-none block h-px w-full bg-emerald-500/70 animate-operator-pulse-line"
+          aria-hidden
+        />
+        <div className="px-5 py-6 sm:px-7">
+          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+            On the wire
+          </p>
+          <p className="mt-2 text-[18px] italic leading-snug text-ink-2">
+            {traderName} accepted the job — picking a market…
+          </p>
+          <p className="mt-3 text-[13px] leading-relaxed text-muted">
+            The agent reads the live BTC oracle, scores the strategy, then
+            posts the mint within ~5s. Sit tight.
+          </p>
+          <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+            <a
+              href={explorerUrl("object", latest.id)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-ink underline-offset-4 hover:underline"
+            >
+              view task
+              <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+            </a>
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  const isLive = decoded.execution?.mode === "live";
+  const direction = decoded.decision?.direction ?? "up";
+  const strikeUsd = decoded.market?.strike
+    ? Number(decoded.market.strike) / 1_000_000_000
+    : 0;
+  const spotUsd = decoded.market?.spot_at_decision
+    ? Number(decoded.market.spot_at_decision) / 1_000_000_000
+    : 0;
+  const cost = decoded.decision?.cost_dusdc_base
+    ? Number(decoded.decision.cost_dusdc_base) / 1_000_000
+    : 0;
+  const settled = latest.status === "approved" || latest.status === "expired";
+  const winningSoFar = direction === "up"
+    ? spotUsd >= strikeUsd
+    : spotUsd <= strikeUsd;
+
+  const msToExpiry = expiryMs ? expiryMs - now : 0;
+  const expired = msToExpiry <= 0;
+
+  return (
+    <section className="mt-8">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          Current bet · {settled ? "settled" : expired ? "awaiting settlement" : "live"}
+        </p>
+        <ModeBadge mode={isLive ? "live" : "simulated"} />
+      </div>
+      <article className="mt-3 overflow-hidden border-2 border-ink bg-bg-elev">
+        {!settled && !expired && (
+          <span
+            className="pointer-events-none block h-px w-full bg-emerald-500/70 animate-operator-pulse-line"
+            aria-hidden
+          />
+        )}
+        <div className="grid gap-6 px-6 py-7 sm:grid-cols-[1.4fr_1fr] sm:px-8 sm:py-8">
+          <div className="space-y-4">
+            <p className="font-sans text-[26px] leading-[1.15] tracking-tightest text-ink sm:text-[32px]">
+              <span className="text-muted">{traderName} is betting </span>
+              <span className={direction === "up" ? "text-emerald-700" : "text-red-700"}>
+                {direction.toUpperCase()}
+              </span>
+              <span className="text-muted"> on BTC</span>
+            </p>
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 font-mono text-[12.5px]">
+              <DD label="strike">${strikeUsd.toFixed(2)}</DD>
+              <DD label="spot at decision">${spotUsd.toFixed(2)}</DD>
+              <DD label="stake">{cost > 0 ? `$${cost.toFixed(2)}` : `${decoded.decision?.quantity ?? "-"} dUSDC`}</DD>
+              <DD label="expires">
+                {expiryMs
+                  ? settled
+                    ? "settled"
+                    : expired
+                      ? "any second"
+                      : countdownLabel(msToExpiry)
+                  : "—"}
+              </DD>
+            </dl>
+            {decoded.decision?.reasoning && (
+              <p className="border-l-2 border-line-strong pl-4 text-[14px] italic leading-relaxed text-ink-2">
+                &ldquo;{decoded.decision.reasoning}&rdquo;
+              </p>
+            )}
+          </div>
+          <div className="space-y-4 border-line sm:border-l sm:pl-6">
+            <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+              Status
+            </p>
+            <p
+              className={[
+                "font-sans text-[20px] leading-snug tracking-tight",
+                settled
+                  ? "text-ink"
+                  : winningSoFar
+                    ? "text-emerald-700"
+                    : "text-red-700",
+              ].join(" ")}
+            >
+              {settled
+                ? latest.status === "approved"
+                  ? "Settled — payout claimed"
+                  : "Settled — no payout"
+                : isLive
+                  ? winningSoFar
+                    ? "Winning right now"
+                    : "Losing right now"
+                  : `Simulated bet — ${winningSoFar ? "would be winning" : "would be losing"}`}
+            </p>
+            {isLive && decoded.execution?.mint_tx_digest && (
+              <a
+                href={explorerUrl("txblock", decoded.execution.mint_tx_digest)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.28em] text-ink underline-offset-4 hover:underline focus-visible:underline"
+              >
+                mint tx
+                <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+              </a>
+            )}
+            {decoded.execution?.walrus_blob_id && (
+              <a
+                href={`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${decoded.execution.walrus_blob_id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 border border-emerald-600/40 bg-emerald-50/70 px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.22em] text-emerald-800 hover:bg-emerald-100/70"
+                title="Walrus content-addressed reasoning blob"
+              >
+                <span
+                  aria-hidden
+                  className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600"
+                />
+                Reasoning on Walrus
+                <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
+              </a>
+            )}
+            {!isLive && decoded.execution?.reason_if_simulated && (
+              <p className="text-[12px] leading-relaxed text-muted">
+                {decoded.execution.reason_if_simulated}
+              </p>
+            )}
+          </div>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function DD({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+        {label}
+      </dt>
+      <dd className="mt-0.5 tabular-nums text-ink">{children}</dd>
+    </div>
+  );
+}
+
+function ModeBadge({ mode }: { mode: "live" | "simulated" }) {
+  if (mode === "live") {
+    return (
+      <span className="inline-flex items-center gap-1.5 border-2 border-emerald-600 bg-emerald-600 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.3em] text-bg">
+        <span
+          aria-hidden
+          className="inline-block h-1.5 w-1.5 rounded-full bg-bg"
+        />
+        Live · DeepBook Predict
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 border-2 border-amber-600 bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.3em] text-amber-900">
+      <span
+        aria-hidden
+        className="inline-block h-1.5 w-1.5 rounded-full bg-amber-700"
+      />
+      Simulated · awaiting dUSDC
+    </span>
+  );
+}
+
+function countdownLabel(ms: number): string {
+  if (ms <= 0) return "0:00";
+  const totalSec = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const min = Math.floor((totalSec % 3600) / 60);
+  const sec = totalSec % 60;
+  if (hours > 0) {
+    return `${hours}h ${min.toString().padStart(2, "0")}m`;
+  }
+  return `${min}:${sec.toString().padStart(2, "0")}`;
+}
+
+// Lightweight track record. Counts trades + win/loss + cumulative P&L
+// from the decoded deliverables. Quiet until at least 1 trade exists.
+function TraderTrackRecord({
+  traderName,
+  tasks,
+}: {
+  traderName: string;
+  tasks: WorkforceTask[];
+}) {
+  const settled = tasks.filter(
+    (t) => t.status === "approved" || t.status === "expired",
+  );
+  if (settled.length === 0) return null;
+  return (
+    <section className="mt-8 border border-line bg-bg-elev px-5 py-5 sm:px-6">
+      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+        Track record · {traderName}
+      </p>
+      <div className="mt-3 grid grid-cols-3 gap-4">
+        <Stat label="Trades placed" value={String(tasks.length)} />
+        <Stat label="Settled" value={String(settled.length)} />
+        <Stat label="Open" value={String(tasks.length - settled.length)} />
+      </div>
+      <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+        Win/loss + P&amp;L surfaced per-trade in the story below — the chain is
+        the source of truth.
+      </p>
+    </section>
+  );
+}
+
+// First-person Narrator for the trader. Re-uses the visual rhythm of
+// MissionNarrator but the beats are written as the trader speaking.
+function TraderNarrator({
+  activation,
+  traderName,
+  personality,
+  policyId,
+  policy,
+  tasks,
+  chainAbort,
+}: {
+  activation: ActivationResult;
+  traderName: string;
+  personality: TraderPersonality | null;
+  policyId: string | null;
+  policy: OperatorPolicyDecoded | null;
+  tasks: WorkforceTask[];
+  chainAbort: AbortRecord | null;
+}) {
+  const beats: NarratorBeat[] = [];
+
+  beats.push({
+    kind: "granted",
+    ts: 0,
+    state: "done",
+    title: `${traderName} got a $${activation.budgetSui.toFixed(2)} leash — minted on chain.`,
+    detail: (
+      <>
+        A Move <span className="font-mono text-ink">OperatorPolicy</span> caps{" "}
+        {traderName} at {activation.budgetSui.toFixed(2)} SUI for the next
+        12 hours, only on the venue{" "}
+        <span className="font-mono text-ink">predict-btc</span>.
+        {policyId && (
+          <>
+            {" "}
+            <NarratorLink href={explorerUrl("object", policyId)}>
+              policy
+            </NarratorLink>
+          </>
+        )}{" "}
+        <NarratorLink href={explorerUrl("txblock", activation.txDigest)}>
+          grant tx
+        </NarratorLink>
+      </>
+    ),
+  });
+
+  const sorted = [...tasks].sort((a, b) =>
+    Number(a.postedAtMs - b.postedAtMs),
+  );
+  if (sorted.length === 0) {
+    beats.push({
+      kind: "planner-working",
+      ts: Date.now(),
+      state: "active",
+      title: `${traderName} is reading the order book and picking the nearest BTC market…`,
+    });
+  }
+
+  for (const t of sorted) {
+    const ts = Number(t.postedAtMs);
+    beats.push({
+      kind: "task-posted",
+      ts,
+      state: t.status === "open" ? "active" : "done",
+      title: `${traderName} got a "${personality?.label.toLowerCase() ?? "trader"}" job — bounty in escrow.`,
+      detail: (
+        <>
+          The planner posted the job on chain.{" "}
+          <NarratorLink href={explorerUrl("object", t.id)}>task</NarratorLink>{" "}
+          <NarratorLink href={explorerUrl("txblock", t.postedTxDigest)}>
+            tx
+          </NarratorLink>
+        </>
+      ),
+    });
+    if (t.status === "accepted" || t.status === "delivered" || t.status === "approved") {
+      beats.push({
+        kind: "task-accepted",
+        ts: ts + 1,
+        state: t.status === "accepted" ? "active" : "done",
+        title: `${traderName}: "I'm picking a market and reading the live BTC spot."`,
+      });
+    }
+    if (t.status === "delivered" || t.status === "approved") {
+      beats.push({
+        kind: "task-delivered",
+        ts: ts + 2,
+        state: t.status === "delivered" ? "active" : "done",
+        title: `${traderName} took the bet — full reasoning stored on Walrus.`,
+        detail: t.deliverableId ? (
+          <>
+            <NarratorLink href={explorerUrl("object", t.deliverableId)}>
+              deliverable
+            </NarratorLink>{" "}
+            — the agent&apos;s reasoning is content-addressed; anyone can
+            fetch it without our server.
+          </>
+        ) : undefined,
+      });
+    }
+    if (t.status === "approved") {
+      beats.push({
+        kind: "task-paid",
+        ts: ts + 3,
+        state: "done",
+        title: `${traderName} got paid — settlement & bounty rolled in.`,
+      });
+    }
+  }
+
+  if (chainAbort) {
+    beats.push({
+      kind: "killswitch-refused",
+      ts: chainAbort.at,
+      state: "done",
+      title: `You yanked the leash. ${traderName}'s next bet was refused by the chain itself.`,
+      detail: (
+        <>
+          The Move runtime aborted{" "}
+          <span className="font-mono text-red-700">
+            {chainAbort.abortConst ?? "EPolicyRevoked"} · code{" "}
+            {chainAbort.abortCode ?? 3}
+          </span>
+          {chainAbort.txDigest && (
+            <>
+              {" "}
+              <NarratorLink href={explorerUrl("txblock", chainAbort.txDigest)}>
+                abort tx
+              </NarratorLink>
+            </>
+          )}
+          . Past wins can still be claimed permissionlessly.
+        </>
+      ),
+    });
+  } else {
+    beats.push({
+      kind: "killswitch-armed",
+      ts: Number.MAX_SAFE_INTEGER,
+      state: "pending",
+      title:
+        `You hold the leash — yank it and ${traderName}'s next bet aborts on chain. Past winnings still pay out.`,
+      detail: (
+        <>
+          Revoke flips the policy&apos;s{" "}
+          <span className="font-mono text-ink">revoked</span> bit; every new
+          mint{" "}
+          {policy?.revoked
+            ? "is already being refused."
+            : `${traderName} tries will be refused by the Move runtime before it can spend a cent.`}
+        </>
+      ),
+    });
+  }
+
+  return (
+    <section
+      aria-label="Trader narrator"
+      className="mt-8 border border-line bg-bg-elev"
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-line px-5 py-2.5 sm:px-6">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          {traderName}&apos;s story
+        </p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          live · on chain
+        </p>
+      </header>
+      <ol className="relative px-5 py-5 sm:px-6 sm:py-6">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-[1.55rem] top-7 h-[calc(100%-3.25rem)] w-px bg-line sm:left-[1.85rem]"
+        />
+        {beats.map((b, i) => (
+          <NarratorBeatRow key={`${b.kind}-${b.ts}-${i}`} beat={b} index={i} />
+        ))}
+      </ol>
+    </section>
+  );
+}
 
 function LiveConsole({
   activation,

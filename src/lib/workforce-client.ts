@@ -149,6 +149,170 @@ export async function dispatchMission(args: MissionPayload): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// Trader (Phase 3): one personality per adoption. Each personality has a
+// stable `strategy` key (the on-chain agent's strategy spec) plus copy
+// describing it in the trader's first-person voice — used on the adopt
+// cards and in the dashboard chip. Glyph + tone are small typographic
+// tokens; no emoji or external assets.
+// ---------------------------------------------------------------------------
+
+export type StrategyId = "conservative" | "momentum" | "contrarian";
+
+export type TraderPersonality = {
+  strategy: StrategyId;
+  /** Card title — short noun ("Conservative", "Momentum", "Contrarian"). */
+  label: string;
+  /** Single ascii glyph used as the personality's stamp ("◇ / ➤ / ⊘"). */
+  glyph: string;
+  /** Two-or-three-word temperament — e.g. "Cool, careful, small". */
+  temperament: string;
+  /** First-person one-sentence pitch — how the trader thinks about the
+   *  market. Becomes the headline on the card AND part of the dashboard
+   *  Narrator's opening beat. */
+  voice: string;
+  /** Card body paragraph — explains the betting rule in plain English. */
+  blurb: string;
+  /** Sensible defaults the leash slider snaps to first. */
+  defaultBudgetSui: number;
+  /** Plain-English stake/cadence note ("bets ~$1 every settled bar"). */
+  cadence: string;
+};
+
+export const TRADER_PERSONALITIES: TraderPersonality[] = [
+  {
+    strategy: "conservative",
+    label: "Conservative",
+    glyph: "◇",
+    temperament: "Cool, careful, small",
+    voice:
+      "I keep your stake small. I win small, lose small, and let you sleep.",
+    blurb:
+      "I take an at-the-money position on the nearest BTC market with the smallest viable size. No directional edge — I'm here to participate, not to swing.",
+    defaultBudgetSui: 0.5,
+    cadence: "~$1 per bet, one bet per market.",
+  },
+  {
+    strategy: "momentum",
+    label: "Momentum",
+    glyph: "➤",
+    temperament: "Trend-following, brave",
+    voice:
+      "I follow the herd — I bet the way BTC's last few bars closed.",
+    blurb:
+      "I read the last 10 settled BTC oracles and count which way they moved. If the majority closed up, I bet up. If down, I bet down. Ties go up.",
+    defaultBudgetSui: 1.0,
+    cadence: "~$2 per bet on the nearest market.",
+  },
+  {
+    strategy: "contrarian",
+    label: "Contrarian",
+    glyph: "⊘",
+    temperament: "Skeptical, fades the crowd",
+    voice:
+      "I fade the herd. When everyone's leaning up, I lean down — and vice versa.",
+    blurb:
+      "I look at the last 3 settled BTC bars and bet the opposite of where they went. Reversals are real, and herding usually overshoots.",
+    defaultBudgetSui: 1.0,
+    cadence: "~$2 per bet, against the recent trend.",
+  },
+];
+
+export function personalityById(
+  strategy: StrategyId,
+): TraderPersonality | undefined {
+  return TRADER_PERSONALITIES.find((p) => p.strategy === strategy);
+}
+
+export type TraderDispatchResult = {
+  ok: boolean;
+  task_id?: string | null;
+  tx_digest?: string;
+  treasury_address?: string;
+  title?: string;
+  error?: string;
+};
+
+export async function dispatchTraderTask(args: {
+  policyId: string;
+  strategy: StrategyId;
+  traderName?: string;
+  bountySui?: number;
+}): Promise<TraderDispatchResult> {
+  const res = await fetch(apiUrl("/api/workforce/trader-dispatch"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      policy_id: args.policyId,
+      strategy: args.strategy,
+      trader_name: args.traderName,
+      bounty_sui: args.bountySui,
+    }),
+  });
+  const j = (await res.json().catch(() => ({}))) as TraderDispatchResult;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: j.error ?? `dispatch ${res.status}`,
+    };
+  }
+  return j;
+}
+
+// Local-storage helpers for trader identity. The on-chain anchor is the
+// OperatorPolicy id; the trader's user-given name + chosen personality
+// are pure UX state we persist per policy so a reload of the dashboard
+// keeps showing the right name + voice without an extra round-trip.
+const TRADER_IDENTITY_KEY = "brief:trader:identities";
+
+export type TraderIdentity = {
+  policyId: string;
+  name: string;
+  strategy: StrategyId;
+  adoptedAtMs: number;
+};
+
+function safeStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function saveTraderIdentity(v: TraderIdentity): void {
+  const s = safeStorage();
+  if (!s) return;
+  const raw = s.getItem(TRADER_IDENTITY_KEY);
+  let arr: TraderIdentity[] = [];
+  try {
+    arr = raw ? (JSON.parse(raw) as TraderIdentity[]) : [];
+  } catch {
+    arr = [];
+  }
+  const i = arr.findIndex((x) => x.policyId === v.policyId);
+  if (i >= 0) arr[i] = v;
+  else arr.push(v);
+  s.setItem(TRADER_IDENTITY_KEY, JSON.stringify(arr.slice(-20)));
+}
+
+export function loadTraderIdentity(
+  policyId: string | null | undefined,
+): TraderIdentity | null {
+  if (!policyId) return null;
+  const s = safeStorage();
+  if (!s) return null;
+  const raw = s.getItem(TRADER_IDENTITY_KEY);
+  if (!raw) return null;
+  try {
+    const arr = JSON.parse(raw) as TraderIdentity[];
+    return arr.find((x) => x.policyId === policyId) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tiny wrapper used by the Hire Wizard's Activate stage. Returns a
 // Transaction ready for useSignAndExecuteTransaction.
 // ---------------------------------------------------------------------------
