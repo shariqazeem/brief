@@ -2609,6 +2609,11 @@ function TraderDashboard({
         dispatchError={dispatchError}
       />
 
+      <TraderMemoryJournal
+        traderName={traderName}
+        tasks={tasks}
+      />
+
       <TraderTrackRecord traderName={traderName} tasks={tasks} />
 
       <TraderNarrator
@@ -2750,6 +2755,8 @@ type DecodedTraderDeliverable = {
     mint_tx_digest?: string | null;
     walrus_blob_id?: string | null;
     reason_if_simulated?: string | null;
+    journal_walrus_blob_id?: string | null;
+    journal_entries?: number;
   };
   metadata?: {
     manager_id?: string;
@@ -3229,6 +3236,144 @@ function countdownLabel(ms: number): string {
     return `${hours}h ${min.toString().padStart(2, "0")}m`;
   }
   return `${min}:${sec.toString().padStart(2, "0")}`;
+}
+
+// {Name}'s memory · on Walrus — the differentiator for the Walrus
+// special-prize track. Reads the journal blob id from the LATEST
+// deliverable (the trader uploads a cumulative blob per task), frames
+// it as the agent's persistent verifiable memory, and links the user
+// straight to the public aggregator. The point a judge is meant to
+// land on: this isn't a screenshot of a thought; it's a content-
+// addressed blob anyone can fetch without our server.
+function TraderMemoryJournal({
+  traderName,
+  tasks,
+}: {
+  traderName: string;
+  tasks: WorkforceTask[];
+}) {
+  // Pull the most-recent task with a deliverable so we always show the
+  // freshest journal blob. The journal grows monotonically — each new
+  // task re-uploads a superset of all prior decisions, so the latest
+  // task's blob is the complete record.
+  const sorted = [...tasks].sort((a, b) =>
+    Number(b.postedAtMs - a.postedAtMs),
+  );
+  const latestWithDeliverable = sorted.find((t) => t.deliverableId);
+  const latest = useDeliverable(latestWithDeliverable?.deliverableId ?? null);
+  const decoded = parseTraderDeliverable(latest.body);
+  const journalId = decoded?.execution?.journal_walrus_blob_id ?? null;
+  const journalEntries = decoded?.execution?.journal_entries ?? 0;
+  // Also surface the per-decision reasoning blob from the same
+  // deliverable so the user can read THIS trade's thinking without
+  // scrolling back up to the position panel.
+  const reasoningId = decoded?.execution?.walrus_blob_id ?? null;
+
+  // Don't render the panel at all until the trader has at least
+  // tried Walrus on a task. Until that first deliverable lands the
+  // section adds no signal.
+  if (!latestWithDeliverable) return null;
+
+  return (
+    <section className="mt-8">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          {traderName}&apos;s memory · on Walrus
+        </p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          content-addressed · verifiable
+        </p>
+      </div>
+      <article className="mt-3 grid gap-4 sm:grid-cols-2">
+        <MemoryBlobCard
+          title={`${traderName}'s running memory`}
+          tagline={
+            journalEntries > 0
+              ? `${journalEntries} decision${journalEntries === 1 ? "" : "s"} logged · grows with every move`
+              : "Will appear after the first decision"
+          }
+          blobId={journalId}
+          fallbackNote="The trader is still composing its first decision — the journal will appear here when it's been minted to Walrus. If the trader's wallet runs out of WAL, the journal pauses (inline reasoning still flows) until it's topped up."
+          ariaLabel="Memory journal Walrus blob"
+        />
+        <MemoryBlobCard
+          title="Last decision · reasoning"
+          tagline={
+            decoded?.decision?.reasoning
+              ? `"${decoded.decision.reasoning.slice(0, 70)}${decoded.decision.reasoning.length > 70 ? "…" : ""}"`
+              : "Plain-language reasoning for the latest move"
+          }
+          blobId={reasoningId}
+          fallbackNote='Inline · Walrus unfunded — the reasoning still ships in the deliverable below, just not as a verifiable blob. Top up the trader wallet with WAL via "walrus get-wal" and the next decision will upload.'
+          ariaLabel="Per-decision reasoning Walrus blob"
+        />
+      </article>
+    </section>
+  );
+}
+
+function MemoryBlobCard({
+  title,
+  tagline,
+  blobId,
+  fallbackNote,
+  ariaLabel,
+}: {
+  title: string;
+  tagline: string;
+  blobId: string | null;
+  fallbackNote: string;
+  ariaLabel: string;
+}) {
+  if (blobId) {
+    const url = `https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}`;
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={ariaLabel}
+        className="group flex flex-col gap-3 border-2 border-emerald-600 bg-emerald-50/40 px-5 py-5 transition-colors hover:bg-emerald-100/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-emerald-800">
+            <span
+              aria-hidden
+              className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-600"
+            />
+            Stored on Walrus
+          </p>
+          <ArrowUpRight
+            className="h-3.5 w-3.5 text-emerald-700 transition-transform group-hover:-translate-y-px group-hover:translate-x-px"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+        </div>
+        <p className="font-sans text-[18px] font-medium leading-tight tracking-tight text-ink">
+          {title}
+        </p>
+        <p className="text-[13px] italic leading-snug text-ink-2">{tagline}</p>
+        <p className="mt-auto truncate font-mono text-[10.5px] tabular-nums tracking-tight text-emerald-800">
+          {blobId.slice(0, 16)}…{blobId.slice(-6)}
+        </p>
+      </a>
+    );
+  }
+  return (
+    <article className="flex flex-col gap-3 border-2 border-line bg-bg-elev-2/40 px-5 py-5">
+      <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
+        <span
+          aria-hidden
+          className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-muted/60"
+        />
+        Inline · Walrus unfunded
+      </p>
+      <p className="font-sans text-[18px] font-medium leading-tight tracking-tight text-ink-2">
+        {title}
+      </p>
+      <p className="text-[12.5px] leading-relaxed text-muted">{fallbackNote}</p>
+    </article>
+  );
 }
 
 // Lightweight track record. Counts trades + win/loss + cumulative P&L

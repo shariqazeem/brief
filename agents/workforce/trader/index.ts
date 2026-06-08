@@ -84,6 +84,9 @@ type TraderSpec = {
   venue?: string;
   /** Override quantity (in dUSDC contracts). */
   quantity?: number;
+  /** User-given name for the trader — surfaced in the memory journal
+   *  header so the same Walrus blob reads as "Bolt's memory" / etc. */
+  traderName?: string;
 };
 
 function parseSpec(raw: string): TraderSpec {
@@ -126,6 +129,117 @@ async function loadPositions(): Promise<StoredPosition[]> {
 async function savePositions(xs: StoredPosition[]): Promise<void> {
   await fs.mkdir(path.dirname(POSITIONS_PATH), { recursive: true });
   await fs.writeFile(POSITIONS_PATH, JSON.stringify(xs, null, 2));
+}
+
+// === Memory journal — the Walrus-backed agent memory ===
+
+type JournalEntry = {
+  taskId: string;
+  traderName: string | null;
+  strategy: StrategyId;
+  decidedAtMs: number;
+  market: {
+    oracleId: string;
+    expiryMs: number;
+    strike: number;
+    spotAtDecision: number;
+  };
+  decision: {
+    direction: Direction;
+    quantity: number;
+    reasoning: string;
+  };
+  execution: {
+    mode: ExecutionMode;
+    mintTxDigest: string | null;
+    walrusReasoningBlobId: string | null;
+  };
+};
+
+function journalPath(policyId: string | null): string {
+  // Per-policy journal keeps each adopted trader's memory siloed — a
+  // judge can adopt a second trader without their first one's history
+  // contaminating the new identity's blob.
+  const slug = policyId ? policyId.slice(2, 14) : "no-policy";
+  return path.join(".cursors", "trader-journals", `${slug}.json`);
+}
+
+async function loadJournal(
+  policyId: string | null,
+): Promise<JournalEntry[]> {
+  try {
+    const raw = await fs.readFile(journalPath(policyId), "utf8");
+    return JSON.parse(raw) as JournalEntry[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveJournal(
+  policyId: string | null,
+  entries: JournalEntry[],
+): Promise<void> {
+  const p = journalPath(policyId);
+  await fs.mkdir(path.dirname(p), { recursive: true });
+  await fs.writeFile(p, JSON.stringify(entries, null, 2));
+}
+
+/** Render the journal as human-readable markdown — what we upload to
+ *  Walrus as the trader's persistent memory. The agent could also
+ *  read these entries back as input for future decisions; for now the
+ *  ask is "verifiable, growing memory" and this delivers that. */
+function journalMarkdown(args: {
+  traderName: string | null;
+  strategy: StrategyId | null;
+  entries: JournalEntry[];
+  policyId: string | null;
+}): string {
+  const head = [
+    `# ${args.traderName ?? "Trader"} · memory`,
+    "",
+    `> The complete decision log for this trader, regenerated every`,
+    `> time it makes a new move and uploaded as a single Walrus blob.`,
+    `> Each blob is content-addressed — anyone can verify the trader`,
+    `> hasn't rewritten its history.`,
+    "",
+    `**Strategy:** ${args.strategy ?? "(unknown)"}`,
+    `**Policy id:** ${args.policyId ?? "(unbound)"}`,
+    `**Entries:** ${args.entries.length}`,
+    `**Generated:** ${new Date().toISOString()}`,
+    "",
+    "---",
+    "",
+  ];
+  const body = args.entries.map((e, i) => {
+    const expiry = new Date(e.market.expiryMs).toISOString();
+    const decidedAt = new Date(e.decidedAtMs).toISOString();
+    const strikeUsd = e.market.strike / PRICE_SCALAR;
+    const spotUsd = e.market.spotAtDecision / PRICE_SCALAR;
+    return [
+      `## #${i + 1} — ${e.decision.direction.toUpperCase()} on BTC (${e.execution.mode})`,
+      "",
+      `**Decided:** ${decidedAt}`,
+      `**Strategy:** ${e.strategy}`,
+      `**Strike:** $${strikeUsd.toFixed(2)}  ·  **Spot at decision:** $${spotUsd.toFixed(2)}`,
+      `**Stake:** ${e.decision.quantity} dUSDC contracts`,
+      `**Expiry:** ${expiry}`,
+      `**Task id:** \`${e.taskId}\``,
+      e.execution.mintTxDigest
+        ? `**Mint tx:** \`${e.execution.mintTxDigest}\``
+        : `**Mint tx:** _none (simulated)_`,
+      e.execution.walrusReasoningBlobId
+        ? `**Reasoning blob:** \`${e.execution.walrusReasoningBlobId}\``
+        : "",
+      "",
+      `### Reasoning`,
+      "",
+      e.decision.reasoning,
+      "",
+      "---",
+      "",
+    ].filter(Boolean).join("\n");
+  });
+  return head.concat(body).join("\n");
 }
 
 // === Manager id management ===
@@ -219,6 +333,14 @@ type TraderDeliverable = {
     mint_tx_digest: string | null;
     walrus_blob_id: string | null;
     reason_if_simulated: string | null;
+    /** Per-trader cumulative memory journal — every prior decision +
+     *  outcome rolled into one markdown blob uploaded to Walrus. Each
+     *  task version-bumps the blob; the UI surfaces this as
+     *  "{Name}'s memory · on Walrus" so a judge can open and read the
+     *  trader's full history content-addressed. */
+    journal_walrus_blob_id: string | null;
+    /** Number of decisions in the journal at this version. */
+    journal_entries: number;
   };
   metadata: {
     produced_by: string;
@@ -240,6 +362,8 @@ function composeDeliverable(args: {
   mintTxDigest: string | null;
   walrusBlobId: string | null;
   reasonIfSimulated: string | null;
+  journalWalrusBlobId: string | null;
+  journalEntries: number;
   managerId: string;
   policyId: string | null;
   venue: string;
@@ -269,6 +393,8 @@ function composeDeliverable(args: {
       mint_tx_digest: args.mintTxDigest,
       walrus_blob_id: args.walrusBlobId,
       reason_if_simulated: args.reasonIfSimulated,
+      journal_walrus_blob_id: args.journalWalrusBlobId,
+      journal_entries: args.journalEntries,
     },
     metadata: {
       produced_by: args.agentAddress,
@@ -469,7 +595,99 @@ async function handleTask(
     }
   }
 
-  // ---- 5) Compose deliverable + upload reasoning to Walrus -----
+  // ---- 5) Walrus uploads — per-decision reasoning + cumulative journal.
+  //
+  // Two separate blobs per task when WAL is funded:
+  //   (a) reasoning  — just this decision's markdown (the "agent's
+  //                    thinking on this trade")
+  //   (b) journal    — the trader's entire prior memory + this entry
+  //                    rolled into one blob (the "agent that remembers
+  //                    and builds over time" story for the Walrus track)
+  //
+  // Both upload independently. Either may fail without breaking the
+  // task — we just don't surface that blob.
+  let walrusBlobId: string | null = null;
+  let journalBlobId: string | null = null;
+  let journalEntries = 0;
+  const walFunded = walrusEnabled()
+    ? await hasWalrusFunding(ctx.client, ctx.address)
+    : false;
+
+  if (walFunded) {
+    try {
+      const md = reasoningMarkdown({
+        decision,
+        market,
+        mode,
+        mintTxDigest: mintDigest,
+      });
+      const uploaded = await uploadToWalrus(
+        new TextEncoder().encode(md),
+        ctx.client,
+        ctx.keypair,
+      );
+      walrusBlobId = uploaded.blobId;
+      console.log(
+        `[trader] walrus reasoning blob=${walrusBlobId} (${uploaded.uploadMs}ms)`,
+      );
+    } catch (e) {
+      console.warn("[trader] walrus reasoning upload failed:", e);
+    }
+
+    // Append to the persistent journal + upload the cumulative blob.
+    try {
+      const prior = await loadJournal(spec.policyId ?? null);
+      const entry: JournalEntry = {
+        taskId: notice.taskId,
+        traderName: spec.traderName ?? null,
+        strategy: decision.strategy,
+        decidedAtMs: Date.now(),
+        market: {
+          oracleId: market.oracle.oracle_id,
+          expiryMs: market.oracle.expiry,
+          strike: Number(market.strikeRaw),
+          spotAtDecision: Number(market.spotRaw),
+        },
+        decision: {
+          direction: decision.direction,
+          quantity: decision.quantity,
+          reasoning: decision.reasoning,
+        },
+        execution: {
+          mode,
+          mintTxDigest: mintDigest,
+          walrusReasoningBlobId: walrusBlobId,
+        },
+      };
+      const updated = [...prior, entry];
+      await saveJournal(spec.policyId ?? null, updated);
+      journalEntries = updated.length;
+      const journalMd = journalMarkdown({
+        traderName: spec.traderName ?? null,
+        strategy: decision.strategy,
+        entries: updated,
+        policyId: spec.policyId ?? null,
+      });
+      const uploaded = await uploadToWalrus(
+        new TextEncoder().encode(journalMd),
+        ctx.client,
+        ctx.keypair,
+      );
+      journalBlobId = uploaded.blobId;
+      console.log(
+        `[trader] walrus journal blob=${journalBlobId} entries=${journalEntries} (${uploaded.uploadMs}ms)`,
+      );
+    } catch (e) {
+      console.warn("[trader] walrus journal upload failed:", e);
+    }
+  } else if (walrusEnabled()) {
+    console.log(
+      "[trader] walrus enabled but wallet has no WAL — inline only",
+    );
+  }
+
+  // Compose the deliverable AFTER the blob ids are known so they're
+  // captured in the on-chain JSON the dashboard reads.
   const deliverable = composeDeliverable({
     notice,
     spec,
@@ -478,44 +696,15 @@ async function handleTask(
     mode,
     costDusdcBase,
     mintTxDigest: mintDigest,
-    walrusBlobId: null,
+    walrusBlobId,
     reasonIfSimulated: simReason,
+    journalWalrusBlobId: journalBlobId,
+    journalEntries,
     managerId,
     policyId: spec.policyId ?? null,
     venue,
     agentAddress: ctx.address,
   });
-
-  let walrusBlobId: string | null = null;
-  if (walrusEnabled()) {
-    const funded = await hasWalrusFunding(ctx.client, ctx.address);
-    if (funded) {
-      try {
-        const md = reasoningMarkdown({
-          decision,
-          market,
-          mode,
-          mintTxDigest: mintDigest,
-        });
-        const uploaded = await uploadToWalrus(
-          new TextEncoder().encode(md),
-          ctx.client,
-          ctx.keypair,
-        );
-        walrusBlobId = uploaded.blobId;
-        deliverable.execution.walrus_blob_id = walrusBlobId;
-        console.log(
-          `[trader] walrus reasoning blob=${walrusBlobId} (${uploaded.uploadMs}ms)`,
-        );
-      } catch (e) {
-        console.warn("[trader] walrus upload failed, inline only:", e);
-      }
-    } else {
-      console.log(
-        "[trader] walrus enabled but wallet has no WAL — inline only",
-      );
-    }
-  }
 
   // ---- 6) Mint deliverable + submit task (atomic) -----
   const inlinePayload = walrusBlobId
