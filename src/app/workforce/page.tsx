@@ -49,6 +49,7 @@ import {
 } from "@/lib/workforce-client";
 import { useAccountSigner } from "@/lib/zklogin/signer";
 import { useZkLogin } from "@/lib/zklogin/state";
+import { rawToUsd, useLiveSpot } from "@/lib/predict-client";
 import {
   buildRevokeTx,
   policyStatus,
@@ -2797,6 +2798,18 @@ function TraderOpenPositionPanel({
     return () => clearInterval(id);
   }, [expiryMs]);
 
+  // Live BTC spot — must run on every render path (React hook rules),
+  // so we call it up here with the oracle id (or null while we're
+  // still in a loading / pre-deliverable state). Consumed deeper down
+  // in the panel where we actually have a market to render against.
+  const settledForLive =
+    latest?.status === "approved" || latest?.status === "expired";
+  const live = useLiveSpot(
+    settledForLive || !decoded?.market?.oracle_id
+      ? null
+      : (decoded.market.oracle_id ?? null),
+  );
+
   if (dispatchError) {
     return (
       <section className="mt-8 border-2 border-red-400 bg-red-50/40 px-5 py-5">
@@ -2872,19 +2885,47 @@ function TraderOpenPositionPanel({
   const strikeUsd = decoded.market?.strike
     ? Number(decoded.market.strike) / 1_000_000_000
     : 0;
-  const spotUsd = decoded.market?.spot_at_decision
+  const spotAtDecisionUsd = decoded.market?.spot_at_decision
     ? Number(decoded.market.spot_at_decision) / 1_000_000_000
     : 0;
   const cost = decoded.decision?.cost_dusdc_base
     ? Number(decoded.decision.cost_dusdc_base) / 1_000_000
     : 0;
   const settled = latest.status === "approved" || latest.status === "expired";
+
+  // Live spot tick comes from useLiveSpot above (called unconditionally
+  // to satisfy hook rules). Until the first read completes we fall
+  // back to the spot the agent captured at the moment of decision, so
+  // the win/loss read never shows "—".
+  const liveSpotUsd =
+    live.spotRaw !== null ? rawToUsd(live.spotRaw) : spotAtDecisionUsd;
+  const spotUsd = liveSpotUsd; // for the win/loss inference + the panel display
   const winningSoFar = direction === "up"
     ? spotUsd >= strikeUsd
     : spotUsd <= strikeUsd;
 
   const msToExpiry = expiryMs ? expiryMs - now : 0;
   const expired = msToExpiry <= 0;
+
+  // Distance to strike — signed % from the strike, color-coded by
+  // whether the bet is currently winning. This is the "I can feel the
+  // moment it flips" surface. We also derive a clamped 0-100 marker
+  // position for the gauge bar (zoom window: ±0.5% around strike).
+  const distancePct =
+    strikeUsd > 0 ? ((spotUsd - strikeUsd) / strikeUsd) * 100 : 0;
+  const distanceUsd = spotUsd - strikeUsd;
+  // Gauge zoom: clamp the spot's position to ±0.5% around the strike.
+  // Anything beyond that pegs to the edge, which is what we want — the
+  // gauge is for "how close to a flip", not absolute price.
+  const ZOOM_PCT = 0.5;
+  const markerPct = Math.max(
+    0,
+    Math.min(100, 50 + (distancePct / ZOOM_PCT) * 50),
+  );
+  // "Distance to flip": the magnitude needed for the bet to cross
+  // strike. Zero when the bet is currently at the strike line (the
+  // tightest moment); negative impossible.
+  const distanceToFlipUsd = Math.abs(distanceUsd);
 
   return (
     <section className="mt-8">
@@ -2902,7 +2943,7 @@ function TraderOpenPositionPanel({
           />
         )}
         <div className="grid gap-6 px-6 py-7 sm:grid-cols-[1.4fr_1fr] sm:px-8 sm:py-8">
-          <div className="space-y-4">
+          <div className="space-y-5">
             <p className="font-sans text-[26px] leading-[1.15] tracking-tightest text-ink sm:text-[32px]">
               <span className="text-muted">{traderName} is betting </span>
               <span className={direction === "up" ? "text-emerald-700" : "text-red-700"}>
@@ -2910,9 +2951,28 @@ function TraderOpenPositionPanel({
               </span>
               <span className="text-muted"> on BTC</span>
             </p>
+
+            {/* Live BTC price block — the dramatic centerpiece. The
+                number gets a subtle pulse on every successful tick;
+                the distance bar shows the strike as the midpoint and
+                the current spot as a marker that crosses sides when
+                the bet flips. */}
+            {!settled && (
+              <LivePriceBlock
+                spotUsd={spotUsd}
+                strikeUsd={strikeUsd}
+                distancePct={distancePct}
+                distanceToFlipUsd={distanceToFlipUsd}
+                markerPct={markerPct}
+                winning={winningSoFar}
+                status={live.status}
+                lastUpdatedMs={live.lastUpdatedMs}
+              />
+            )}
+
             <dl className="grid grid-cols-2 gap-x-6 gap-y-3 font-mono text-[12.5px]">
               <DD label="strike">${strikeUsd.toFixed(2)}</DD>
-              <DD label="spot at decision">${spotUsd.toFixed(2)}</DD>
+              <DD label="spot at decision">${spotAtDecisionUsd.toFixed(2)}</DD>
               <DD label="stake">{cost > 0 ? `$${cost.toFixed(2)}` : `${decoded.decision?.quantity ?? "-"} dUSDC`}</DD>
               <DD label="expires">
                 {expiryMs
@@ -2934,9 +2994,14 @@ function TraderOpenPositionPanel({
             <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
               Status
             </p>
+            {/* Animate the verdict line on every flip. Keying by
+                `winning` remounts the element, which restarts the CSS
+                fadeUp animation — so the user feels the moment it
+                crosses. prefers-reduced-motion zeroes the animation. */}
             <p
+              key={settled ? "settled" : winningSoFar ? "winning" : "losing"}
               className={[
-                "font-sans text-[20px] leading-snug tracking-tight",
+                "font-sans text-[20px] leading-snug tracking-tight animate-fade-up",
                 settled
                   ? "text-ink"
                   : winningSoFar
@@ -2990,6 +3055,133 @@ function TraderOpenPositionPanel({
         </div>
       </article>
     </section>
+  );
+}
+
+// LivePriceBlock — the dramatic centerpiece of the open-position panel.
+// Real BTC spot (devInspected via useLiveSpot), pulsed on every tick.
+// A horizontal gauge centered on the strike shows the marker's position
+// in the ±0.5% zoom window; the side the marker is on (winning vs
+// losing) is shaded so the eye lands on the verdict instantly. When
+// the bet flips, the strike-line glows and the verdict text restarts
+// its fade-up animation via the parent's `key` trick.
+function LivePriceBlock({
+  spotUsd,
+  strikeUsd,
+  distancePct,
+  distanceToFlipUsd,
+  markerPct,
+  winning,
+  status,
+  lastUpdatedMs,
+}: {
+  spotUsd: number;
+  strikeUsd: number;
+  distancePct: number;
+  distanceToFlipUsd: number;
+  markerPct: number;
+  winning: boolean;
+  status: "loading" | "live" | "reconnecting";
+  lastUpdatedMs: number;
+}) {
+  const distancePctLabel =
+    distancePct >= 0
+      ? `+${distancePct.toFixed(3)}%`
+      : `${distancePct.toFixed(3)}%`;
+  const flipLabel =
+    distanceToFlipUsd > 0
+      ? `$${distanceToFlipUsd.toFixed(2)} to flip`
+      : "right on the line";
+  const sinceMs = lastUpdatedMs > 0 ? Date.now() - lastUpdatedMs : 0;
+  const statusLabel =
+    status === "loading"
+      ? "Reading oracle…"
+      : status === "reconnecting"
+        ? "Reconnecting…"
+        : sinceMs < 12_000
+          ? "Live · just now"
+          : `Live · ${Math.round(sinceMs / 1000)}s ago`;
+
+  return (
+    <div className="border border-line bg-bg-elev-2/40 px-4 py-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
+          Live BTC spot · DeepBook Predict oracle
+        </p>
+        <p className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+          <span
+            aria-hidden
+            className={[
+              "mr-1.5 inline-block h-1.5 w-1.5 rounded-full",
+              status === "live"
+                ? "bg-emerald-600"
+                : status === "reconnecting"
+                  ? "bg-amber-500 animate-pulse"
+                  : "bg-muted",
+            ].join(" ")}
+          />
+          {statusLabel}
+        </p>
+      </div>
+      <p
+        key={spotUsd.toFixed(2)}
+        className={[
+          "mt-2 font-sans text-[36px] font-medium leading-none tabular-nums tracking-tight animate-value-tick sm:text-[44px]",
+          winning ? "text-emerald-700" : "text-red-700",
+        ].join(" ")}
+      >
+        ${spotUsd.toFixed(2)}
+      </p>
+      <p
+        className={[
+          "mt-1 font-mono text-[11.5px] tabular-nums",
+          winning ? "text-emerald-700" : "text-red-700",
+        ].join(" ")}
+      >
+        {distancePctLabel}{" "}
+        <span className="text-muted">vs strike · {flipLabel}</span>
+      </p>
+
+      {/* Distance-to-strike gauge. Strike sits at the midpoint; the
+          spot marker slides across as price moves; the side the marker
+          is on is tinted (emerald winning / red losing). The ±0.5%
+          zoom is enough to see meaningful sub-percent moves without
+          the marker pegging hard at one edge. */}
+      <div
+        className="mt-3 relative h-2 w-full overflow-hidden border border-line bg-bg-elev"
+        aria-hidden
+      >
+        {/* Winning-zone tint */}
+        <div
+          className={[
+            "absolute inset-y-0",
+            winning ? "bg-emerald-100" : "bg-red-100",
+          ].join(" ")}
+          style={{
+            left: winning ? `${markerPct}%` : `${markerPct}%`,
+            right: winning ? "0" : "auto",
+            width: winning ? `calc(100% - ${markerPct}%)` : `${markerPct}%`,
+          }}
+        />
+        {/* Center strike line */}
+        <span
+          className="absolute inset-y-0 left-1/2 -ml-px w-px bg-ink/40"
+        />
+        {/* Spot marker */}
+        <span
+          className={[
+            "absolute inset-y-0 -ml-[1.5px] w-[3px] transition-[left] duration-500 ease-out",
+            winning ? "bg-emerald-700" : "bg-red-700",
+          ].join(" ")}
+          style={{ left: `${markerPct}%` }}
+        />
+      </div>
+      <div className="mt-1.5 flex justify-between font-mono text-[9.5px] tabular-nums text-muted">
+        <span>−0.5%</span>
+        <span>strike ${strikeUsd.toFixed(0)}</span>
+        <span>+0.5%</span>
+      </div>
+    </div>
   );
 }
 
