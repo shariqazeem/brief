@@ -707,9 +707,17 @@ async function handleTask(
   });
 
   // ---- 6) Mint deliverable + submit task (atomic) -----
-  const inlinePayload = walrusBlobId
-    ? new Uint8Array()
-    : new TextEncoder().encode(JSON.stringify(deliverable));
+  // The deliverable JSON is small (~1 KB) so we ALWAYS inline it on chain.
+  // The reasoning + journal markdown blobs live on Walrus and are linked
+  // from inside the JSON's `execution.*` — the dashboard reads those
+  // directly off the parsed body to render the prominent memory panel.
+  //
+  // The on-chain `walrus_blob_id` field prefers the journal blob so
+  // anyone inspecting the Deliverable on Suiscan jumps straight to the
+  // cumulative running memory; falls back to the reasoning blob if the
+  // journal upload failed.
+  const inlinePayload = new TextEncoder().encode(JSON.stringify(deliverable));
+  const onChainWalrusBlobId = journalBlobId ?? walrusBlobId;
 
   function buildTraderDeliverTx(): Transaction {
     const tx = new Transaction();
@@ -718,7 +726,7 @@ async function handleTask(
       deliverableOwner: notice.poster,
       schemaVersion: SCHEMA_VERSION,
       inlinePayload,
-      walrusBlobId,
+      walrusBlobId: onChainWalrusBlobId,
       paymentAmount: 0n,
     });
     return tx;
