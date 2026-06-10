@@ -271,10 +271,11 @@ AMM-shaped surrogate).
 - **Frontend:** Next.js 14 App Router, TypeScript, Tailwind. dApp Kit +
   zkLogin (Google OAuth implicit flow, lazy-loaded crypto bundle).
   `/workforce` First-Load JS: 268 kB.
-- **Agent runtimes:** Node.js + tsx. **Four pm2 processes** — `brief-web`
-  (Next.js + the planner-service auto-approve loop in-process),
-  `brief-research`, `brief-treasury`, `brief-trader` — running on an
-  Oracle Cloud VM behind Caddy with Let's Encrypt.
+- **Agent runtimes:** Node.js + tsx. **Five pm2 processes** —
+  `brief-web` (Next.js + UI + API routes), `brief-planner-service`
+  (auto-approve loop), `brief-research`, `brief-treasury`,
+  `brief-trader` — running on an Oracle Cloud VM behind Caddy with
+  Let's Encrypt.
 - **Smart-agent runtime (added in the final push):** per-asset rolling
   price-history poller (60s cadence, atomic tmp+rename JSON, MAX_POINTS
   600 ≈ 10h), deterministic signal library (ROC / Wilder RSI / SMA /
