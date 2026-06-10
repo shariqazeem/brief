@@ -232,11 +232,17 @@ export type TraderDispatchResult = {
   error?: string;
 };
 
+/** Market bundle keys recognised by the wizard + trader spec. */
+export type TraderMarketBundle = "btc_only" | "sui_ecosystem" | "all";
+
 export async function dispatchTraderTask(args: {
   policyId: string;
   strategy: StrategyId;
   traderName?: string;
   bountySui?: number;
+  /** Which markets this trader is allowed to play. Defaults to BTC for
+   *  backward compatibility with existing adopt flows. */
+  markets?: TraderMarketBundle;
 }): Promise<TraderDispatchResult> {
   const res = await fetch(apiUrl("/api/workforce/trader-dispatch"), {
     method: "POST",
@@ -246,6 +252,7 @@ export async function dispatchTraderTask(args: {
       strategy: args.strategy,
       trader_name: args.traderName,
       bounty_sui: args.bountySui,
+      markets: args.markets,
     }),
   });
   const j = (await res.json().catch(() => ({}))) as TraderDispatchResult;

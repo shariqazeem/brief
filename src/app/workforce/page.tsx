@@ -79,7 +79,24 @@ type ActivationResult = {
    *  policy. The workforce path leaves these undefined. */
   traderName?: string;
   traderStrategy?: StrategyId;
+  /** Which market bundle the user picked at adoption. Drives the spec
+   *  the Planner posts to the trader's inbox. */
+  traderMarkets?: "btc_only" | "sui_ecosystem" | "all";
 };
+
+/** Map a market bundle to the OperatorPolicy `allowed_venues` list.
+ *  Always includes predict-btc for backward compat — even SUI-ecosystem
+ *  picks can still legally accept a BTC mint if the trader chooses one. */
+function venuesForBundle(
+  markets: "btc_only" | "sui_ecosystem" | "all",
+): string[] {
+  if (markets === "btc_only") return ["predict-btc"];
+  if (markets === "sui_ecosystem") {
+    return ["predict-btc", "spot-sui", "spot-wal", "spot-deep"];
+  }
+  // "all"
+  return ["predict-btc", "spot-sui", "spot-wal", "spot-deep"];
+}
 
 export default function WorkforcePage() {
   // zkLogin and the dApp Kit wallet are equally valid sources of an
@@ -773,6 +790,7 @@ function useTraderLauncher({
     personality: TraderPersonality;
     traderName: string;
     budgetSui: number;
+    markets: TraderMarketBundleId;
   }) => void;
 } {
   const client = useSuiClient();
@@ -784,10 +802,12 @@ function useTraderLauncher({
       personality,
       traderName,
       budgetSui,
+      markets,
     }: {
       personality: TraderPersonality;
       traderName: string;
       budgetSui: number;
+      markets: TraderMarketBundleId;
     }) => {
       void (async () => {
         const name = traderName.trim().slice(0, 32) || personality.label;
@@ -851,7 +871,9 @@ function useTraderLauncher({
 
         // 2) Sign the policy grant. agent = Planner (server posts the
         //    task as Planner so the user only signs once), allowed
-        //    venues = ["predict-btc"], budget = the leash slider.
+        //    venues = chosen bundle (BTC-only / SUI ecosystem / all),
+        //    budget = the leash slider.
+        const allowedVenues = venuesForBundle(markets);
         setPhase({ kind: "signing" });
         let tx;
         try {
@@ -860,7 +882,7 @@ function useTraderLauncher({
             templateId: `trader-${personality.strategy}`,
             name,
             budgetSui,
-            allowedVenues: ["predict-btc"],
+            allowedVenues,
             expiryHours: TRADER_EXPIRY_HOURS,
             riskTolerance: "low",
           });
@@ -880,9 +902,10 @@ function useTraderLauncher({
               name,
               brief: personality.voice,
               budgetSui,
-              allowedVenues: ["predict-btc"],
+              allowedVenues,
               traderName: name,
               traderStrategy: personality.strategy,
+              traderMarkets: markets,
             });
             setPhase({ kind: "dispatching" });
           },
@@ -937,8 +960,8 @@ function TraderGallery({
         <TraderAdoptionPanel
           personality={picked}
           phase={phase}
-          onAdopt={(name, budgetSui) =>
-            adopt({ personality: picked, traderName: name, budgetSui })
+          onAdopt={(name, budgetSui, markets) =>
+            adopt({ personality: picked, traderName: name, budgetSui, markets })
           }
           onCancel={() => setPickedId(null)}
         />
@@ -1010,6 +1033,34 @@ function TraderPersonalityCard({
   );
 }
 
+type TraderMarketBundleId = "btc_only" | "sui_ecosystem" | "all";
+
+const MARKET_BUNDLES: Array<{
+  id: TraderMarketBundleId;
+  label: string;
+  blurb: string;
+  assets: string[];
+}> = [
+  {
+    id: "btc_only",
+    label: "BTC only",
+    blurb: "Up/down bets on BTC via DeepBook Predict.",
+    assets: ["BTC"],
+  },
+  {
+    id: "sui_ecosystem",
+    label: "Sui ecosystem",
+    blurb: "Directional spot bets on SUI · WAL · DEEP via DeepBook.",
+    assets: ["SUI", "WAL", "DEEP"],
+  },
+  {
+    id: "all",
+    label: "All markets",
+    blurb: "BTC up/down + SUI/WAL/DEEP spot — full multi-asset.",
+    assets: ["BTC", "SUI", "WAL", "DEEP"],
+  },
+];
+
 function TraderAdoptionPanel({
   personality,
   phase,
@@ -1018,11 +1069,12 @@ function TraderAdoptionPanel({
 }: {
   personality: TraderPersonality;
   phase: AdoptPhase;
-  onAdopt: (name: string, budgetSui: number) => void;
+  onAdopt: (name: string, budgetSui: number, markets: TraderMarketBundleId) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
   const [budgetSui, setBudgetSui] = useState(personality.defaultBudgetSui);
+  const [markets, setMarkets] = useState<TraderMarketBundleId>("btc_only");
   const busy =
     phase.kind === "checking-balance" ||
     phase.kind === "funding" ||
@@ -1109,6 +1161,44 @@ function TraderAdoptionPanel({
         </div>
       </div>
 
+      <div className="border-t border-line px-6 py-5 sm:px-8">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          Step 3 · Which markets?
+        </p>
+        <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          One leash governs every asset {name.trim() || personality.label} plays.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {MARKET_BUNDLES.map((b) => {
+            const active = markets === b.id;
+            return (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => setMarkets(b.id)}
+                className={[
+                  "flex flex-col gap-1.5 border-2 px-3.5 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
+                  active
+                    ? "border-ink bg-bg-elev"
+                    : "border-line hover:border-line-strong",
+                ].join(" ")}
+                aria-pressed={active}
+              >
+                <span className="font-sans text-[14.5px] font-medium tracking-tight text-ink">
+                  {b.label}
+                </span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+                  {b.assets.join(" · ")}
+                </span>
+                <span className="text-[12px] leading-snug text-muted">
+                  {b.blurb}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-bg-elev-2/50 px-6 py-5 sm:px-8">
         <p className="max-w-[26rem] font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
           {busy
@@ -1126,7 +1216,7 @@ function TraderAdoptionPanel({
           </button>
           <button
             type="button"
-            onClick={() => onAdopt(name, budgetSui)}
+            onClick={() => onAdopt(name, budgetSui, markets)}
             disabled={busy}
             className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-6 py-3 font-mono text-[11px] uppercase tracking-[0.3em] text-bg transition-colors hover:bg-ink-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -2366,13 +2456,14 @@ function TraderDashboard({
           policyId,
           strategy: activation.traderStrategy!,
           traderName,
+          markets: activation.traderMarkets,
         });
         if (!r.ok) setDispatchError(r.error ?? "dispatch failed");
       } catch (e) {
         setDispatchError(e instanceof Error ? e.message : String(e));
       }
     })();
-  }, [policyId, activation.traderStrategy, traderName]);
+  }, [policyId, activation.traderStrategy, activation.traderMarkets, traderName]);
 
   // Kill-switch state machine — identical to LiveConsole. The revoke
   // path proves the leash by waiting for an EPolicyRevoked abort on a

@@ -32,6 +32,7 @@ import {
 
 const HEX_RE = /^0x[0-9a-fA-F]{40,64}$/;
 const ALLOWED_STRATEGIES = new Set(["conservative", "momentum", "contrarian"]);
+const ALLOWED_MARKETS = new Set(["btc_only", "sui_ecosystem", "all"]);
 const NAME_MAX = 32;
 
 type Body = {
@@ -39,6 +40,8 @@ type Body = {
   strategy?: string;
   trader_name?: string;
   bounty_sui?: number;
+  /** Which markets this trader can play. Defaults to "btc_only". */
+  markets?: string;
 };
 
 export const runtime = "nodejs";
@@ -73,6 +76,8 @@ export async function POST(req: Request): Promise<Response> {
     typeof body.bounty_sui === "number" && body.bounty_sui > 0
       ? body.bounty_sui
       : 0.01;
+  const marketsRaw = (body.markets ?? "btc_only").trim();
+  const markets = ALLOWED_MARKETS.has(marketsRaw) ? marketsRaw : "btc_only";
 
   if (!HEX_RE.test(policyId)) {
     return Response.json(
@@ -130,6 +135,7 @@ export async function POST(req: Request): Promise<Response> {
     strategy,
     policyId,
     venue: "predict-btc",
+    markets,
   };
   if (traderName) specObj.traderName = traderName;
   const specBlob = JSON.stringify(specObj);
