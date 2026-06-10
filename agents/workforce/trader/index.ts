@@ -42,6 +42,7 @@ import {
   uploadToWalrus,
   walrusEnabled,
 } from "../../lib/walrus.js";
+import { consolidateSuiCoins } from "../../lib/sui-coin-consolidate.js";
 import {
   buildCreateManagerTx,
   buildGatedMintTx,
@@ -609,6 +610,23 @@ async function handleTask(
   let walrusBlobId: string | null = null;
   let journalBlobId: string | null = null;
   let journalEntries = 0;
+  // Pre-flight: consolidate the wallet's SUI coins into one object.
+  // The Walrus SDK auto-picks gas coins; if any fragment is smaller
+  // than the requested storage cost it aborts at `balance::split`.
+  // Mint deliveries fragment SUI through change outputs every cycle,
+  // so we merge here right before the Walrus uploads.
+  if (walrusEnabled()) {
+    try {
+      const c = await consolidateSuiCoins(ctx.client, ctx.keypair);
+      if (c.merged) {
+        console.log(
+          `[trader] consolidated ${c.coinsBefore} SUI coins → 1 (${(Number(c.balance) / 1e9).toFixed(4)} SUI) tx=${c.digest}`,
+        );
+      }
+    } catch (e) {
+      console.warn("[trader] coin consolidation skipped:", String((e as Error)?.message ?? e).slice(0, 120));
+    }
+  }
   const walFunded = walrusEnabled()
     ? await hasWalrusFunding(ctx.client, ctx.address)
     : false;
