@@ -44,6 +44,11 @@ type ZkLoginContextValue = {
   phase: ZkLoginPhase;
   /** True when the env var is set so the UI knows to show the button. */
   available: boolean;
+  /** True when the prover proxy is configured to produce proofs that
+   *  verify on the active Sui network. When false, OAuth still works
+   *  (visitors can see their derived address) but signing is hidden so
+   *  no one hits a Groth16 verify error mid-flow. */
+  signingEnabled: boolean;
   /** Begin the OAuth flow. Lazy-loads the crypto, then redirects to Google. */
   signIn: () => void;
   /** Wipe the session and clear sessionStorage. */
@@ -183,15 +188,29 @@ export function ZkLoginProvider({
     setPhase({ kind: "idle" });
   }, []);
 
+  // Public testnet zkLogin proofs from prover-dev.mystenlabs.com don't
+  // verify against the testnet on-chain Groth16 verifier — that prover
+  // serves devnet only, and Mysten gates the testnet/mainnet prover
+  // behind Enoki. Until we add Enoki, we keep the OAuth + address-
+  // derivation work in the bundle (so the AccountChip and leaderboard
+  // "You're #N" detection still work) but expose `signingAvailable` so
+  // the wizard can hide the Adopt button when it would only error out.
+  //
+  // NEXT_PUBLIC_ZKLOGIN_SIGNING_ENABLED=true overrides this once an
+  // Enoki API key is wired into /api/zklogin/prove.
+  const signingEnabled =
+    process.env.NEXT_PUBLIC_ZKLOGIN_SIGNING_ENABLED === "true";
+
   const value = useMemo<ZkLoginContextValue>(
     () => ({
       session,
       phase,
       available: !!GOOGLE_CLIENT_ID,
+      signingEnabled,
       signIn,
       signOut,
     }),
-    [session, phase, signIn, signOut],
+    [session, phase, signIn, signOut, signingEnabled],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

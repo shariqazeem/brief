@@ -440,7 +440,8 @@ function Disconnected() {
           </Link>
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-3">
-          {zk.available && (
+          <ConnectButton connectText="Connect a Sui wallet" />
+          {zk.available && zk.signingEnabled && (
             <button
               type="button"
               onClick={zk.signIn}
@@ -455,12 +456,11 @@ function Disconnected() {
               ) : (
                 <>
                   <GoogleGlyph />
-                  Continue with Google
+                  Or continue with Google
                 </>
               )}
             </button>
           )}
-          <ConnectButton connectText="Or connect a wallet" />
           <Link
             href="/"
             className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink"
@@ -468,12 +468,15 @@ function Disconnected() {
             ← Back to landing
           </Link>
         </div>
-        {zk.available ? (
-          <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
-            zkLogin · no wallet install · the chain verifies your
-            Google identity with zero-knowledge
+        {zk.available && !zk.signingEnabled && (
+          <p className="mt-4 max-w-prose text-[12.5px] leading-relaxed text-muted">
+            <span className="text-ink">Heads-up:</span> Google sign-in
+            (zkLogin) needs an Enoki API key to verify proofs on Sui
+            testnet — for now, please connect a Sui wallet (Slush, Suiet,
+            etc.) to adopt a trader.
           </p>
-        ) : (
+        )}
+        {!zk.available && (
           <p className="mt-4 max-w-prose text-[12.5px] leading-relaxed text-muted">
             Google sign-in isn&apos;t configured for this deployment. Use
             a Sui wallet to continue.
