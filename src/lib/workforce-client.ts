@@ -106,6 +106,60 @@ export const WORKFORCE_TEMPLATES: WorkforceTemplate[] = [
       riskTolerance: "medium",
     },
   },
+  // Trader templates — one per personality the adopt wizard offers.
+  // The wizard passes every default through explicitly (name, budget,
+  // venues), so these entries exist primarily to satisfy
+  // `templateById()`'s presence check inside `buildActivateTx`.
+  // The fallback `allowedVenues` here covers all four trader venues so
+  // a future caller that drops the override still gets a valid policy.
+  {
+    id: "trader-conservative",
+    label: "Conservative trader",
+    blurb:
+      "Adopt an AI agent that takes small positions on BTC/SUI/WAL/DEEP. Tightest leash.",
+    defaults: {
+      name: "Conservative trader",
+      missionPlaceholder: "",
+      budgetSui: 1.0,
+      allowedVenues: ["predict-btc", "spot-sui", "spot-wal", "spot-deep"],
+      maxConcentrationPct: 50,
+      expiryHours: 12,
+      autoApprovePct: 100,
+      riskTolerance: "low",
+    },
+  },
+  {
+    id: "trader-momentum",
+    label: "Momentum trader",
+    blurb:
+      "Adopt an AI agent that follows the last few settled bars on BTC and rides the move on SUI/WAL/DEEP spot.",
+    defaults: {
+      name: "Momentum trader",
+      missionPlaceholder: "",
+      budgetSui: 2.0,
+      allowedVenues: ["predict-btc", "spot-sui", "spot-wal", "spot-deep"],
+      maxConcentrationPct: 70,
+      expiryHours: 12,
+      autoApprovePct: 100,
+      riskTolerance: "medium",
+    },
+  },
+  {
+    id: "trader-contrarian",
+    label: "Contrarian trader",
+    blurb:
+      "Adopt an AI agent that fades the last move on BTC and shorts SUI/WAL/DEEP spot when momentum looks crowded.",
+    defaults: {
+      name: "Contrarian trader",
+      missionPlaceholder: "",
+      budgetSui: 2.0,
+      allowedVenues: ["predict-btc", "spot-sui", "spot-wal", "spot-deep"],
+      maxConcentrationPct: 70,
+      expiryHours: 12,
+      autoApprovePct: 100,
+      riskTolerance: "medium",
+    },
+  },
 ];
 
 export function templateById(id: string): WorkforceTemplate | undefined {
