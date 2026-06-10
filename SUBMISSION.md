@@ -309,12 +309,21 @@ the signal bundle + SVI parameters the strategy actually used.
   b=0.021966, ρ=−0.2056, m=0.023604, σ=0.027386. Walrus blob
   `cuPCF3WjpU0LOMt488oPX8hapxMAoCjdFibH-KhsYXw`. Same strategy, opposite
   direction — because the rolling signals genuinely moved.
-- **Quant honest abstention** (cold price history) — sim deliver tx
-  `7epX5xgJG3Sk2Axmkq8mQCnhvbpRH6TMpCzKwv8ZoVsP`, Walrus blob
-  `kruyDraPTOBPlVe9WtLQ1HY_SXMqnPdhp1nbpMfLjH8`. No bet placed — the
-  blob says exactly why (signals not yet computable). Discipline over
-  forced action; same Watch-it-think panel renders this with equal
-  dignity.
+- **Quant honest abstention** (full signals + live SVI surface, edge
+  too small to bet) — Walrus blob
+  `VSnTkKxV71AvcHFAqDs5an-W0kcsdmA1w_M9u3F3_RM`. Signals at decision:
+  ROC 5m/30m/60m = −0.04% / +0.13% / −0.19%, SMA 15m/60m = $61828.78 /
+  $61828.79, RSI 60m = 46.6, realized vol 50.1% annualized. SVI params
+  read live from oracle `0x8a004618…325f`: a=0.000001, b=0.000033,
+  ρ=−0.9400, m=−0.002211, σ=0.001000 (very tight surface near expiry).
+  The agent's signal-based Pr(UP) ≈ market-implied Pr(UP) within the
+  5% threshold → **no bet**. **This is the discipline showpiece** —
+  the Watch-it-think panel renders the signal chips, the SVI surface
+  block, and the "Why no bet" reasoning side-by-side with equal
+  dignity. The earlier cold-start abstention
+  (`kruyDraPTOBPlVe9WtLQ1HY_SXMqnPdhp1nbpMfLjH8`) is preserved as
+  evidence the strategy abstains gracefully when price history hasn't
+  warmed up yet.
 
 ### Earlier live BTC mints (pre-smart-agent — clean atomic-PTB proof)
 - `B5FYRVPZFr6WgzuTBhUa8kdadxke44pDGyta9jE26YSP` — strike $61,792, UP, 2 contracts
@@ -359,9 +368,10 @@ exactly `qty × DUSDC_BASE × 1000` per mint — real budget depletion.
 
 Smart-agent reasoning blobs (signals + SVI surface + reasoning per the
 new format the Watch-it-think panel parses):
-- `FPjKZJDYvsWQX52m-9z9mxq78XeMIKyRhGDWvlXnEmI` — Momentum DOWN
-- `cuPCF3WjpU0LOMt488oPX8hapxMAoCjdFibH-KhsYXw` — Momentum UP (reversal)
-- `kruyDraPTOBPlVe9WtLQ1HY_SXMqnPdhp1nbpMfLjH8` — Quant honest abstention
+- `FPjKZJDYvsWQX52m-9z9mxq78XeMIKyRhGDWvlXnEmI` — Momentum DOWN (live mint)
+- `cuPCF3WjpU0LOMt488oPX8hapxMAoCjdFibH-KhsYXw` — Momentum UP reversal (live mint)
+- `VSnTkKxV71AvcHFAqDs5an-W0kcsdmA1w_M9u3F3_RM` — **Quant abstention with full real signals + SVI surface** (the discipline showpiece)
+- `kruyDraPTOBPlVe9WtLQ1HY_SXMqnPdhp1nbpMfLjH8` — Quant abstention (cold history, kept as regression check)
 
 Cumulative memory journals (regenerate per trade, same content-addressed
 discipline):
