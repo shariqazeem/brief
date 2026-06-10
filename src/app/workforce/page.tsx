@@ -3047,7 +3047,9 @@ function TraderOpenPositionPanel({
   // tightest moment); negative impossible.
   const distanceToFlipUsd = Math.abs(distanceUsd);
 
+  const abstained = (decoded.decision?.quantity ?? 0) === 0;
   return (
+    <>
     <section className="mt-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
@@ -3104,11 +3106,6 @@ function TraderOpenPositionPanel({
                   : "—"}
               </DD>
             </dl>
-            {decoded.decision?.reasoning && (
-              <p className="border-l-2 border-line-strong pl-4 text-[14px] italic leading-relaxed text-ink-2">
-                &ldquo;{decoded.decision.reasoning}&rdquo;
-              </p>
-            )}
           </div>
           <div className="space-y-4 border-line sm:border-l sm:pl-6">
             <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
@@ -3172,6 +3169,486 @@ function TraderOpenPositionPanel({
               </p>
             )}
           </div>
+        </div>
+      </article>
+    </section>
+    <TraderMindPanel
+      traderName={traderName}
+      strategy={decoded.strategy ?? null}
+      walrusBlobId={decoded.execution?.walrus_blob_id ?? null}
+      abstained={abstained}
+      fallbackReasoning={decoded.decision?.reasoning ?? null}
+    />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TraderMindPanel — the "watch it think" showpiece. Fetches the per-decision
+// reasoning markdown from Walrus, parses the deterministic structured sections
+// (signals, SVI surface, quant edge, plain reasoning), and renders them as
+// premium cards. The intelligence the agent uses is invisible without this:
+// signals row + on-chain SVI block + (for quant) the market-vs-agent edge that
+// triggered the bet. Honest abstention gets equal dignity — same surface,
+// same numbers, headlined "sat this one out · no edge."
+// ---------------------------------------------------------------------------
+
+type ParsedMindSignals = {
+  roc5: number | null;
+  roc30: number | null;
+  roc60: number | null;
+  sma15: number | null;
+  sma60: number | null;
+  rsi60: number | null;
+  realizedVol60: number | null;
+};
+
+type ParsedMindSurface = {
+  forwardUsd: number;
+  spotUsd: number;
+  a: number;
+  b: number;
+  rho: number;
+  m: number;
+  sigma: number;
+};
+
+type ParsedQuantEdge = {
+  marketP: number;
+  agentP: number;
+  edge: number;
+  edgeThreshold: number;
+};
+
+type ParsedMind = {
+  strategy: string | null;
+  signals: ParsedMindSignals | null;
+  surface: ParsedMindSurface | null;
+  quantEdge: ParsedQuantEdge | null;
+  reasoning: string | null;
+};
+
+function parseMindMarkdown(md: string): ParsedMind {
+  const out: ParsedMind = {
+    strategy: null,
+    signals: null,
+    surface: null,
+    quantEdge: null,
+    reasoning: null,
+  };
+
+  const strat = md.match(/^# Trader decision · ([\w/-]+)/m);
+  if (strat) out.strategy = strat[1];
+
+  const sigBlock = md.match(/## Signals at decision time\n([\s\S]+?)(?=\n##|\n*$)/);
+  if (sigBlock) {
+    const b = sigBlock[1];
+    const roc = b.match(
+      /ROC 5m \/ 30m \/ 60m:\*?\*?\s*(n\/a|[-\d.]+)%?\s*\/\s*(n\/a|[-\d.]+)%?\s*\/\s*(n\/a|[-\d.]+)%?/,
+    );
+    const sma = b.match(
+      /SMA 15m \/ 60m:\*?\*?\s*\$(n\/a|[\d.]+)\s*\/\s*\$(n\/a|[\d.]+)/,
+    );
+    const rsi = b.match(/RSI 60m:\*?\*?\s*(n\/a|[\d.]+)/);
+    const vol = b.match(/Realized vol 60m[^:]*:\*?\*?\s*(n\/a|[-\d.]+)%/);
+    const pct = (s?: string) =>
+      s && s !== "n/a" && s !== undefined ? parseFloat(s) / 100 : null;
+    const num = (s?: string) =>
+      s && s !== "n/a" && s !== undefined ? parseFloat(s) : null;
+    out.signals = {
+      roc5: pct(roc?.[1]),
+      roc30: pct(roc?.[2]),
+      roc60: pct(roc?.[3]),
+      sma15: num(sma?.[1]),
+      sma60: num(sma?.[2]),
+      rsi60: num(rsi?.[1]),
+      realizedVol60: pct(vol?.[1]),
+    };
+  }
+
+  const svi = md.match(
+    /## SVI vol surface[\s\S]+?Forward:\*?\*?\s*\$([\d.]+)[\s\S]+?Spot:\*?\*?\s*\$([\d.]+)[\s\S]+?a=([\d.eE+-]+),\s*b=([\d.eE+-]+),\s*ρ=([\d.eE+-]+),\s*m=([\d.eE+-]+),\s*σ=([\d.eE+-]+)/,
+  );
+  if (svi) {
+    out.surface = {
+      forwardUsd: parseFloat(svi[1]),
+      spotUsd: parseFloat(svi[2]),
+      a: parseFloat(svi[3]),
+      b: parseFloat(svi[4]),
+      rho: parseFloat(svi[5]),
+      m: parseFloat(svi[6]),
+      sigma: parseFloat(svi[7]),
+    };
+  }
+
+  const reason = md.match(/## Reasoning\n([\s\S]+?)$/);
+  if (reason) out.reasoning = reason[1].trim();
+
+  if (out.reasoning) {
+    const mp = out.reasoning.match(/Market-implied Pr\(UP @ \$[\d.]+\) = ([-\d.]+)%/);
+    const ap = out.reasoning.match(/Agent's signal estimate ([-\d.]+)%/);
+    const ed = out.reasoning.match(/Edge ([-\d.]+)% \(threshold ±([-\d.]+)%\)/);
+    if (mp && ap && ed) {
+      out.quantEdge = {
+        marketP: parseFloat(mp[1]) / 100,
+        agentP: parseFloat(ap[1]) / 100,
+        edge: parseFloat(ed[1]) / 100,
+        edgeThreshold: parseFloat(ed[2]) / 100,
+      };
+    }
+  }
+  return out;
+}
+
+function useWalrusMarkdown(blobId: string | null): {
+  body: string | null;
+  loading: boolean;
+} {
+  const [state, setState] = useState<{ body: string | null; loading: boolean }>({
+    body: null,
+    loading: !!blobId,
+  });
+  useEffect(() => {
+    if (!blobId) {
+      setState({ body: null, loading: false });
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(
+          `https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}`,
+        );
+        if (!r.ok) {
+          if (!cancelled) setState({ body: null, loading: false });
+          return;
+        }
+        const text = await r.text();
+        if (!cancelled) setState({ body: text, loading: false });
+      } catch {
+        if (!cancelled) setState({ body: null, loading: false });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [blobId]);
+  return state;
+}
+
+function MindChip({
+  label,
+  value,
+  sub,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: "neutral" | "positive" | "negative" | "muted";
+}) {
+  const tones: Record<string, string> = {
+    neutral: "border-line bg-bg-elev text-ink",
+    positive: "border-emerald-600/50 bg-emerald-50/60 text-emerald-900",
+    negative: "border-red-600/50 bg-red-50/60 text-red-900",
+    muted: "border-line bg-bg-elev-2/40 text-muted",
+  };
+  return (
+    <div className={`border ${tones[tone]} px-3 py-2.5`}>
+      <p className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+        {label}
+      </p>
+      <p className="mt-1 font-sans text-[17px] font-medium leading-none tabular-nums">
+        {value}
+      </p>
+      {sub && (
+        <p className="mt-1.5 font-mono text-[9.5px] tracking-[0.04em] text-muted">
+          {sub}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function MindSignalsRow({ s }: { s: ParsedMindSignals }) {
+  const fmtPct = (x: number | null, d = 2) =>
+    x === null ? "n/a" : `${(x * 100).toFixed(d)}%`;
+  const fmtNum = (x: number | null, d = 2) =>
+    x === null ? "n/a" : x.toFixed(d);
+
+  // Prefer the 30m ROC; fall back to 5m with a labeled window.
+  const roc = s.roc30 ?? s.roc5;
+  const rocWindow = s.roc30 !== null ? "30m" : "5m";
+  const rocTone =
+    roc === null ? "muted" : roc > 0 ? "positive" : "negative";
+
+  const rsiTone =
+    s.rsi60 === null
+      ? "muted"
+      : s.rsi60 > 70
+        ? "negative"
+        : s.rsi60 < 30
+          ? "positive"
+          : "neutral";
+  const rsiSub =
+    s.rsi60 === null
+      ? "warming up"
+      : s.rsi60 > 70
+        ? "overbought"
+        : s.rsi60 < 30
+          ? "oversold"
+          : "neutral";
+
+  return (
+    <div>
+      <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
+        Signals · real, computed from rolling price history
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <MindChip
+          label={`ROC ${rocWindow}`}
+          value={fmtPct(roc, 3)}
+          sub="rate of change"
+          tone={rocTone as "neutral" | "positive" | "negative" | "muted"}
+        />
+        <MindChip
+          label="SMA 60m"
+          value={s.sma60 !== null ? `$${fmtNum(s.sma60)}` : "n/a"}
+          sub="60-minute average"
+          tone={s.sma60 === null ? "muted" : "neutral"}
+        />
+        <MindChip
+          label="RSI 60m"
+          value={fmtNum(s.rsi60, 1)}
+          sub={rsiSub}
+          tone={rsiTone as "neutral" | "positive" | "negative" | "muted"}
+        />
+        <MindChip
+          label="Realized vol"
+          value={fmtPct(s.realizedVol60, 1)}
+          sub="annualized · 60m"
+          tone={s.realizedVol60 === null ? "muted" : "neutral"}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MindSVISurface({ surface }: { surface: ParsedMindSurface }) {
+  const params: Array<[string, number, number]> = [
+    ["a", surface.a, 6],
+    ["b", surface.b, 6],
+    ["ρ", surface.rho, 4],
+    ["m", surface.m, 4],
+    ["σ", surface.sigma, 4],
+  ];
+  return (
+    <div className="border border-line bg-bg-elev-2/40 px-4 py-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
+          SVI vol surface · live, on-chain
+        </p>
+        <p className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+          read from oracle
+        </p>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 font-mono text-[12.5px] tabular-nums">
+        <span>
+          <span className="text-muted">Forward </span>
+          <span className="text-ink">${surface.forwardUsd.toFixed(2)}</span>
+        </span>
+        <span>
+          <span className="text-muted">Spot </span>
+          <span className="text-ink">${surface.spotUsd.toFixed(2)}</span>
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-5 gap-2">
+        {params.map(([k, v, d]) => (
+          <div key={k} className="border border-line bg-bg-elev px-2 py-1.5">
+            <p className="font-mono text-[10px] tracking-[0.04em] text-muted">
+              {k}
+            </p>
+            <p className="font-mono text-[12px] tabular-nums text-ink">
+              {(v as number).toFixed(d as number)}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MindEdgeBlock({ e }: { e: ParsedQuantEdge }) {
+  const isUp = e.edge > 0;
+  const direction: "up" | "down" = isUp ? "up" : "down";
+  const mp = e.marketP * 100;
+  const ap = e.agentP * 100;
+  const edgeAbs = Math.abs(e.edge) * 100;
+  const thresh = e.edgeThreshold * 100;
+  // Bar widths (capped 95% so neither bar fills the rail) — visual gap = edge.
+  const wMarket = Math.max(8, Math.min(95, mp));
+  const wAgent = Math.max(8, Math.min(95, ap));
+
+  return (
+    <div className="border-2 border-ink bg-bg-elev px-4 py-4 sm:px-5">
+      <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
+        Where the bet comes from · vol-surface edge
+      </p>
+      <div className="mt-3 space-y-3">
+        <div>
+          <div className="flex items-baseline justify-between font-mono text-[10px] tracking-[0.04em] text-muted">
+            <span className="uppercase tracking-[0.2em]">Market says</span>
+            <span className="tabular-nums text-ink">{mp.toFixed(1)}% UP</span>
+          </div>
+          <div className="mt-1 h-2 w-full overflow-hidden border border-line bg-bg-elev-2/40">
+            <span
+              className="block h-full bg-ink/70 transition-[width] duration-500 ease-out"
+              style={{ width: `${wMarket}%` }}
+            />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-baseline justify-between font-mono text-[10px] tracking-[0.04em] text-muted">
+            <span className="uppercase tracking-[0.2em]">Agent estimates</span>
+            <span
+              className={
+                isUp
+                  ? "tabular-nums text-emerald-800"
+                  : "tabular-nums text-red-800"
+              }
+            >
+              {ap.toFixed(1)}% UP
+            </span>
+          </div>
+          <div className="mt-1 h-2 w-full overflow-hidden border border-line bg-bg-elev-2/40">
+            <span
+              className={
+                isUp
+                  ? "block h-full bg-emerald-600 transition-[width] duration-500 ease-out"
+                  : "block h-full bg-red-600 transition-[width] duration-500 ease-out"
+              }
+              style={{ width: `${wAgent}%` }}
+            />
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p
+          className={
+            isUp
+              ? "font-sans text-[17px] leading-snug text-emerald-800"
+              : "font-sans text-[17px] leading-snug text-red-800"
+          }
+        >
+          Edge {isUp ? "+" : "−"}{edgeAbs.toFixed(1)}% → bet{" "}
+          <strong className="font-semibold">{direction.toUpperCase()}</strong>
+        </p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          fires when |edge| ≥ {thresh.toFixed(1)}%
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function MindReasoning({
+  text,
+  abstained,
+}: {
+  text: string;
+  abstained: boolean;
+}) {
+  return (
+    <div>
+      <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
+        {abstained ? "Why no bet" : "Plain reasoning"}
+      </p>
+      <p className="mt-2 text-[14.5px] leading-relaxed text-ink-2">{text}</p>
+    </div>
+  );
+}
+
+function TraderMindPanel({
+  traderName,
+  strategy,
+  walrusBlobId,
+  abstained,
+  fallbackReasoning,
+}: {
+  traderName: string;
+  strategy: string | null;
+  walrusBlobId: string | null;
+  abstained: boolean;
+  fallbackReasoning: string | null;
+}) {
+  const md = useWalrusMarkdown(walrusBlobId);
+  const parsed = useMemo(
+    () => (md.body ? parseMindMarkdown(md.body) : null),
+    [md.body],
+  );
+
+  // Nothing to show: no blob, no inline fallback. Render nothing.
+  if (!walrusBlobId && !fallbackReasoning) return null;
+
+  const signals = parsed?.signals ?? null;
+  const surface = parsed?.surface ?? null;
+  const quantEdge = parsed?.quantEdge ?? null;
+  const reasoning = parsed?.reasoning ?? fallbackReasoning;
+  const strategyLabel = parsed?.strategy ?? strategy ?? "agent";
+
+  // While the Walrus blob is in flight, show a calm skeleton — the
+  // inline JSON deliverable is already on screen above, so the user
+  // never sees a blank reasoning state.
+  if (md.loading && !reasoning) {
+    return (
+      <section className="mt-6">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          Watch {traderName} think
+        </p>
+        <div className="mt-3 border-2 border-line bg-bg-elev px-5 py-6">
+          <p className="font-sans text-[14px] italic text-muted">
+            Pulling reasoning from Walrus…
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  const header = abstained
+    ? `${traderName} sat this one out · no edge`
+    : `How ${traderName} decided · ${strategyLabel}`;
+
+  return (
+    <section className="mt-6">
+      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+        {header}
+      </p>
+      <article className="mt-3 border-2 border-line bg-bg-elev">
+        <div className="space-y-5 px-5 py-6 sm:px-7 sm:py-7">
+          {signals && <MindSignalsRow s={signals} />}
+          {surface && <MindSVISurface surface={surface} />}
+          {quantEdge && <MindEdgeBlock e={quantEdge} />}
+          {reasoning && (
+            <MindReasoning text={reasoning} abstained={abstained} />
+          )}
+          {walrusBlobId && (
+            <div className="border-t border-line/60 pt-4">
+              <a
+                href={`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${walrusBlobId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 border border-emerald-600/40 bg-emerald-50/70 px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.22em] text-emerald-800 hover:bg-emerald-100/70"
+                title="The reasoning above is content-addressed on Walrus. Open the raw blob."
+              >
+                <span
+                  aria-hidden
+                  className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600"
+                />
+                Verifiable on Walrus
+                <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
+              </a>
+            </div>
+          )}
         </div>
       </article>
     </section>
