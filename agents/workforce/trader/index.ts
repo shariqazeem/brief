@@ -43,6 +43,15 @@ import {
   walrusEnabled,
 } from "../../lib/walrus.js";
 import { consolidateSuiCoins } from "../../lib/sui-coin-consolidate.js";
+import { getMarket, type MarketSpec } from "../lib/markets.js";
+import { closeSpot, openSpot, readSpotMid } from "./spot-handler.js";
+import {
+  appendSpotPosition,
+  dueSpotPositions,
+  loadSpotPositions,
+  markSpotPositionClosed,
+  type SpotPosition,
+} from "./spot-positions.js";
 import {
   buildCreateManagerTx,
   buildGatedMintTx,
@@ -74,6 +83,14 @@ const SCHEMA_VERSION = 1n;
 
 const DEFAULT_STRATEGY: StrategyId = "conservative";
 
+/** Spot positions auto-close one hour after open by default — short
+ *  enough that a demo can show a complete cycle in one session, long
+ *  enough that a thoughtful directional bet actually has room to move. */
+const SPOT_HORIZON_MS = 60 * 60 * 1000;
+/** How often the auto-close service scans the durable cursor for due
+ *  positions. Matches the redeem loop cadence. */
+const SPOT_CLOSE_POLL_MS = 30_000;
+
 // === Spec parsing ===
 
 type TraderSpec = {
@@ -88,7 +105,34 @@ type TraderSpec = {
   /** User-given name for the trader — surfaced in the memory journal
    *  header so the same Walrus blob reads as "Bolt's memory" / etc. */
   traderName?: string;
+  /** Explicit asset override (BTC / SUI / WAL / DEEP). When set, the
+   *  router skips bundle inspection and routes straight to this asset. */
+  asset?: string;
+  /** Market bundle the user picked at adoption — the policy's
+   *  allowed_venues already narrows on chain. We rotate within the
+   *  bundle here to choose a concrete asset per task. */
+  markets?: "btc_only" | "sui_ecosystem" | "all";
 };
+
+/** Pick the asset to bet on this task. Explicit `spec.asset` wins;
+ *  otherwise we honour the user's bundle by rotating through the
+ *  allowed assets keyed deterministically by the task id (so the same
+ *  task always resolves to the same asset if the trader retries). */
+function chooseAsset(spec: TraderSpec, taskId: string): "BTC" | "SUI" | "WAL" | "DEEP" {
+  const explicit = (spec.asset ?? "").toUpperCase();
+  if (explicit === "BTC" || explicit === "SUI" || explicit === "WAL" || explicit === "DEEP") {
+    return explicit;
+  }
+  const bundle = spec.markets ?? "btc_only";
+  if (bundle === "btc_only") return "BTC";
+  // For sui_ecosystem / all: rotate SUI/WAL/DEEP using task id hash.
+  // BTC is intentionally excluded from spot rotation — the bundle's BTC
+  // share gets a dedicated dispatch (the user adopting "all" can still
+  // trigger a BTC task via the existing dispatch path).
+  const seed = parseInt(taskId.slice(2, 10), 16) >>> 0;
+  const spotAssets = ["SUI", "WAL", "DEEP"] as const;
+  return spotAssets[seed % spotAssets.length]!;
+}
 
 function parseSpec(raw: string): TraderSpec {
   const t = raw.trim();
@@ -498,6 +542,23 @@ async function handleTask(
 
   // ---- 2) Decide market + direction -----
   const spec = parseSpec(t.specBlob);
+
+  // ---- Asset router -----
+  // The trader can play BTC (Predict, binary up/down at expiry) or
+  // SUI/WAL/DEEP (DeepBook spot, directional buy/sell over a horizon).
+  // Whoever dispatches the task picks the asset via `spec.asset`, or
+  // we infer one from the adopted policy's market bundle (`spec.markets`)
+  // — the policy's `allowed_venues` already narrowed the user's
+  // authorization at grant time.
+  //
+  // The BTC path below this branch stays byte-for-byte unchanged so the
+  // proven live BTC trader is never put at risk by spot wiring.
+  const asset = chooseAsset(spec, notice.taskId);
+  if (asset !== "BTC") {
+    await handleSpotTask(ctx, asset, t, notice, spec);
+    return;
+  }
+
   const strategyId = spec.strategy ?? DEFAULT_STRATEGY;
   if (!STRATEGIES[strategyId]) {
     throw new Error(`unknown strategy in spec: ${strategyId}`);
@@ -784,6 +845,355 @@ async function handleTask(
   );
 }
 
+// === Spot task handler — DeepBook v3 directional bet over a horizon ===
+//
+// Mirrors the BTC handler's lifecycle: pick direction from strategy,
+// build the atomic policy-gated open PTB (record_spend + market order),
+// persist to a durable cursor, then emit the same TraderDeliverable
+// shape with the asset name in `market.underlying`. The auto-close
+// service below scans the cursor and closes each position when its
+// horizon elapses.
+async function handleSpotTask(
+  ctx: AgentContext,
+  asset: "SUI" | "WAL" | "DEEP",
+  _t: Awaited<ReturnType<typeof fetchTask>>,
+  notice: TaskPostedNotice,
+  spec: TraderSpec,
+): Promise<void> {
+  const market = getMarket(asset);
+  const strategyId = spec.strategy ?? DEFAULT_STRATEGY;
+  const balanceManagerId = (
+    process.env.BRIEF_BALANCE_MANAGER_ID ?? ""
+  ).trim();
+  if (!balanceManagerId) {
+    throw new Error(
+      "spot path: BRIEF_BALANCE_MANAGER_ID not set; cannot route SUI/WAL/DEEP bets",
+    );
+  }
+
+  // Read the live mid price first so the deliverable carries an honest
+  // spot snapshot even if the trade itself ends up simulated.
+  let midUsd: number;
+  try {
+    midUsd = await readSpotMid(ctx, market);
+  } catch (e) {
+    throw new Error(
+      `spot mid read failed for ${asset}: ${(e as Error).message}`,
+    );
+  }
+
+  // Direction picker — simple per-strategy bias for spot. We avoid the
+  // BTC oracle-history strategies here because spot pools don't have a
+  // settled-bar history feed; the strategies' *names* carry over as
+  // user-visible labels.
+  const direction: "up" | "down" =
+    strategyId === "contrarian" ? "down" : "up";
+  const baseQty = market.minOrderQty ?? 1;
+  const notionalUsd = baseQty * midUsd;
+  const reasoning = `${strategyId}: betting ${direction.toUpperCase()} on ${asset} at $${midUsd.toFixed(4)} over a ${Math.round(SPOT_HORIZON_MS / 60_000)}-minute horizon. Position size ${baseQty} ${asset} (~$${notionalUsd.toFixed(2)} notional).`;
+  console.log(
+    `[trader-spot] asset=${asset} strategy=${strategyId} direction=${direction} qty=${baseQty} mid=$${midUsd.toFixed(4)} notional=$${notionalUsd.toFixed(4)}`,
+  );
+  console.log(`[trader-spot] reasoning: ${reasoning}`);
+
+  // Pre-flight: consolidate SUI coins. Same fix that protects Walrus
+  // applies to DeepBook PTBs — both auto-pick gas and abort at
+  // `balance::split` if the picked coin is too small.
+  try {
+    const c = await consolidateSuiCoins(ctx.client, ctx.keypair);
+    if (c.merged) {
+      console.log(
+        `[trader-spot] consolidated ${c.coinsBefore} SUI → 1 (${(Number(c.balance) / 1e9).toFixed(4)} SUI) tx=${c.digest}`,
+      );
+    }
+  } catch (e) {
+    console.warn(
+      "[trader-spot] coin consolidation skipped:",
+      String((e as Error)?.message ?? e).slice(0, 120),
+    );
+  }
+
+  // Decide mode (live vs simulated) — spot has no manager-balance gate
+  // (the BM is funded once at setup), so we only need the policy gate.
+  const hasGate = !!spec.policyId;
+  let mode: ExecutionMode = hasGate ? "live" : "simulated";
+  let openDigest: string | null = null;
+  let openQuoteBase: bigint = 0n;
+  let simReason: string | null = null;
+  if (!hasGate) {
+    simReason = `No policy_id in task spec — live spot bets must be gated by an OperatorPolicy with venue "spot-${asset.toLowerCase()}".`;
+  }
+
+  // ---- LIVE: open the position via the proven openSpot helper -----
+  if (mode === "live" && spec.policyId) {
+    try {
+      const open = await openSpot({
+        ctx,
+        market,
+        direction,
+        briefPackage: ctx.packageId,
+        policyId: spec.policyId,
+        balanceManagerId,
+      });
+      openDigest = open.digest;
+      openQuoteBase = open.quoteBase;
+      console.log(
+        `[trader-spot] LIVE open ok tx=${openDigest} quoteBase=${openQuoteBase}`,
+      );
+      const positionId = `${asset.toLowerCase()}-${notice.taskId.slice(2, 14)}`;
+      await appendSpotPosition({
+        id: positionId,
+        taskId: notice.taskId,
+        traderName: spec.traderName ?? null,
+        asset,
+        poolKey: market.spotPoolKey!,
+        direction,
+        baseQty,
+        openQuoteBase: openQuoteBase.toString(),
+        openTxDigest: openDigest,
+        policyId: spec.policyId,
+        openedAtMs: Date.now(),
+        closeAtMs: Date.now() + SPOT_HORIZON_MS,
+        strategy: strategyId,
+        status: "open",
+      });
+    } catch (e) {
+      mode = "simulated";
+      simReason = `Live spot open failed: ${(e as Error).message.slice(0, 160)}`;
+      console.warn(`[trader-spot] live open failed, falling back to simulated:`, e);
+    }
+  }
+
+  // ---- Walrus uploads (per-decision reasoning + cumulative journal)
+  let walrusBlobId: string | null = null;
+  let journalBlobId: string | null = null;
+  let journalEntries = 0;
+  const walFunded = walrusEnabled()
+    ? await hasWalrusFunding(ctx.client, ctx.address)
+    : false;
+  if (walFunded) {
+    try {
+      const md = reasoningMarkdown({
+        decision: { strategy: strategyId, direction, quantity: baseQty, reasoning },
+        market: {
+          oracle: {
+            oracle_id: market.spotPoolId!,
+            underlying_asset: asset,
+            expiry: Date.now() + SPOT_HORIZON_MS,
+            min_strike: 0,
+            tick_size: 0,
+          } as IndexerOracle,
+          spotRaw: BigInt(Math.floor(midUsd * 1e9)),
+          strikeRaw: BigInt(Math.floor(midUsd * 1e9)),
+        },
+        mode,
+        mintTxDigest: openDigest,
+      });
+      const uploaded = await uploadToWalrus(
+        new TextEncoder().encode(md),
+        ctx.client,
+        ctx.keypair,
+      );
+      walrusBlobId = uploaded.blobId;
+      console.log(
+        `[trader-spot] walrus reasoning blob=${walrusBlobId} (${uploaded.uploadMs}ms)`,
+      );
+    } catch (e) {
+      console.warn("[trader-spot] walrus reasoning upload failed:", e);
+    }
+    try {
+      const prior = await loadJournal(spec.policyId ?? null);
+      const entry: JournalEntry = {
+        taskId: notice.taskId,
+        traderName: spec.traderName ?? null,
+        strategy: strategyId,
+        decidedAtMs: Date.now(),
+        market: {
+          oracleId: market.spotPoolId!,
+          expiryMs: Date.now() + SPOT_HORIZON_MS,
+          strike: Math.floor(midUsd * 1e9),
+          spotAtDecision: Math.floor(midUsd * 1e9),
+        },
+        decision: { direction, quantity: baseQty, reasoning },
+        execution: {
+          mode,
+          mintTxDigest: openDigest,
+          walrusReasoningBlobId: walrusBlobId,
+        },
+      };
+      const updated = [...prior, entry];
+      await saveJournal(spec.policyId ?? null, updated);
+      journalEntries = updated.length;
+      const journalMd = journalMarkdown({
+        traderName: spec.traderName ?? null,
+        strategy: strategyId,
+        entries: updated,
+        policyId: spec.policyId ?? null,
+      });
+      const uploaded = await uploadToWalrus(
+        new TextEncoder().encode(journalMd),
+        ctx.client,
+        ctx.keypair,
+      );
+      journalBlobId = uploaded.blobId;
+      console.log(
+        `[trader-spot] walrus journal blob=${journalBlobId} entries=${journalEntries} (${uploaded.uploadMs}ms)`,
+      );
+    } catch (e) {
+      console.warn("[trader-spot] walrus journal upload failed:", e);
+    }
+  }
+
+  // ---- Compose + submit deliverable -----
+  const deliverable: TraderDeliverable = {
+    task_title: notice.title,
+    primary_capability: notice.primaryCapability,
+    spec_context: spec.context ?? "(no context provided in spec)",
+    strategy: strategyId,
+    market: {
+      oracle_id: market.spotPoolId!,
+      underlying: asset,
+      expiry_ms: Date.now() + SPOT_HORIZON_MS,
+      strike: Math.floor(midUsd * 1e9),
+      tick_size: 0,
+      spot_at_decision: Math.floor(midUsd * 1e9),
+    },
+    decision: {
+      direction,
+      quantity: baseQty,
+      cost_dusdc_base: Math.floor(notionalUsd * 1e6),
+      reasoning,
+    },
+    execution: {
+      mode,
+      mint_tx_digest: openDigest,
+      walrus_blob_id: walrusBlobId,
+      reason_if_simulated: simReason,
+      journal_walrus_blob_id: journalBlobId,
+      journal_entries: journalEntries,
+    },
+    metadata: {
+      produced_by: ctx.address,
+      produced_at_ms: Date.now(),
+      schema_version: Number(SCHEMA_VERSION),
+      manager_id: balanceManagerId,
+      policy_id: spec.policyId ?? null,
+      venue: `spot-${asset.toLowerCase()}`,
+    },
+  };
+  const inlinePayload = new TextEncoder().encode(JSON.stringify(deliverable));
+  const onChainWalrusBlobId = journalBlobId ?? walrusBlobId;
+
+  function buildSpotDeliverTx(): Transaction {
+    const tx = new Transaction();
+    appendMintAndSubmit(tx, ctx, {
+      taskId: notice.taskId,
+      deliverableOwner: notice.poster,
+      schemaVersion: SCHEMA_VERSION,
+      inlinePayload,
+      walrusBlobId: onChainWalrusBlobId,
+      paymentAmount: 0n,
+    });
+    return tx;
+  }
+  const submitRes = await signAndExecuteWithRetry(
+    ctx,
+    buildSpotDeliverTx,
+    { showEffects: true },
+    {
+      label: "trader-spot:submit",
+      attempts: 3,
+      alreadyDone: async () => {
+        try {
+          const cur = await fetchTask(ctx, notice.taskId);
+          if (
+            (cur.status === "delivered" || cur.status === "approved") &&
+            cur.deliverableId
+          ) {
+            return "done";
+          }
+        } catch {
+          /* fall through */
+        }
+        return null;
+      },
+    },
+  );
+  if (submitRes.effects?.status?.status !== "success") {
+    throw new Error(
+      `spot delivery PTB failed: ${submitRes.effects?.status?.error ?? "unknown"}`,
+    );
+  }
+  console.log(
+    `[trader-spot] delivered tx=${submitRes.digest} mode=${mode}` +
+      (openDigest ? ` open=${openDigest}` : "") +
+      (walrusBlobId ? ` walrus=${walrusBlobId}` : ""),
+  );
+}
+
+// === Auto-close spot loop — closes positions when their horizon elapses ===
+//
+// Idempotent: a position that's already past status="closed" is skipped.
+// On a tx failure we leave the position in status="open" so the next
+// tick retries. Closes have no policy gate, so even after revoke this
+// loop continues to settle whatever's on the book — mirrors the
+// "past wins still pay out" guarantee from the BTC redeem path.
+async function autoCloseSpotTick(ctx: AgentContext): Promise<void> {
+  const due = await dueSpotPositions(Date.now());
+  if (due.length === 0) return;
+  const balanceManagerId = (
+    process.env.BRIEF_BALANCE_MANAGER_ID ?? ""
+  ).trim();
+  if (!balanceManagerId) return;
+  for (const p of due) {
+    try {
+      const market = getMarket(p.asset);
+      console.log(
+        `[trader-spot-close] ${p.asset} ${p.direction} qty=${p.baseQty} task=${p.taskId.slice(0, 12)}… — closing`,
+      );
+      const r = await closeSpot({
+        ctx,
+        market,
+        originalDirection: p.direction,
+        baseQty: p.baseQty,
+        openQuoteBase: BigInt(p.openQuoteBase),
+        balanceManagerId,
+      });
+      await markSpotPositionClosed(p.id, {
+        closeTxDigest: r.digest,
+        closeQuoteBase: r.closeQuoteBase,
+        realizedPnlBase: r.realizedPnlBase,
+      });
+      const pnlUsd = Number(r.realizedPnlBase) / 1e6;
+      console.log(
+        `[trader-spot-close] closed ${p.asset} task=${p.taskId.slice(0, 12)}… tx=${r.digest} pnl=${pnlUsd >= 0 ? "+" : ""}${pnlUsd.toFixed(6)} DBUSDC`,
+      );
+    } catch (e) {
+      console.warn(
+        `[trader-spot-close] close error ${p.asset} task=${p.taskId.slice(0, 12)}…:`,
+        (e as Error).message,
+      );
+      // Leave position open; next tick will retry.
+    }
+  }
+}
+
+function startAutoCloseSpotLoop(ctx: AgentContext): void {
+  console.log(
+    `[trader-spot-close] open · poll=${SPOT_CLOSE_POLL_MS}ms horizon=${SPOT_HORIZON_MS}ms`,
+  );
+  void (async () => {
+    while (true) {
+      try {
+        await autoCloseSpotTick(ctx);
+      } catch (e) {
+        console.warn("[trader-spot-close] tick error:", (e as Error).message);
+      }
+      await new Promise((r) => setTimeout(r, SPOT_CLOSE_POLL_MS));
+    }
+  })();
+}
+
 // === Auto-redeem service ===
 
 async function autoRedeemTick(
@@ -899,6 +1309,9 @@ async function main(): Promise<void> {
 
   // Spin up the auto-redeem service (runs forever in parallel with inbox).
   startAutoRedeemLoop(ctx, managerId);
+  // Spin up the spot auto-close service (mirrors auto-redeem for spot
+  // positions — closes settle at the position's horizon).
+  startAutoCloseSpotLoop(ctx);
 
   await startTaskInbox({
     ctx,

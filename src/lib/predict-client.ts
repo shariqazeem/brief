@@ -145,3 +145,112 @@ export function rawToUsd(raw: bigint | number | null | undefined): number {
   if (raw === null || raw === undefined) return 0;
   return Number(raw) / 1_000_000_000;
 }
+
+/** DeepBook v3 testnet package — used for the spot mid-price devInspect.
+ *  Mirrors the BTC oracle pattern; the move call is
+ *  `pool::mid_price<Base, Quote>(pool, clock)` returning u64. */
+const DEEPBOOK_PACKAGE_ID =
+  "0x22be4cade64bf2d02412c7e8d0e8beea2f78828b948118d46735315409371a3c";
+const SUI_CLOCK_OBJECT_ID =
+  "0x0000000000000000000000000000000000000000000000000000000000000006";
+
+export type LiveSpotMid = {
+  /** Current mid price as a USD number (e.g. 0.751 for $0.751/SUI).
+   *  Null until the first successful read. */
+  midUsd: number | null;
+  lastUpdatedMs: number;
+  status: "loading" | "live" | "reconnecting";
+};
+
+const INITIAL_MID: LiveSpotMid = {
+  midUsd: null,
+  lastUpdatedMs: 0,
+  status: "loading",
+};
+
+/** Poll a DeepBook v3 pool's mid price via devInspect. Parallel to
+ *  `useLiveSpot` for BTC; used by the dashboard for SUI/WAL/DEEP
+ *  spot positions so the open-position panel has the same live-tick +
+ *  winning/losing tension. */
+export function useSpotMid(
+  poolId: string | null | undefined,
+  baseCoinType: string | null | undefined,
+  quoteCoinType: string | null | undefined,
+  baseScalar: number,
+  quoteScalar: number,
+): LiveSpotMid {
+  const sui = useSuiClient();
+  const [state, setState] = useState<LiveSpotMid>(INITIAL_MID);
+  const failuresRef = useRef(0);
+  const cancelledRef = useRef(false);
+
+  useEffect(() => {
+    if (!poolId || !baseCoinType || !quoteCoinType) {
+      setState(INITIAL_MID);
+      return;
+    }
+    cancelledRef.current = false;
+    failuresRef.current = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function tick() {
+      try {
+        const tx = new Transaction();
+        tx.moveCall({
+          target: `${DEEPBOOK_PACKAGE_ID}::pool::mid_price`,
+          typeArguments: [baseCoinType as string, quoteCoinType as string],
+          arguments: [
+            tx.object(poolId as string),
+            tx.object(SUI_CLOCK_OBJECT_ID),
+          ],
+        });
+        const r = await sui.devInspectTransactionBlock({
+          sender:
+            "0xa9f24640b32f33fcfa8582791e84a542251398acfc3b696f382a08a768b6ddbf",
+          transactionBlock: tx,
+        });
+        const ret = r.results?.[0]?.returnValues?.[0];
+        if (!ret) throw new Error("no return value");
+        const [bytes] = ret;
+        const raw = BigInt(bcs.U64.parse(Uint8Array.from(bytes)));
+        // SDK formula: adjusted = raw * baseScalar / quoteScalar / 1e9
+        const midUsd = (Number(raw) * baseScalar) / quoteScalar / 1e9;
+        if (!cancelledRef.current) {
+          failuresRef.current = 0;
+          setState((prev) => {
+            if (prev.midUsd === midUsd && prev.status === "live" && prev.lastUpdatedMs !== 0) {
+              return prev;
+            }
+            return { midUsd, lastUpdatedMs: Date.now(), status: "live" };
+          });
+        }
+        scheduleNext(POLL_BASE_MS);
+      } catch {
+        if (cancelledRef.current) return;
+        failuresRef.current += 1;
+        setState((prev) => ({
+          midUsd: prev.midUsd,
+          lastUpdatedMs: prev.lastUpdatedMs,
+          status: prev.midUsd === null ? "loading" : "reconnecting",
+        }));
+        const i = Math.min(failuresRef.current - 1, POLL_BACKOFF_MS.length - 1);
+        scheduleNext(Math.min(POLL_BACKOFF_MS[i] ?? BACKOFF_CAP_MS, BACKOFF_CAP_MS));
+      }
+    }
+    function scheduleNext(ms: number) {
+      if (cancelledRef.current) return;
+      timer = setTimeout(() => {
+        void tick();
+      }, ms);
+    }
+
+    void tick();
+
+    return () => {
+      cancelledRef.current = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [sui, poolId, baseCoinType, quoteCoinType, baseScalar, quoteScalar]);
+
+  return state;
+}
