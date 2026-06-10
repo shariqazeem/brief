@@ -149,11 +149,6 @@ export async function closeSpot(args: {
   balanceManagerId: string;
 }): Promise<CloseSpotResult> {
   const { ctx, market, originalDirection, baseQty, openQuoteBase, balanceManagerId } = args;
-  const preQuote = await readBmAssetBalance(
-    ctx,
-    balanceManagerId,
-    market.quoteCoinType!,
-  );
   const tx = buildCloseSpotTx(ctx, {
     market,
     originalDirection,
@@ -168,15 +163,15 @@ export async function closeSpot(args: {
   if (res.effects?.status?.status !== "success") {
     throw new Error(`closeSpot: ${res.effects?.status?.error ?? "unknown"}`);
   }
-  const postQuote = await readBmAssetBalance(
-    ctx,
-    balanceManagerId,
-    market.quoteCoinType!,
+  // Parse the OrderFilled event for the exact quote_quantity — more
+  // robust than diffing BM balance reads, which depend on a fragile
+  // dynamic-field lookup that's been wrong for non-SUI coin types.
+  const filled = (res.events ?? []).find((e: { type?: string }) =>
+    String(e.type ?? "").endsWith("::OrderFilled"),
   );
-  // For an UP bet closed by sell: close quote = post - pre (we received).
-  // For a DOWN bet closed by buy: close quote spent = pre - post.
-  const closeQuoteBase =
-    originalDirection === "up" ? postQuote - preQuote : preQuote - postQuote;
+  const closeQuoteBase = BigInt(
+    ((filled as { parsedJson?: { quote_quantity?: string | number } })?.parsedJson?.quote_quantity) ?? 0,
+  );
 
   // Realized P&L:
   //   UP   bet: pnl = closeProceeds - openCost     = closeQuoteBase - openQuoteBase
