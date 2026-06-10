@@ -26,6 +26,7 @@ import {
 import {
   clearPreSession,
   clearSession,
+  isSessionExpired,
   loadPreSession,
   loadSession,
   saveSession,
@@ -69,10 +70,31 @@ export function ZkLoginProvider({
   const [phase, setPhase] = useState<ZkLoginPhase>({ kind: "idle" });
 
   // Restore from sessionStorage on mount. Cheap — no crypto.
+  // Then validate the session's maxEpoch against the live testnet epoch;
+  // an expired session would produce a "Groth16 proof verify failed"
+  // error the moment the user tries to sign, so we wipe it here and
+  // nudge them back to "Continue with Google" with a clear message.
   useEffect(() => {
     const s = loadSession();
-    if (s) setSession(s);
-  }, []);
+    if (!s) return;
+    setSession(s);
+    void (async () => {
+      try {
+        const { epoch } = await sui.getLatestSuiSystemState();
+        if (isSessionExpired(s, Number(epoch))) {
+          clearSession();
+          setSession(null);
+          setPhase({
+            kind: "error",
+            msg: "Your Google sign-in expired — please continue with Google again.",
+          });
+        }
+      } catch {
+        /* RPC blip — keep the session, signing will throw a clearer
+         * error if the proof is actually invalid. */
+      }
+    })();
+  }, [sui]);
 
   // Complete the OAuth round-trip if we arrived back with #id_token=...
   // The heavy work (jwtToAddress, getExtendedEphemeralPublicKey, prover,

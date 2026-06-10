@@ -65,7 +65,17 @@ export function useAccountSigner(): AccountSigner {
             });
             cb?.onSuccess?.(r);
           } catch (e) {
-            cb?.onError?.(e instanceof Error ? e : new Error(String(e)));
+            // Translate the most common low-level failure into something
+            // the wizard's error toast can actually act on. "Groth16
+            // proof verify failed" almost always means the session's
+            // maxEpoch is in the past; sometimes a wallet was rotated
+            // while a stale session sat in storage.
+            const raw = e instanceof Error ? e.message : String(e);
+            const friendly =
+              /Groth16|proof.*verify|InvalidUserSignature|epoch/i.test(raw)
+                ? "Your Google sign-in expired — sign in again and retry. (Sui zkLogin sessions are good for ~2 days.)"
+                : raw;
+            cb?.onError?.(new Error(friendly));
           }
         })();
         return;
