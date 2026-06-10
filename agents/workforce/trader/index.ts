@@ -1145,6 +1145,22 @@ async function autoCloseSpotTick(ctx: AgentContext): Promise<void> {
     process.env.BRIEF_BALANCE_MANAGER_ID ?? ""
   ).trim();
   if (!balanceManagerId) return;
+  // Consolidate the trader's SUI coins before close attempts — gas
+  // fragmentation here causes the same balance::split aborts that hit
+  // Walrus uploads in the BTC path.
+  try {
+    const c = await consolidateSuiCoins(ctx.client, ctx.keypair);
+    if (c.merged) {
+      console.log(
+        `[trader-spot-close] consolidated ${c.coinsBefore} SUI → 1 (${(Number(c.balance) / 1e9).toFixed(4)} SUI) tx=${c.digest}`,
+      );
+    }
+  } catch (e) {
+    console.warn(
+      "[trader-spot-close] coin consolidation skipped:",
+      String((e as Error)?.message ?? e).slice(0, 120),
+    );
+  }
   for (const p of due) {
     try {
       const market = getMarket(p.asset);

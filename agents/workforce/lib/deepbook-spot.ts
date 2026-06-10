@@ -121,7 +121,12 @@ export type CloseSpotArgs = {
 
 /** Build the close PTB. No policy gate — closes must work after revoke
  *  (the kill switch blocks NEW bets, not the user's right to realize
- *  what's already on the book). */
+ *  what's already on the book).
+ *
+ *  Sets an explicit gas budget BEFORE adding the SDK's market-order
+ *  builder so its `setGasBudgetIfNotSet(0.25 SUI)` doesn't take over.
+ *  0.05 SUI is generous for a single market-order PTB and lets a
+ *  gas-starved trader still settle open positions. */
 export function buildCloseSpotTx(
   ctx: AgentContext,
   args: CloseSpotArgs,
@@ -134,6 +139,7 @@ export function buildCloseSpotTx(
   }
   const db = makeDeepBook(ctx, args.balanceManagerId);
   const tx = new Transaction();
+  tx.setGasBudget(50_000_000);
   // Opposite side: UP bet opens as buy → close is sell; DOWN opens as
   // sell → close is buy.
   const isBid = args.originalDirection === "down";
