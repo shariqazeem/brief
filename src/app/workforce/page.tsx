@@ -417,16 +417,27 @@ function Disconnected() {
     <section className="mx-auto max-w-page px-6 pt-12 pb-24 sm:px-10 sm:pt-16">
       <div className="mx-auto max-w-3xl">
         <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-          Workforce · live on Sui testnet
+          Brief · live on Sui testnet
         </p>
         <h1 className="mt-4 font-sans text-4xl font-medium tracking-tightest sm:text-5xl">
-          Hire an autonomous workforce.
+          Adopt an AI trader.
         </h1>
         <p className="mt-5 max-w-prose text-lg leading-relaxed text-ink-2">
-          A team of AI agents that hire each other, do real work, and get
-          paid on-chain — and you hold a kill switch the blockchain itself
-          enforces. No wallet required: sign in with Google and we&apos;ll
-          give you a real Sui address.
+          An autonomous agent that bets BTC up/down on DeepBook Predict —
+          and takes directional positions on SUI / WAL / DEEP via DeepBook
+          spot — bounded by a Move policy you hold. Sign in with Google,
+          set a budget, and yank the leash any time. The chain refuses
+          the next bet, but past wins still pay out.
+        </p>
+        <p className="mt-3 max-w-prose text-[13.5px] leading-relaxed text-muted">
+          No wallet required — zkLogin gives you a real Sui address straight from
+          your Google account.{" "}
+          <Link
+            href="/leaderboard"
+            className="underline-offset-2 hover:text-ink hover:underline"
+          >
+            See whose trader is winning →
+          </Link>
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-3">
           {zk.available && (
