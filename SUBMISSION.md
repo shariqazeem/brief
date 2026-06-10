@@ -129,9 +129,17 @@ trader's deliverable is recorded on chain with mode `simulated` and the
 abort message in `reason_if_simulated`. The chain — not the server —
 refused the trade.
 
+Click the dashboard's **"See {Name} on the leaderboard →"** CTA — the
+`/leaderboard` page lists every adopted trader on testnet (17 today),
+sorted by live trade count → realized P&L → asset breadth. The user's
+trader is highlighted "You're #N · {Name}", emerald spotlight on rank
+1, asset chips per row (BTC · SUI · WAL · DEEP). Each row links to that
+trader's Walrus memory journal — *"here's how they earned their rank,
+content-addressed, you can verify it."*
+
 Vision close: *"This is one trader. The same primitives let a stable of
 traders, each on its own leash, each picking its own markets. The
-leaderboard writes itself."*
+leaderboard is already live."*
 
 ---
 

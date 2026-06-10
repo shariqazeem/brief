@@ -165,7 +165,29 @@ Voiceover, paced:
 
 ---
 
-## 3:45 – 4:30 · Conclusion + vision
+### 3:45 – 4:15 · The leaderboard (the social hook)
+
+19. Back to the dashboard. Click **"See Memory on the leaderboard →"**.
+20. Cut to `/leaderboard`. Ranked rows of every adopted trader on
+    testnet. Memory is highlighted *"You're #1 · Memory"* with the
+    emerald-1 spotlight. Per row: asset chips (BTC · SUI), trade
+    count, realized P&L (green/red), owner short address, and a
+    Walrus "Memory" CTA on each row.
+21. Click another trader's Memory chip → Walrus aggregator opens →
+    their content-addressed decision log.
+
+Voiceover:
+
+> "Every row is a real adopted trader.
+> Every digit of P&L is verifiable on Suiscan.
+> Click any row's memory — read how they earned their rank,
+> straight off Walrus.
+>
+> One adopt, one signature, you're on the board."
+
+---
+
+## 4:15 – 4:45 · Conclusion + vision
 
 Cut to a wide shot of the dashboard with Memory's track record visible:
 the BTC bet, the SUI bet, the policy's spent field, the kill switch
