@@ -158,16 +158,22 @@ function momentum(input: StrategyInput): StrategyDecision | null {
   const conviction = Math.min(0.9, 0.3 + abs * 100);
   const baseQty = STRATEGY_DEFAULT_QUANTITY.momentum;
   const qty = convictionToQty(baseQty, conviction);
+  const rocWindow = roc30 !== null ? "30m" : "5m";
+  const rocSrc =
+    roc30 !== null
+      ? `30m ROC ${pct(roc30)} (5m ${pct(roc5)})`
+      : `5m ROC ${pct(roc5)} (no 30m history yet)`;
   return {
     strategy: "momentum",
     direction,
     quantity: qty,
     conviction,
     reasoning:
-      `Momentum on ${asset}: 30m ROC ${pct(recent)} (5m ${pct(roc5)}), ` +
+      `Momentum on ${asset}: ${rocSrc}, ` +
       `15m SMA $${fmt(sma15)} vs spot $${fmt(spotUsd)} → ` +
       `${spotUsd > sma15 ? "above" : "below"} the short MA. ` +
-      `Leaning ${direction.toUpperCase()} with conviction ${conviction.toFixed(2)} → qty ${qty}.`,
+      `Leaning ${direction.toUpperCase()} with conviction ${conviction.toFixed(2)} → qty ${qty} ` +
+      `(${rocWindow} window).`,
   };
 }
 
