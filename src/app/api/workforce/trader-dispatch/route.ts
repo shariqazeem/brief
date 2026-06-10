@@ -31,7 +31,12 @@ import {
 } from "@/lib/rate-limit";
 
 const HEX_RE = /^0x[0-9a-fA-F]{40,64}$/;
-const ALLOWED_STRATEGIES = new Set(["conservative", "momentum", "contrarian"]);
+const ALLOWED_STRATEGIES = new Set([
+  "conservative",
+  "momentum",
+  "contrarian",
+  "quant",
+]);
 const ALLOWED_MARKETS = new Set(["btc_only", "sui_ecosystem", "all"]);
 const NAME_MAX = 32;
 

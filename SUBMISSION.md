@@ -16,7 +16,7 @@ revoke any time.
 
 ## One-line product description
 
-> Adopt an AI agent that bets BTC up/down on DeepBook Predict — and now also takes real directional positions on SUI / WAL / DEEP via DeepBook spot — bounded by a Move policy you hold. Sign in with Google. Yank the leash anytime. The chain refuses the next bet, but past wins still pay out.
+> Adopt an AI agent that bets BTC up/down on DeepBook Predict — and now also takes real directional positions on SUI / WAL / DEEP via DeepBook spot — bounded by a Move policy you hold. Connect a Sui wallet (Slush / Suiet). Yank the leash anytime. The chain refuses the next bet, but past wins still pay out.
 
 (43 words. Shorter alternates:
 - *"AI trader on chain. Move policy is the leash."*
@@ -72,9 +72,14 @@ revoking blocks new bets but doesn't trap your already-made wins.
 
 Two more pieces complete the product:
 
-- **zkLogin onboarding.** Sign in with Google. The user never sees a seed
-  phrase, never installs a wallet, never copies a private key. A
-  freshly-derived Sui address holds the policy and signs the grant.
+- **zkLogin onboarding (wired, gated by Enoki for testnet).** The full
+  Google OAuth → JWT → salt → address-derivation path is implemented
+  end-to-end; only the on-chain Groth16 verifier path requires Mysten's
+  Enoki-managed prover for testnet/mainnet (the public prover-dev
+  endpoint targets devnet's trusted setup). For the demo we ship the
+  Sui-wallet (Slush / Suiet) path, which signs the same atomic PTBs.
+  Enabling Google in production is a one-line env swap once an Enoki
+  API key is plugged into `/api/zklogin/prove`.
 - **Walrus memory.** Every decision the trader makes — direction, strike,
   reasoning — uploads as a content-addressed Walrus blob. A cumulative
   *running memory journal* re-uploads on every trade. The dashboard

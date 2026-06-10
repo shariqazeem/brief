@@ -45,6 +45,13 @@ import {
 import { consolidateSuiCoins } from "../../lib/sui-coin-consolidate.js";
 import { getMarket, type MarketSpec } from "../lib/markets.js";
 import { closeSpot, openSpot, readSpotMid } from "./spot-handler.js";
+import { appendPoint, loadHistory } from "./price-history.js";
+import { computeSignals, type SignalBundle } from "./signals.js";
+import {
+  decodeSurface,
+  readSurfaceRaw,
+  type SurfaceSnapshot,
+} from "./vol-surface.js";
 import {
   appendSpotPosition,
   dueSpotPositions,
@@ -457,24 +464,53 @@ function reasoningMarkdown(args: {
   market: MarketChoice;
   mode: ExecutionMode;
   mintTxDigest: string | null;
+  signals?: SignalBundle;
+  surface?: SurfaceSnapshot | null;
 }): string {
   const expiry = new Date(args.market.oracle.expiry).toISOString();
   const strikeUsd = Number(args.market.strikeRaw) / PRICE_SCALAR;
   const spotUsd = Number(args.market.spotRaw) / PRICE_SCALAR;
-  return [
+  const lines: string[] = [
     `# Trader decision · ${args.decision.strategy}`,
     "",
     `**Direction:** ${args.decision.direction.toUpperCase()}`,
     `**Quantity:** ${args.decision.quantity} dUSDC contracts`,
+    `**Conviction:** ${args.decision.conviction.toFixed(2)} / 1.00`,
     `**Market:** BTC oracle \`${args.market.oracle.oracle_id}\``,
     `**Strike:** $${strikeUsd.toFixed(2)}  ·  **Spot at decision:** $${spotUsd.toFixed(2)}`,
     `**Expiry (UTC):** ${expiry}`,
     `**Mode:** ${args.mode}` +
       (args.mintTxDigest ? `  ·  mint tx \`${args.mintTxDigest}\`` : ""),
-    "",
-    `## Reasoning`,
-    args.decision.reasoning,
-  ].join("\n");
+  ];
+  if (args.signals) {
+    const fmtPct = (x: number | null | undefined) =>
+      x === null || x === undefined || !Number.isFinite(x)
+        ? "n/a"
+        : `${(x * 100).toFixed(3)}%`;
+    const fmtNum = (x: number | null | undefined, d = 2) =>
+      x === null || x === undefined || !Number.isFinite(x)
+        ? "n/a"
+        : x.toFixed(d);
+    lines.push(
+      "",
+      `## Signals at decision time`,
+      `- **ROC 5m / 30m / 60m:** ${fmtPct(args.signals.roc_5m)} / ${fmtPct(args.signals.roc_30m)} / ${fmtPct(args.signals.roc_60m)}`,
+      `- **SMA 15m / 60m:** $${fmtNum(args.signals.sma_15m)} / $${fmtNum(args.signals.sma_60m)}`,
+      `- **RSI 60m:** ${fmtNum(args.signals.rsi_60m, 1)}`,
+      `- **Realized vol 60m (annualized):** ${fmtPct(args.signals.realized_vol_60m)}`,
+    );
+  }
+  if (args.surface) {
+    const s = args.surface;
+    lines.push(
+      "",
+      `## SVI vol surface (live, on-chain)`,
+      `- **Forward:** $${s.forwardUsd.toFixed(2)}  ·  **Spot:** $${s.spotUsd.toFixed(2)}`,
+      `- **SVI params:** a=${s.a.toFixed(6)}, b=${s.b.toFixed(6)}, ρ=${s.rho.toFixed(4)}, m=${s.m.toFixed(6)}, σ=${s.sigma.toFixed(6)}`,
+    );
+  }
+  lines.push("", `## Reasoning`, args.decision.reasoning);
+  return lines.join("\n");
 }
 
 // === Task handler ===
@@ -572,39 +608,102 @@ async function handleTask(
     );
   }
   const recentSettled = await fetchRecentSettledBtcOracles(10);
+
+  // Observe the live spot and append to rolling history BEFORE deciding,
+  // so the freshest tick is always one of the signals. Then compute the
+  // signal bundle (ROC / SMA / RSI / realized vol) from disk.
+  const spotUsdNow = Number(market.spotRaw) / PRICE_SCALAR;
+  await appendPoint("BTC", { ts: Date.now(), price: spotUsdNow });
+  const history = await loadHistory("BTC");
+  const signals = computeSignals(history, Date.now());
+
+  // Read the live SVI vol surface — the centerpiece input the quant
+  // strategy diverges from. We tolerate a read failure (cold RPC) by
+  // proceeding without it; strategies that need it return null and the
+  // trader honestly delivers a simulated abstention.
+  let surface: SurfaceSnapshot | null = null;
+  try {
+    const raw = await readSurfaceRaw(ctx, market.oracle.oracle_id);
+    surface = decodeSurface(raw);
+  } catch (e) {
+    console.warn(
+      "[trader] SVI surface read failed:",
+      String((e as Error)?.message ?? e).slice(0, 120),
+    );
+  }
+
+  const strikeUsd = Number(market.strikeRaw) / PRICE_SCALAR;
   const decision = decide(strategyId, {
-    oracle: market.oracle,
-    spotRaw: market.spotRaw,
+    asset: "BTC",
+    spotUsd: spotUsdNow,
+    signals,
     recentSettled,
+    market: {
+      strikeUsd,
+      expiryMs: market.oracle.expiry,
+      oracle: market.oracle,
+    },
+    surface,
     nowMs: Date.now(),
   });
-  if (spec.quantity && spec.quantity > 0) {
+  if (decision && spec.quantity && spec.quantity > 0) {
     decision.quantity = spec.quantity;
   }
-  console.log(
-    `[trader] strategy=${strategyId} direction=${decision.direction} qty=${decision.quantity} strike=$${(Number(market.strikeRaw) / PRICE_SCALAR).toFixed(2)} spot=$${(Number(market.spotRaw) / PRICE_SCALAR).toFixed(2)} expiry=${new Date(market.oracle.expiry).toISOString()}`,
-  );
-  console.log(`[trader] reasoning: ${decision.reasoning}`);
+  if (decision) {
+    console.log(
+      `[trader] strategy=${strategyId} direction=${decision.direction} qty=${decision.quantity} conv=${decision.conviction.toFixed(2)} strike=$${strikeUsd.toFixed(2)} spot=$${spotUsdNow.toFixed(2)} expiry=${new Date(market.oracle.expiry).toISOString()}`,
+    );
+    console.log(`[trader] reasoning: ${decision.reasoning}`);
+  } else {
+    console.log(
+      `[trader] strategy=${strategyId} → no-edge abstention (signals: ROC30m=${signals.roc_30m ?? "n/a"} RSI60m=${signals.rsi_60m ?? "n/a"})`,
+    );
+  }
 
   // ---- 3) Decide mode (live vs simulated) -----
+  // No-edge abstention is HONEST: we still deliver the task with a
+  // simulated label so the journal records why we sat out.
   const managerDusdcBase = await readManagerDusdcBalance(ctx, managerId);
-  const costDusdcBase = BigInt(decision.quantity) * BigInt(DUSDC_BASE);
+  const fallbackQty = 1; // accounting only — never actually minted
+  const costDusdcBase =
+    BigInt(decision?.quantity ?? fallbackQty) * BigInt(DUSDC_BASE);
   const hasFunds = managerDusdcBase >= costDusdcBase;
   const hasGate = !!spec.policyId;
-  let mode: ExecutionMode = hasFunds && hasGate ? "live" : "simulated";
+  let mode: ExecutionMode =
+    decision && hasFunds && hasGate ? "live" : "simulated";
   let mintDigest: string | null = null;
   let simReason: string | null = null;
-  if (!hasFunds) {
+  if (!decision) {
+    simReason =
+      `${strategyId} saw no edge this cycle: ` +
+      `ROC30m=${signals.roc_30m === null ? "n/a" : (signals.roc_30m * 100).toFixed(3) + "%"}, ` +
+      `RSI60m=${signals.rsi_60m === null ? "n/a" : signals.rsi_60m.toFixed(1)}, ` +
+      `SMA60m=${signals.sma_60m === null ? "n/a" : "$" + signals.sma_60m.toFixed(2)}. ` +
+      `Honest abstention — discipline beats forced bets.`;
+  } else if (!hasFunds) {
     simReason = `Manager dUSDC ${Number(managerDusdcBase) / DUSDC_BASE} < required ${decision.quantity} — top up the PredictManager to flip to live.`;
   } else if (!hasGate) {
     simReason = `No policy_id in task spec — live trades must be gated by an OperatorPolicy with venue "${venue}".`;
   }
   console.log(
-    `[trader] mode=${mode} manager_dusdc=${Number(managerDusdcBase) / DUSDC_BASE} hasFunds=${hasFunds} hasGate=${hasGate}`,
+    `[trader] mode=${mode} manager_dusdc=${Number(managerDusdcBase) / DUSDC_BASE} hasFunds=${hasFunds} hasGate=${hasGate} hasDecision=${!!decision}`,
   );
 
+  // Materialize a placeholder for the journal + deliverable when the
+  // strategy abstained. Direction is recorded as the would-have-been
+  // direction (cold-start signal) so the journal still reads coherent;
+  // quantity 0 makes the abstention explicit downstream.
+  const recordDecision = decision ?? {
+    strategy: strategyId,
+    direction: "up" as const,
+    quantity: 0,
+    conviction: 0,
+    reasoning:
+      simReason ?? `${strategyId} abstained — no signal cleared the threshold.`,
+  };
+
   // ---- 4) LIVE: build + submit the policy-gated mint -----
-  if (mode === "live" && spec.policyId) {
+  if (decision && mode === "live" && spec.policyId) {
     // record_spend amount is denominated in MIST (9 decimals) but our
     // cost is in dUSDC base units (6 decimals). Multiply by 1000 so the
     // policy budget caps the trader's dollar spend cleanly.
@@ -640,12 +739,12 @@ async function handleTask(
         oracleId: market.oracle.oracle_id,
         expiryMs: market.oracle.expiry,
         strike: market.strikeRaw.toString(),
-        isUp: decision.direction === "up",
-        quantity: decision.quantity,
+        isUp: decision!.direction === "up",
+        quantity: decision!.quantity,
         costDusdc: Number(costDusdcBase) / DUSDC_BASE,
         mintTxDigest: mintDigest,
         mintedAtMs: Date.now(),
-        strategy: decision.strategy,
+        strategy: decision!.strategy,
       });
       await savePositions(positions);
     } catch (e) {
@@ -695,10 +794,12 @@ async function handleTask(
   if (walFunded) {
     try {
       const md = reasoningMarkdown({
-        decision,
+        decision: recordDecision,
         market,
         mode,
         mintTxDigest: mintDigest,
+        signals,
+        surface,
       });
       const uploaded = await uploadToWalrus(
         new TextEncoder().encode(md),
@@ -719,7 +820,7 @@ async function handleTask(
       const entry: JournalEntry = {
         taskId: notice.taskId,
         traderName: spec.traderName ?? null,
-        strategy: decision.strategy,
+        strategy: recordDecision.strategy,
         decidedAtMs: Date.now(),
         market: {
           oracleId: market.oracle.oracle_id,
@@ -728,9 +829,9 @@ async function handleTask(
           spotAtDecision: Number(market.spotRaw),
         },
         decision: {
-          direction: decision.direction,
-          quantity: decision.quantity,
-          reasoning: decision.reasoning,
+          direction: recordDecision.direction,
+          quantity: recordDecision.quantity,
+          reasoning: recordDecision.reasoning,
         },
         execution: {
           mode,
@@ -743,7 +844,7 @@ async function handleTask(
       journalEntries = updated.length;
       const journalMd = journalMarkdown({
         traderName: spec.traderName ?? null,
-        strategy: decision.strategy,
+        strategy: recordDecision.strategy,
         entries: updated,
         policyId: spec.policyId ?? null,
       });
@@ -771,7 +872,7 @@ async function handleTask(
     notice,
     spec,
     market,
-    decision,
+    decision: recordDecision,
     mode,
     costDusdcBase,
     mintTxDigest: mintDigest,
@@ -882,17 +983,43 @@ async function handleSpotTask(
     );
   }
 
-  // Direction picker — simple per-strategy bias for spot. We avoid the
-  // BTC oracle-history strategies here because spot pools don't have a
-  // settled-bar history feed; the strategies' *names* carry over as
-  // user-visible labels.
-  const direction: "up" | "down" =
-    strategyId === "contrarian" ? "down" : "up";
+  // Observe spot mid and append to rolling history BEFORE deciding —
+  // every spot bet uses the same signal-based strategy logic the BTC
+  // path does. Spot pools have no SVI surface, so the quant strategy
+  // falls back to momentum here (and conservative/contrarian rely on
+  // SMA + RSI exactly as on BTC).
+  await appendPoint(asset, { ts: Date.now(), price: midUsd });
+  const history = await loadHistory(asset);
+  const signals = computeSignals(history, Date.now());
+
   const baseQty = market.minOrderQty ?? 1;
+
+  const candidateDecision = decide(strategyId, {
+    asset,
+    spotUsd: midUsd,
+    signals,
+    recentSettled: [],
+    market: {
+      strikeUsd: midUsd,
+      expiryMs: Date.now() + SPOT_HORIZON_MS,
+    },
+    surface: null,
+    nowMs: Date.now(),
+  });
+
+  // Spot positions use the pool's minimum order size — conviction
+  // doesn't change quantity for SUI/WAL/DEEP. (Going bigger would need
+  // multiple market orders; we keep this disciplined.)
+  const direction: "up" | "down" =
+    candidateDecision?.direction ?? (strategyId === "contrarian" ? "down" : "up");
+  const conviction = candidateDecision?.conviction ?? 0;
   const notionalUsd = baseQty * midUsd;
-  const reasoning = `${strategyId}: betting ${direction.toUpperCase()} on ${asset} at $${midUsd.toFixed(4)} over a ${Math.round(SPOT_HORIZON_MS / 60_000)}-minute horizon. Position size ${baseQty} ${asset} (~$${notionalUsd.toFixed(2)} notional).`;
+  const reasoning =
+    candidateDecision?.reasoning ??
+    `${strategyId} saw no edge this cycle on ${asset} at $${midUsd.toFixed(4)} — honest abstention.`;
   console.log(
-    `[trader-spot] asset=${asset} strategy=${strategyId} direction=${direction} qty=${baseQty} mid=$${midUsd.toFixed(4)} notional=$${notionalUsd.toFixed(4)}`,
+    `[trader-spot] asset=${asset} strategy=${strategyId} direction=${direction} conv=${conviction.toFixed(2)} qty=${baseQty} mid=$${midUsd.toFixed(4)} notional=$${notionalUsd.toFixed(4)}` +
+      (candidateDecision ? "" : " (no-edge abstention)"),
   );
   console.log(`[trader-spot] reasoning: ${reasoning}`);
 
@@ -974,7 +1101,14 @@ async function handleSpotTask(
   if (walFunded) {
     try {
       const md = reasoningMarkdown({
-        decision: { strategy: strategyId, direction, quantity: baseQty, reasoning },
+        decision: {
+          strategy: strategyId,
+          direction,
+          quantity: baseQty,
+          conviction,
+          reasoning,
+        },
+        signals,
         market: {
           oracle: {
             oracle_id: market.spotPoolId!,
@@ -1210,6 +1344,66 @@ function startAutoCloseSpotLoop(ctx: AgentContext): void {
   })();
 }
 
+// === Price history poller ===
+
+/** Cadence for the rolling spot/mid observation loop. 60s keeps signal
+ *  computation snappy without flooding the RPC; 600 points = ~10 h of
+ *  rolling history. */
+const PRICE_HISTORY_POLL_MS = 60_000;
+
+async function priceHistoryTick(
+  ctx: AgentContext,
+  _managerId: string,
+): Promise<void> {
+  const nowMs = Date.now();
+  // BTC — read the live spot from the nearest-expiry active oracle.
+  try {
+    const actives = await fetchActiveBtcOracles();
+    const oracle = actives.find((o) => o.expiry - nowMs > 60_000);
+    if (oracle) {
+      const spotRaw = await readOracleSpot(ctx, oracle.oracle_id);
+      const price = Number(spotRaw) / PRICE_SCALAR;
+      await appendPoint("BTC", { ts: nowMs, price });
+    }
+  } catch (e) {
+    console.warn(
+      "[trader-prices] BTC observation failed:",
+      String((e as Error)?.message ?? e).slice(0, 120),
+    );
+  }
+  // Spot assets — read the live pool mid for each market in the registry.
+  for (const asset of ["SUI", "WAL", "DEEP"] as const) {
+    try {
+      const market = getMarket(asset);
+      const mid = await readSpotMid(ctx, market);
+      if (Number.isFinite(mid) && mid > 0) {
+        await appendPoint(asset, { ts: nowMs, price: mid });
+      }
+    } catch (e) {
+      console.warn(
+        `[trader-prices] ${asset} observation failed:`,
+        String((e as Error)?.message ?? e).slice(0, 120),
+      );
+    }
+  }
+}
+
+function startPriceHistoryLoop(ctx: AgentContext, managerId: string): void {
+  console.log(
+    `[trader-prices] open · poll=${PRICE_HISTORY_POLL_MS}ms assets=[BTC, SUI, WAL, DEEP]`,
+  );
+  void (async () => {
+    while (true) {
+      try {
+        await priceHistoryTick(ctx, managerId);
+      } catch (e) {
+        console.warn("[trader-prices] tick error:", (e as Error).message);
+      }
+      await new Promise((r) => setTimeout(r, PRICE_HISTORY_POLL_MS));
+    }
+  })();
+}
+
 // === Auto-redeem service ===
 
 async function autoRedeemTick(
@@ -1325,6 +1519,11 @@ async function main(): Promise<void> {
 
   // Spin up the auto-redeem service (runs forever in parallel with inbox).
   startAutoRedeemLoop(ctx, managerId);
+  // Warm the rolling price history every minute for BTC + each spot
+  // pool, so when a task fires the signals already reflect ~10–60
+  // minutes of real action. Strategies degrade gracefully when the
+  // history hasn't yet reached a given lookback window.
+  startPriceHistoryLoop(ctx, managerId);
   // Spin up the spot auto-close service (mirrors auto-redeem for spot
   // positions — closes settle at the position's horizon).
   startAutoCloseSpotLoop(ctx);

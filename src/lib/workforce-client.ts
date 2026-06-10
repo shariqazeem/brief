@@ -160,6 +160,22 @@ export const WORKFORCE_TEMPLATES: WorkforceTemplate[] = [
       riskTolerance: "medium",
     },
   },
+  {
+    id: "trader-quant",
+    label: "Quant · Vol trader",
+    blurb:
+      "Reads DeepBook Predict's SVI surface, computes implied Pr(UP), bets only when its own signal diverges by ≥5%.",
+    defaults: {
+      name: "Quant · Vol trader",
+      missionPlaceholder: "",
+      budgetSui: 2.0,
+      allowedVenues: ["predict-btc", "spot-sui", "spot-wal", "spot-deep"],
+      maxConcentrationPct: 70,
+      expiryHours: 12,
+      autoApprovePct: 100,
+      riskTolerance: "medium",
+    },
+  },
 ];
 
 export function templateById(id: string): WorkforceTemplate | undefined {
@@ -210,7 +226,7 @@ export async function dispatchMission(args: MissionPayload): Promise<{
 // tokens; no emoji or external assets.
 // ---------------------------------------------------------------------------
 
-export type StrategyId = "conservative" | "momentum" | "contrarian";
+export type StrategyId = "conservative" | "momentum" | "contrarian" | "quant";
 
 export type TraderPersonality = {
   strategy: StrategyId;
@@ -239,11 +255,11 @@ export const TRADER_PERSONALITIES: TraderPersonality[] = [
     glyph: "◇",
     temperament: "Cool, careful, small",
     voice:
-      "I keep your stake small. I win small, lose small, and let you sleep.",
+      "I keep your stake small. I sit out when MAs disagree or RSI is extreme.",
     blurb:
-      "I take an at-the-money position on the nearest BTC market with the smallest viable size. No directional edge — I'm here to participate, not to swing.",
+      "I only bet when the 15m and 60m moving averages agree on direction and RSI isn't already overextended. I never upsize — discipline beats conviction.",
     defaultBudgetSui: 0.5,
-    cadence: "~$1 per bet, one bet per market.",
+    cadence: "~$1 per bet, only on clean signals.",
   },
   {
     strategy: "momentum",
@@ -251,23 +267,35 @@ export const TRADER_PERSONALITIES: TraderPersonality[] = [
     glyph: "➤",
     temperament: "Trend-following, brave",
     voice:
-      "I follow the herd — I bet the way BTC's last few bars closed.",
+      "I follow real price action — ROC and the short MA tell me where to lean.",
     blurb:
-      "I read the last 10 settled BTC oracles and count which way they moved. If the majority closed up, I bet up. If down, I bet down. Ties go up.",
+      "I compute the 30-minute rate-of-change on real price ticks. If it's clearly positive, I bet UP; clearly negative, DOWN. I sit out when the tape is flat (|ROC30m| under 0.05%).",
     defaultBudgetSui: 1.0,
-    cadence: "~$2 per bet on the nearest market.",
+    cadence: "~$2 per bet, scaled by conviction.",
   },
   {
     strategy: "contrarian",
     label: "Contrarian",
     glyph: "⊘",
-    temperament: "Skeptical, fades the crowd",
+    temperament: "Mean-reverting, fades extremes",
     voice:
-      "I fade the herd. When everyone's leaning up, I lean down — and vice versa.",
+      "I fade overextended moves. If RSI(60m) is past 70 or under 30, I bet the snap-back.",
     blurb:
-      "I look at the last 3 settled BTC bars and bet the opposite of where they went. Reversals are real, and herding usually overshoots.",
+      "When the 60-minute RSI shows the tape is overbought or oversold, I take the opposite side. If the tape is sitting between 30 and 70 — no extension — I do nothing.",
     defaultBudgetSui: 1.0,
-    cadence: "~$2 per bet, against the recent trend.",
+    cadence: "~$2 per bet, only when extended.",
+  },
+  {
+    strategy: "quant",
+    label: "Quant · Vol",
+    glyph: "Σ",
+    temperament: "Vol-surface arbitrage",
+    voice:
+      "I read DeepBook Predict's live SVI surface and bet only when my signal probability diverges from the market's by 5%+.",
+    blurb:
+      "I pull the BTC oracle's SVI parameters on chain, derive the market-implied probability that the strike settles UP, and compare to my own estimate from ROC / RSI / MA. I bet the side of the edge, sized by how big it is. No edge → I sit out.",
+    defaultBudgetSui: 2.0,
+    cadence: "~$2–3 per bet, only when |edge| ≥ 5%.",
   },
 ];
 
