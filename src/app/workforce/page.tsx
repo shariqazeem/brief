@@ -180,6 +180,12 @@ function Header({
           </span>
         </Link>
         <div className="flex items-center gap-3">
+          <Link
+            href="/leaderboard"
+            className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink sm:inline-flex"
+          >
+            Leaderboard
+          </Link>
           {connected ? (
             <AccountChip
               address={connected}
@@ -2707,6 +2713,8 @@ function TraderDashboard({
 
       <TraderTrackRecord traderName={traderName} tasks={tasks} />
 
+      <LeaderboardCTA traderName={traderName} />
+
       <TraderNarrator
         activation={activation}
         traderName={traderName}
@@ -3336,6 +3344,30 @@ function countdownLabel(ms: number): string {
 // straight to the public aggregator. The point a judge is meant to
 // land on: this isn't a screenshot of a thought; it's a content-
 // addressed blob anyone can fetch without our server.
+function LeaderboardCTA({ traderName }: { traderName: string }) {
+  return (
+    <section className="mt-8">
+      <article className="flex flex-wrap items-center justify-between gap-3 border-2 border-line bg-bg-elev px-5 py-4 sm:px-6">
+        <div className="space-y-1">
+          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+            Whose AI trader is winning?
+          </p>
+          <p className="font-sans text-[15px] leading-snug text-ink">
+            See where {traderName} ranks against every other adopted trader —
+            live, on-chain P&amp;L.
+          </p>
+        </div>
+        <Link
+          href="/leaderboard"
+          className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-4 py-2.5 font-mono text-[11px] uppercase tracking-[0.3em] text-bg transition-colors hover:bg-ink-2"
+        >
+          See {traderName} on the leaderboard →
+        </Link>
+      </article>
+    </section>
+  );
+}
+
 function TraderMemoryJournal({
   traderName,
   tasks,
