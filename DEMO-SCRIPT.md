@@ -1,139 +1,225 @@
-# Brief — 90-second demo teleprompter
+# Brief — demo video script
 
-The locked plan's beat-by-beat target. Time-stamped voice-over + what's
-on screen at each beat. Record on Chrome desktop at 1920×1080. Aim for
-3 takes; pick the cleanest.
+Target length: **4–4.5 minutes** (Sui Overflow guidance: 30–60 s problem
+→ ~3 min product demo → 30–60 s conclusion + vision).
 
-Setup before recording:
-- Wallet: `strange-jasper` connected via dApp Kit
-- Network: testnet
-- `.env.local`: `BRIEF_USE_WALRUS=true`, `BRIEF_EXECUTION_MODE=simulated` (or `deepbook` if you've topped up to 2+ SUI)
-- Agents: `npm run agents:all` running in a separate terminal
-- `/app` page open at http://localhost:3000/app, wallet connected, textarea empty
+Pull every digest, blob, and screen from real testnet artifacts already
+captured in [`SUBMISSION.md`](./SUBMISSION.md). Nothing on the cutting-
+room floor is fake.
 
 ---
 
-## Beat 1 — 0:00–0:08
+## 0:00 – 0:45 · The problem
 
-**On screen:** Landing page at `/`. Cursor moves to the "Try Brief" CTA.
+Voiceover, calm, over a slow zoom into the landing page hero (cream/navy
+typography, the **"Adopt an AI trader. The policy is the leash."**
+headline).
 
-> "Agents on Sui can already transact. They cannot compose. Brief fixes that."
+> "Everyone wants AI to act with their money.
+> Almost nobody actually lets it.
+>
+> Because once an AI agent has signing authority — what stops it?
+> A process flag? A server-side circuit breaker?
+> A phone call to revoke?
+>
+> Every one of those depends on infrastructure
+> the AI agent might be running on.
+>
+> The chain has no opinion on whether the agent
+> is still authorized."
 
-(8 seconds. Pause briefly on the "Live on Sui testnet" pill — judges
-will notice it links to a real package.)
+Cut to b-roll: the landing's three pillars (Predict · DeepBook · Walrus),
+then close on the "ADOPT A TRADER" CTA.
 
----
-
-## Beat 2 — 0:08–0:20
-
-**On screen:** `/app` page. Wallet address visible top-right. User clicks
-into the textarea and types:
-
-> *I have 1000 SUI. Where should I deploy for 30-day yield, low risk?*
-
-Then clicks **Brief it**. The wallet extension prompts; user signs.
-
-> "I state a financial intent in plain English. My wallet signs the Query."
-
-(12 seconds. Show the txblock confirmation pill that appears after signing.)
-
----
-
-## Beat 3 — 0:20–0:35
-
-**On screen:** ResearchObject card materializes (fade-up animation), then
-shows: kind label, ID slice, "owned by you · ResearchAgent", Walrus
-payload badge, JSON payload preview with NAVI/Scallop/etc.
-
-> "Agent number one surveys five Sui protocols, scores them on yield and
-> risk, and mints a ResearchObject. It's owned by me. The full reasoning
-> is stored on Walrus — content-addressed, verifiable, off-chain."
-
-(15 seconds. Hover the Walrus badge to show the link to the aggregator.)
+> "Brief is autonomous trading with a chain-enforced leash.
+> The AI is not trusted. The policy is."
 
 ---
 
-## Beat 4 — 0:35–0:55
+## 0:45 – 3:45 · The product demo
 
-**On screen:** StrategyObject card appears below Research. JSON preview
-shows 60/30/10 allocation. Then the **GuardianPanel** renders directly
-below with a single amber-severity slippage warning.
+### 0:45 – 1:15 · Sign in, pick a trader, set the leash
 
-> "Agent two consumes the ResearchObject deterministically — because the
-> object has a typed schema — and produces a Strategy. A guardian flag
-> warns me that the NAVI deposit has 0.34% projected slippage. I review
-> it. I sign Confirm."
+Screen recording, full-page, no cursor jitter:
 
-User clicks **Confirm execution**. Wallet signs. A Confirmation card
-appears.
+1. Click **Sign in with Google** (zkLogin button, top-right).
+2. Browser tab flips to Google's consent screen → consent → returns to
+   `/workforce` authenticated.
+3. Header shows the freshly-derived address chip; the AccountChip
+   expands to show the address + balance.
+4. Scroll to the gallery. Three personality cards: **Conservative ·
+   Momentum · Contrarian**. Click **Momentum**.
+5. Adoption panel slides up. Type name **"Memory"**. Slide the leash
+   to **2 SUI**.
+6. **Step 3 — Which markets?** Three cards: BTC only / Sui ecosystem /
+   All. Click **All**.
 
-(20 seconds. Linger on the warning text — judges read it.)
+Voiceover, brisk:
+
+> "Sixty seconds, no wallet install.
+> Give your trader a name. Pick a budget.
+> Pick which markets — BTC, the Sui ecosystem, or all of them.
+> One signature."
+
+### 1:15 – 1:45 · The grant
+
+7. Click **Adopt Memory →**. The wallet signature modal appears.
+8. Sign. The page transitions to the dashboard. A new `OperatorPolicy`
+   appears on chain with `allowed_venues = [predict-btc, spot-sui,
+   spot-wal, spot-deep]`, budget cap 2 SUI-equivalent, `revoked=false`.
+
+Voiceover:
+
+> "That signature minted a Move object on chain.
+> Inside it: the budget you set, the markets you allowed,
+> a kill-switch field you control.
+> The trader's wallet is bound to it as the operator."
+
+Cut to Suiscan showing the policy object's fields. Linger on
+`allowed_venues` and `revoked: false`.
+
+### 1:45 – 2:30 · The first bet (LIVE on the BTC market)
+
+9. The dashboard's **Open Position** panel fills in. Headline:
+   *"Memory is betting UP on BTC."* Strike **$61,792**, spot
+   $61,792.17. Expiry **Jun 12 8am UTC**. Live spot ticks every 8s; a
+   distance gauge shows how close we are to the flip line.
+10. Click the **mint tx link** (`B5FYRVPZ…`). Suiscan opens. Highlight
+    the atomic PTB:
+    - command 1: `operator_policy::record_spend(policy, 2_000_000_000, "predict-btc", clock)`
+    - command 2: `market_key::new(oracle, expiry, strike, is_up=true)`
+    - command 3: `predict::mint<DUSDC>(predict, manager, oracle, key, 2, clock)`
+11. Scroll to the events tab. **PolicySpend** event shows the policy's
+    `spent` field ticking from 0 → 2,000,000,000.
+
+Voiceover:
+
+> "The mint just ran.
+> Every bet is a single atomic PTB.
+> First: `record_spend` debits the policy — and aborts if it's revoked.
+> Only then does the actual trade execute.
+>
+> The kill switch isn't a process flag. It's structural."
+
+### 2:30 – 3:00 · The Walrus memory panel
+
+12. Scroll down to **"Memory's memory · on Walrus."** Two emerald cards
+    side-by-side: the running journal blob + this decision's reasoning
+    blob.
+13. Click the journal card. The Walrus aggregator URL opens. Show the
+    markdown — frontmatter, list of all prior decisions, this entry,
+    the reasoning narrative.
+
+Voiceover:
+
+> "Every decision Memory makes uploads to Walrus.
+> A running journal regenerates each trade — content-addressed.
+> Memory cannot rewrite history; you can verify it,
+> right here, from the public aggregator."
+
+### 3:00 – 3:30 · The non-BTC bet (real SUI directional)
+
+14. Back to the dashboard. Click into the **track record** showing the
+    SUI bet pair. Highlight:
+    - OPEN tx `9fgEqR6N…` — sold 1 SUI for $0.744 DBUSDC (SUI DOWN bet)
+    - CLOSE tx `81a2xFkH…` — bought 1 SUI back for $0.753 DBUSDC
+    - **Realized P&L: −$0.009** (SUI rose; the bet lost — but the math
+      is honest and on chain)
+15. Tap each digest → Suiscan tab → real `pool::place_market_order`
+    events.
+
+Voiceover:
+
+> "Memory isn't BTC-only anymore.
+> This is a real SUI directional bet on DeepBook spot —
+> open, close, realized P&L,
+> all on chain, all losing nine-tenths of a cent because SUI rose
+> while Memory was short.
+>
+> Same policy. Same leash. Different market."
+
+### 3:30 – 3:45 · The kill switch climax (CHAIN REFUSED)
+
+16. Return to the dashboard. Click **REVOKE**.
+17. Wallet modal. Sign once.
+18. Revoke tx lands. The next trader cycle fires. The Activity Stream
+    surfaces the trader's deliverable with mode **simulated** and the
+    reason field literally showing
+    `MoveAbort code:3 in operator_policy::assert_can_spend`.
+
+A subtle red bar pulses across the open-position panel as it transitions
+to the "CHAIN REFUSED" state.
+
+Voiceover, paced:
+
+> "One revoke.
+>
+> The next time Memory tries to bet —
+> the chain itself refuses the trade.
+> Not the server. Not the agent's process.
+> The chain.
+>
+> But the position Memory already has?
+> When the oracle settles, `redeem_permissionless` still pays it out.
+> Past wins flow. New bets don't."
 
 ---
 
-## Beat 5 — 0:55–1:15
+## 3:45 – 4:30 · Conclusion + vision
 
-**On screen:** ExecutionReceipt card appears. JSON preview shows mode,
-pool, ptb_digest, fills. The Walrus badge appears on this card too.
+Cut to a wide shot of the dashboard with Memory's track record visible:
+the BTC bet, the SUI bet, the policy's spent field, the kill switch
+state.
 
-> "Agent three sees the Confirmation, compiles the strategy into a
-> programmable transaction block, settles through DeepBook, and mints
-> the receipt. The PTB digest is on-chain. The fills are real."
+Voiceover:
 
-(20 seconds. Click the explorer link on the receipt card to briefly
-show the TX on Sui Explorer in a new tab. Switch back to /app.)
+> "This is one trader.
+> A momentum agent named Memory, betting BTC and SUI,
+> bounded by a policy you can yank in one tap.
+>
+> The next surface is a stable —
+> a roster of traders, each on their own leash,
+> each picking their own markets,
+> each accruing reputation as they win or lose.
+>
+> The leaderboard writes itself.
+> Memory is just the first."
 
----
+End card:
 
-## Beat 6 — 1:15–1:25
-
-**On screen:** Click the "show lineage" link at top of the chain block.
-Navigate to `/lineage/<query-id>`. Wait for the SVG graph to render.
-
-> "Five nodes. Real parent edges. Every node clickable. The chain is the
-> audit trail."
-
-(10 seconds. Cursor hovers over the Confirmation node — judges see the
-explicit-user-sign step in the graph.)
-
----
-
-## Beat 7 — 1:25–1:30
-
-**On screen:** Caption fade-in over the lineage view: *"This is the
-Agentic Web."* Then Brief wordmark.
-
-> "This is what the Agentic Web actually looks like. Composable work
-> objects on Sui."
-
-(5 seconds. Hold for a beat. End.)
+> **Brief**
+> Adopt an AI trader. The policy is the leash.
+>
+> briefkin.com
+> github.com/shariqazeem/brief
+>
+> By Kyvernlabs · Sui Overflow 2026
 
 ---
 
-## Total: 90 seconds
+## Shot list / b-roll inventory
 
-## Visual emphasis priorities
+| Shot | Source | Status |
+|---|---|---|
+| Landing page hero | `/` on briefkin.com | ✅ live |
+| zkLogin Google → callback | live recording | needs capture |
+| Trader gallery + adoption panel + Step 3 | `/workforce` | ✅ shipped |
+| Policy object on Suiscan | live URL via policy id | ✅ on chain |
+| Open Position panel with live spot tick | `/workforce` running trader | ✅ live |
+| Atomic mint PTB events | Suiscan tx `B5FYRVPZ…` | ✅ on chain |
+| Memory panel + Walrus aggregator open | dashboard + blob URL | ✅ HTTP 200 |
+| SUI bet pair (open + close) | Suiscan + track record | ✅ on chain |
+| Revoke tx → simulated fallback | live recording | needs capture |
 
-1. The **Walrus badge** on each card — proves Walrus track integration.
-2. The **GuardianPanel warnings** — proves Intent Engine sub-track must-haves.
-3. The **Confirmation card** appearing in the chain — proves explicit confirmation.
-4. The **SVG lineage graph** with parent edges — the visual money shot.
-5. **Sui Explorer links** opening real txblocks — proves it's all on chain.
+## Recording notes
 
-## What to NOT show
-
-- Don't show the terminal with agents running. Judges want the user UX.
-- Don't narrate the mock LLM mode (or anthropic mode) — let the output speak.
-- Don't show the .env.local. Don't show the keystore.
-- Don't apologize for slow Walrus uploads — frame them as "real
-  decentralized storage takes a moment."
-- Don't show the simulated-vs-deepbook toggle. Pick one mode for the
-  recording.
-
-## Post-production
-
-- Add subtle background music (quiet, not distracting). Lo-fi or
-  ambient electronic. Free assets at chosic.com or pixabay.com.
-- Add a small "Brief · Sui Overflow 2026" watermark in the corner.
-- Export 1080p H.264, 30 fps, under 90 seconds.
-- Upload to YouTube as unlisted; paste the link in `SUBMISSION.md`.
+- Browser: Chrome with the **Window Resizer** extension fixed at
+  1440×900 (matches the design's break points).
+- Hide bookmarks bar, extensions, downloads.
+- Cursor: enable a soft yellow ring (Cursor Highlighter extension) so the
+  viewer's eye lands at clicks without a hard visual.
+- Audio: tight VO, no music for the demo block; a single low pad
+  underneath the conclusion.
+- Re-record any segment where a Suiscan page takes >5 s to load.
+- Total target: trimmed to 4:30 max; the bar to clear is "every claim is
+  visible on chain in the same frame."
