@@ -3159,9 +3159,21 @@ function TraderDashboard({
         policyId={policyId}
       />
 
-      <TraderTrackRecord traderName={traderName} tasks={tasks} />
-
+      {/* ZONE 5 — slim footer: leaderboard CTA + the full story tucked
+          into a closed accordion so the dashboard stays ~2 screens. */}
       <LeaderboardCTA traderName={traderName} />
+
+      <details className="group mt-8 border border-line bg-bg-elev">
+        <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 font-mono text-[10px] uppercase tracking-[0.32em] text-muted transition-colors hover:text-ink sm:px-5">
+          The full story · on chain
+          <span aria-hidden className="transition-transform group-open:rotate-90">
+            →
+          </span>
+        </summary>
+        <div className="border-t border-line px-4 pb-6 pt-2 sm:px-5">
+          <TraderTrackRecord traderName={traderName} tasks={tasks} />
+        </div>
+      </details>
 
       <TraderNarrator
         activation={activation}
@@ -3366,10 +3378,11 @@ function TraderOpenPositionPanel({
       : (decoded.market.oracle_id ?? null),
   );
 
-  // The live trading floor — charts + SSE decision wire. Rendered in
-  // every active state (even before the first deliverable lands) so
-  // the user watches the very first decision happen, not its receipt.
-  const mindCanvas = (
+  // The live trading floor — Zone 2 (bet + chart) + Zone 3 (tabbed
+  // mind), owned by MindCanvas. Rendered in every active state so the
+  // user watches the very first decision happen. The verdict slot is the
+  // bet block composed below from the deliverable; null before one lands.
+  const renderMind = (verdictSlot: React.ReactNode = null) => (
     <MindCanvas
       policyId={policyId}
       oracleId={decoded?.market?.oracle_id ?? null}
@@ -3381,6 +3394,9 @@ function TraderOpenPositionPanel({
       liveSpotUsd={live.spotRaw !== null ? rawToUsd(live.spotRaw) : null}
       traderName={traderName}
       fallbackReasoning={decoded?.decision?.reasoning ?? null}
+      walrusBlobId={decoded?.execution?.walrus_blob_id ?? null}
+      abstained={(decoded?.decision?.quantity ?? 0) === 0}
+      verdictSlot={verdictSlot}
     />
   );
 
@@ -3454,7 +3470,7 @@ function TraderOpenPositionPanel({
           </p>
         </div>
       </section>
-      {mindCanvas}
+      {renderMind()}
       </>
     );
   }
@@ -3507,143 +3523,107 @@ function TraderOpenPositionPanel({
   const distanceToFlipUsd = Math.abs(distanceUsd);
 
   const abstained = (decoded.decision?.quantity ?? 0) === 0;
-  return (
-    <>
-    <section className="mt-8">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-          Current bet · {settled ? "settled" : expired ? "awaiting settlement" : "live"}
+  const assetLabel = decoded.market?.underlying ?? "BTC";
+
+  // Zone 2 left column — the bet verdict, composed once and handed to
+  // MindCanvas to sit beside the live chart. Reasoning is NOT here; it
+  // lives only in the Mind's Edge tab (single-render rule).
+  const verdictBlock = (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted">
+          {settled ? "settled" : expired ? "awaiting settlement" : "current bet"}
         </p>
         <ModeBadge
           mode={isLive ? "live" : "simulated"}
           reason={decoded.execution?.reason_if_simulated ?? null}
         />
       </div>
-      <article className="mt-3 overflow-hidden border-2 border-ink bg-bg-elev">
-        {!settled && !expired && (
-          <span
-            className="pointer-events-none block h-px w-full bg-emerald-500/70 animate-operator-pulse-line"
-            aria-hidden
-          />
+
+      <p className="font-sans text-[22px] leading-[1.12] tracking-tightest text-ink sm:text-[26px]">
+        {abstained ? (
+          <span className="text-muted">{traderName} sat this one out</span>
+        ) : (
+          <>
+            <span className="text-muted">{traderName} is betting </span>
+            <span className={direction === "up" ? "text-emerald-700" : "text-red-700"}>
+              {direction.toUpperCase()}
+            </span>
+            <span className="text-muted"> on {assetLabel}</span>
+          </>
         )}
-        <div className="grid gap-6 px-6 py-7 sm:grid-cols-[1.4fr_1fr] sm:px-8 sm:py-8">
-          <div className="space-y-5">
-            <p className="font-sans text-[26px] leading-[1.15] tracking-tightest text-ink sm:text-[32px]">
-              <span className="text-muted">{traderName} is betting </span>
-              <span className={direction === "up" ? "text-emerald-700" : "text-red-700"}>
-                {direction.toUpperCase()}
-              </span>
-              <span className="text-muted"> on BTC</span>
-            </p>
+      </p>
 
-            {/* Live BTC price block — the dramatic centerpiece. The
-                number gets a subtle pulse on every successful tick;
-                the distance bar shows the strike as the midpoint and
-                the current spot as a marker that crosses sides when
-                the bet flips. */}
-            {!settled && (
-              <LivePriceBlock
-                spotUsd={spotUsd}
-                strikeUsd={strikeUsd}
-                distancePct={distancePct}
-                distanceToFlipUsd={distanceToFlipUsd}
-                markerPct={markerPct}
-                winning={winningSoFar}
-                status={live.status}
-                lastUpdatedMs={live.lastUpdatedMs}
-              />
-            )}
+      {!settled && !abstained && (
+        <LivePriceBlock
+          spotUsd={spotUsd}
+          strikeUsd={strikeUsd}
+          distancePct={distancePct}
+          distanceToFlipUsd={distanceToFlipUsd}
+          markerPct={markerPct}
+          winning={winningSoFar}
+          status={live.status}
+          lastUpdatedMs={live.lastUpdatedMs}
+        />
+      )}
 
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 font-mono text-[12.5px]">
-              <DD label="strike">${strikeUsd.toFixed(2)}</DD>
-              <DD label="spot at decision">${spotAtDecisionUsd.toFixed(2)}</DD>
-              <DD label="stake">{cost > 0 ? `$${cost.toFixed(2)}` : `${decoded.decision?.quantity ?? "-"} dUSDC`}</DD>
-              <DD label="expires">
-                {expiryMs
-                  ? settled
-                    ? "settled"
-                    : expired
-                      ? "any second"
-                      : countdownLabel(msToExpiry)
-                  : "—"}
-              </DD>
-            </dl>
-          </div>
-          <div className="space-y-4 border-line sm:border-l sm:pl-6">
-            <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-              Status
-            </p>
-            {/* Animate the verdict line on every flip. Keying by
-                `winning` remounts the element, which restarts the CSS
-                fadeUp animation — so the user feels the moment it
-                crosses. prefers-reduced-motion zeroes the animation. */}
-            <p
-              key={settled ? "settled" : winningSoFar ? "winning" : "losing"}
-              className={[
-                "font-sans text-[20px] leading-snug tracking-tight animate-fade-up",
-                settled
-                  ? "text-ink"
-                  : winningSoFar
-                    ? "text-emerald-700"
-                    : "text-red-700",
-              ].join(" ")}
-            >
-              {settled
-                ? latest.status === "approved"
-                  ? "Settled — payout claimed"
-                  : "Settled — no payout"
-                : isLive
-                  ? winningSoFar
-                    ? "Winning right now"
-                    : "Losing right now"
-                  : `Simulated bet — ${winningSoFar ? "would be winning" : "would be losing"}`}
-            </p>
-            {isLive && decoded.execution?.mint_tx_digest && (
-              <a
-                href={explorerUrl("txblock", decoded.execution.mint_tx_digest)}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.28em] text-ink underline-offset-4 hover:underline focus-visible:underline"
-              >
-                mint tx
-                <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-              </a>
-            )}
-            {decoded.execution?.walrus_blob_id && (
-              <a
-                href={`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${decoded.execution.walrus_blob_id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 border border-emerald-600/40 bg-emerald-50/70 px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.22em] text-emerald-800 hover:bg-emerald-100/70"
-                title="Walrus content-addressed reasoning blob"
-              >
-                <span
-                  aria-hidden
-                  className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600"
-                />
-                Reasoning on Walrus
-                <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
-              </a>
-            )}
-            {!isLive && decoded.execution?.reason_if_simulated && (
-              <p className="text-[12px] leading-relaxed text-muted">
-                {decoded.execution.reason_if_simulated}
-              </p>
-            )}
-          </div>
-        </div>
-      </article>
-    </section>
-    {mindCanvas}
-    <TraderMindPanel
-      traderName={traderName}
-      strategy={decoded.strategy ?? null}
-      walrusBlobId={decoded.execution?.walrus_blob_id ?? null}
-      abstained={abstained}
-      fallbackReasoning={decoded.decision?.reasoning ?? null}
-    />
-    </>
+      <dl className="grid grid-cols-2 gap-x-5 gap-y-2.5 font-mono text-[12px]">
+        <DD label="strike">${strikeUsd.toFixed(2)}</DD>
+        <DD label="spot @ decision">${spotAtDecisionUsd.toFixed(2)}</DD>
+        <DD label="stake">{cost > 0 ? `$${cost.toFixed(2)}` : `${decoded.decision?.quantity ?? "-"} dUSDC`}</DD>
+        <DD label="expires">
+          {expiryMs
+            ? settled
+              ? "settled"
+              : expired
+                ? "any second"
+                : countdownLabel(msToExpiry)
+            : "—"}
+        </DD>
+      </dl>
+
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-line pt-3">
+        <p
+          key={settled ? "settled" : winningSoFar ? "winning" : "losing"}
+          className={[
+            "font-sans text-[16px] leading-snug tracking-tight animate-fade-up",
+            settled
+              ? "text-ink"
+              : abstained
+                ? "text-ink-2"
+                : winningSoFar
+                  ? "text-emerald-700"
+                  : "text-red-700",
+          ].join(" ")}
+        >
+          {settled
+            ? latest.status === "approved"
+              ? "Settled — payout claimed"
+              : "Settled — no payout"
+            : abstained
+              ? "No bet placed — discipline"
+              : isLive
+                ? winningSoFar
+                  ? "Winning right now"
+                  : "Losing right now"
+                : `Simulated — ${winningSoFar ? "would be winning" : "would be losing"}`}
+        </p>
+        {isLive && decoded.execution?.mint_tx_digest && (
+          <a
+            href={explorerUrl("txblock", decoded.execution.mint_tx_digest)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.24em] text-ink underline-offset-4 hover:underline"
+          >
+            mint tx
+            <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+          </a>
+        )}
+      </div>
+    </div>
   );
+
+  return renderMind(verdictBlock);
 }
 
 // ---------------------------------------------------------------------------
@@ -4574,31 +4554,57 @@ function TraderMemoryJournal({
         <MemoryTimeline decisions={trades.decisions} journalBlobId={journalId} />
       )}
 
-      <article className="mt-3 grid gap-4 sm:grid-cols-2">
-        <MemoryBlobCard
-          title={`${traderName}'s running memory`}
-          tagline={
+      <div className="mt-3 flex flex-wrap gap-2">
+        <MemoryChip
+          label={
             journalEntries > 0
-              ? `${journalEntries} decision${journalEntries === 1 ? "" : "s"} logged · grows with every move`
-              : "Will appear after the first decision"
+              ? `Running memory · ${journalEntries} ${journalEntries === 1 ? "decision" : "decisions"}`
+              : "Running memory"
           }
           blobId={journalId}
-          fallbackNote="The trader is still composing its first decision — the journal will appear here when it's been minted to Walrus. If the trader's wallet runs out of WAL, the journal pauses (inline reasoning still flows) until it's topped up."
           ariaLabel="Memory journal Walrus blob"
         />
-        <MemoryBlobCard
-          title="Last decision · reasoning"
-          tagline={
-            decoded?.decision?.reasoning
-              ? `"${decoded.decision.reasoning.slice(0, 70)}${decoded.decision.reasoning.length > 70 ? "…" : ""}"`
-              : "Plain-language reasoning for the latest move"
-          }
+        <MemoryChip
+          label="Last decision · reasoning"
           blobId={reasoningId}
-          fallbackNote='Inline · Walrus unfunded — the reasoning still ships in the deliverable below, just not as a verifiable blob. Top up the trader wallet with WAL via "walrus get-wal" and the next decision will upload.'
           ariaLabel="Per-decision reasoning Walrus blob"
         />
-      </article>
+      </div>
     </section>
+  );
+}
+
+// Compact Walrus link chip — replaces the old big blob cards so the
+// memory zone stays one calm row (the timeline above carries the detail).
+function MemoryChip({
+  label,
+  blobId,
+  ariaLabel,
+}: {
+  label: string;
+  blobId: string | null;
+  ariaLabel: string;
+}) {
+  if (blobId) {
+    return (
+      <a
+        href={`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}`}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={ariaLabel}
+        className="inline-flex items-center gap-1.5 border border-emerald-600/50 bg-emerald-50/60 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-800 transition-colors hover:bg-emerald-100/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+      >
+        <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600" />
+        {label}
+        <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+      </a>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 border border-line bg-bg-elev-2/40 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+      <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-muted/60" />
+      {label} · inline
+    </span>
   );
 }
 
@@ -5339,6 +5345,7 @@ function PolicyCard({
   // burn-down reflects real on-chain state, not our own bookkeeping.
   const prevSpentRef = useRef<bigint | null>(null);
   const [burning, setBurning] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   useEffect(() => {
     if (!policy) return;
     const cur = policy.spent;
@@ -5354,8 +5361,8 @@ function PolicyCard({
   return (
     <div
       className={[
-        "mt-6 relative border-2 bg-bg-elev p-6 transition-colors",
-        isRevoked ? "border-red-400/70" : "border-ink",
+        "mt-5 relative border-2 bg-bg-elev transition-colors",
+        isRevoked ? "border-red-400/70" : "border-line",
         burning ? "animate-operator-ripple" : "",
       ].join(" ")}
     >
@@ -5365,54 +5372,47 @@ function PolicyCard({
           aria-hidden
         />
       )}
-      <div className="grid gap-6 sm:grid-cols-[1fr_auto]">
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusPill status={status} />
-            <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
-              Template · {activation.templateId}
-            </span>
+      {/* Command strip — status · inline budget burn-down · details toggle */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-5">
+        <StatusPill status={status} />
+        <div className="flex min-w-[220px] flex-1 items-center gap-3">
+          <span
+            key={remaining !== null ? remaining.toFixed(3) : "na"}
+            className={[
+              "shrink-0 font-mono text-[14px] tabular-nums",
+              isRevoked ? "text-red-700" : "text-ink",
+              burning ? "animate-value-tick" : "",
+            ].join(" ")}
+          >
+            {remaining !== null ? remaining.toFixed(3) : cap.toFixed(2)}
+            <span className="text-muted"> / {cap.toFixed(2)} SUI</span>
+          </span>
+          <div className="h-1.5 min-w-[60px] flex-1 overflow-hidden bg-line">
+            <div
+              className={[
+                "h-full transition-[width] duration-700 ease-out",
+                isRevoked ? "bg-red-400" : "bg-ink",
+              ].join(" ")}
+              style={{ width: `${pct * 100}%` }}
+            />
           </div>
-          <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
-              {isRevoked ? "Leash pulled · budget frozen" : "Budget envelope · remaining"}
-            </p>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span
-                key={remaining !== null ? remaining.toFixed(3) : "na"}
-                className={[
-                  "font-mono text-3xl font-medium tabular-nums",
-                  isRevoked ? "text-red-700" : "text-ink",
-                  burning ? "animate-value-tick" : "",
-                ].join(" ")}
-              >
-                {remaining !== null ? remaining.toFixed(3) : cap.toFixed(2)}
-              </span>
-              <span className="font-mono text-[13px] tabular-nums text-muted">
-                / {cap.toFixed(2)} SUI
-              </span>
-              {spent > 0 && (
-                <span className="ml-1 font-mono text-[11px] tabular-nums text-muted">
-                  · {spent.toFixed(3)} spent
-                </span>
-              )}
-            </div>
-            <div className="mt-2 h-1.5 w-full overflow-hidden bg-line">
-              <div
-                className={[
-                  "h-full transition-[width] duration-700 ease-out",
-                  isRevoked ? "bg-red-400" : "bg-ink",
-                ].join(" ")}
-                style={{ width: `${pct * 100}%` }}
-              />
-            </div>
-            <p className="mt-2 font-mono text-[9.5px] leading-relaxed tracking-[0.04em] text-muted">
-              Every spend recorded by{" "}
-              <span className="text-ink-2">operator_policy::record_spend</span> —
-              on chain, not in our database.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-4 text-[12.5px]">
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowDetails((v) => !v)}
+          aria-expanded={showDetails}
+          className="shrink-0 font-mono text-[10px] uppercase tracking-[0.24em] text-muted transition-colors hover:text-ink focus-visible:text-ink"
+        >
+          policy {showDetails ? "↑" : "↗"}
+        </button>
+      </div>
+
+      {showDetails && (
+        <div className="space-y-3 border-t border-line px-4 py-4 animate-fade-up sm:px-5">
+          <div className="flex flex-wrap gap-x-5 gap-y-2 text-[12.5px]">
+            <KV label="Template">
+              <span className="font-mono">{activation.templateId}</span>
+            </KV>
             <KV label="Capabilities">
               <span className="font-mono">
                 [{activation.allowedVenues.join(", ")}]
@@ -5447,45 +5447,48 @@ function PolicyCard({
                 <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
               </a>
             </KV>
+            {spent > 0 && (
+              <KV label="Spent">
+                <span className="font-mono tabular-nums">{spent.toFixed(3)} SUI</span>
+              </KV>
+            )}
+          </div>
+          <p className="font-mono text-[9.5px] leading-relaxed tracking-[0.04em] text-muted">
+            Every spend recorded by{" "}
+            <span className="text-ink-2">operator_policy::record_spend</span> — on
+            chain, not in our database. The chain refuses the next bet once the
+            budget runs out; funds stay locked in escrow, past wins still pay out.
+          </p>
+          <div className="border-t border-line pt-3">
+            <button
+              type="button"
+              disabled={!policyId || revokeSubmitting || isRevoked}
+              onClick={onRequestRevoke}
+              className={[
+                "inline-flex items-center gap-2 border-2 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.28em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500",
+                isRevoked
+                  ? "cursor-not-allowed border-line bg-line text-muted"
+                  : "border-red-500 bg-bg text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60",
+              ].join(" ")}
+            >
+              {revokeSubmitting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Revoking…
+                </>
+              ) : (
+                <>
+                  <ShieldOff className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  {isRevoked ? "Revoked" : "Revoke authority"}
+                </>
+              )}
+            </button>
           </div>
         </div>
-        <div className="flex flex-col items-start justify-between gap-2 border-t border-line pt-4 sm:items-end sm:border-0 sm:pt-0">
-          <span className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
-            Kill switch
-          </span>
-          <button
-            type="button"
-            disabled={!policyId || revokeSubmitting || isRevoked}
-            onClick={onRequestRevoke}
-            className={[
-              "inline-flex items-center gap-2 border-2 px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.32em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500",
-              isRevoked
-                ? "cursor-not-allowed border-line bg-line text-muted"
-                : "border-red-500 bg-bg text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60",
-            ].join(" ")}
-          >
-            {revokeSubmitting ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Revoking…
-              </>
-            ) : (
-              <>
-                <ShieldOff className="h-3.5 w-3.5" strokeWidth={1.75} />
-                {isRevoked ? "Revoked" : "Revoke authority"}
-              </>
-            )}
-          </button>
-          {!isRevoked && (
-            <p className="max-w-[12rem] text-right text-[11px] leading-snug text-muted">
-              The chain will refuse the next payment. Funds stay locked in
-              escrow.
-            </p>
-          )}
-        </div>
-      </div>
+      )}
+
       {revokeError && (
-        <p className="mt-4 border border-red-300 bg-red-50 p-3 font-mono text-[12px] text-red-700">
+        <p className="border-t border-red-300 bg-red-50 px-4 py-3 font-mono text-[12px] text-red-700 sm:px-5">
           {revokeError.slice(0, 280)}
         </p>
       )}

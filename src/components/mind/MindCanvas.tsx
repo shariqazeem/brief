@@ -1,15 +1,17 @@
-// MindCanvas — the live trading floor above the reasoning panel.
-// Orchestrates the six visuals off three feeds:
-//   · usePriceSeries  — the same .cursors history the agent computes from
-//   · useVolSurface   — live SVI smile + market-implied Pr(UP) at strike
-//   · useAgentStream  — SSE lifecycle events driving the waterfall + edge
+// MindCanvas — the live trading floor. Owns all three mind feeds
+// (usePriceSeries, useVolSurface, useAgentStream) plus the trade
+// history, and lays them out as two calm zones:
+//   Zone 2 "The Bet"  — the verdict slot (passed in by the position
+//                        panel) beside the price chart with decision
+//                        markers.
+//   Zone 3 "The Mind" — one tabbed card: Signals · Vol smile · Edge ·
+//                        Wire. Reasoning renders ONLY in the Edge tab.
 // Every number is sourced from chain state or the agent's own files;
-// nothing is fabricated for the demo. Lazy-loaded (next/dynamic) so
-// recharts stays out of the first-load bundle.
+// nothing is fabricated. Lazy-loaded so recharts stays out of first load.
 
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAgentStream } from "@/lib/use-agent-stream";
 import { usePriceSeries, useVolSurface, useTraderTrades } from "@/lib/use-mind-data";
@@ -20,6 +22,8 @@ import { MindVolSmile } from "./MindVolSmile";
 import { MindEdgeMeter } from "./MindEdgeMeter";
 import { MindDecisionWaterfall } from "./MindDecisionWaterfall";
 
+type TabId = "signals" | "smile" | "edge" | "wire";
+
 export default function MindCanvas({
   policyId,
   oracleId,
@@ -29,6 +33,9 @@ export default function MindCanvas({
   liveSpotUsd,
   traderName,
   fallbackReasoning,
+  verdictSlot = null,
+  walrusBlobId = null,
+  abstained = false,
 }: {
   policyId: string | null;
   oracleId: string | null;
@@ -37,9 +44,15 @@ export default function MindCanvas({
   direction: "up" | "down" | null;
   liveSpotUsd: number | null;
   traderName: string;
-  /** Reasoning text of the last delivered decision — edge numbers are
-   *  parsed out of it when the SSE stream hasn't replayed one yet. */
+  /** Reasoning text of the last delivered decision — shown in the Edge
+   *  tab and mined for edge numbers when SSE hasn't replayed one yet. */
   fallbackReasoning?: string | null;
+  /** Zone 2 left column: the bet verdict (live spot, gauge, mode badge),
+   *  composed by the position panel from the deliverable. */
+  verdictSlot?: React.ReactNode;
+  /** Per-decision reasoning blob for the Edge tab's "verifiable" link. */
+  walrusBlobId?: string | null;
+  abstained?: boolean;
 }) {
   const { state, connected } = useAgentStream(policyId);
   const series = usePriceSeries(asset === "BTC" ? "BTC" : asset);
@@ -75,9 +88,7 @@ export default function MindCanvas({
 
   const marketP =
     vol.marketProbUp ?? state.decision?.marketP ?? fallbackMarketP ?? null;
-  const decided = state.decision
-    ? state.decision.decided
-    : direction !== null;
+  const decided = state.decision ? state.decision.decided : direction !== null;
 
   // Signal headline values: SSE-fresh when available, else the series poll.
   const rsi = state.signals?.rsi_60m ?? series.latest?.rsi60 ?? null;
@@ -86,65 +97,154 @@ export default function MindCanvas({
   const roc = roc30 ?? roc5;
   const rocWindow = roc30 !== null ? "30m" : "5m";
 
-  // Quiet self-healing toast: visible for 12s after the warden moves
-  // gas. Real digest behind it (the event carries the transfer tx).
+  // A task is "in flight" once events start arriving but delivery hasn't
+  // landed — that's when the Wire tab is the most useful default.
+  const inFlight =
+    state.lastEventTs > 0 && state.steps.delivered.status !== "done";
+
+  const [tab, setTab] = useState<TabId>("signals");
+  const userPickedRef = useRef(false);
+  useEffect(() => {
+    // Auto-focus the Wire while a decision streams — unless the user has
+    // already chosen a tab themselves.
+    if (!userPickedRef.current && inFlight) setTab("wire");
+  }, [inFlight]);
+  const pick = (t: TabId) => {
+    userPickedRef.current = true;
+    setTab(t);
+  };
+
+  const tabs: Array<{ id: TabId; label: string }> = isBtc
+    ? [
+        { id: "signals", label: "Signals" },
+        { id: "smile", label: "Vol smile" },
+        { id: "edge", label: "Edge" },
+        { id: "wire", label: "Wire" },
+      ]
+    : [
+        { id: "signals", label: "Signals" },
+        { id: "wire", label: "Wire" },
+      ];
+  // Guard: if the active tab isn't available for this asset, fall back.
+  const activeTab = tabs.some((t) => t.id === tab) ? tab : "signals";
+
+  // Quiet self-healing toast: visible for 12s after the warden moves gas.
   const topup = state.wardenTopup;
   const topupFresh = topup !== null && Date.now() - topup.ts < 12_000;
 
   return (
-    <section className="mt-6">
+    <section className="mt-6 space-y-2.5">
       {topupFresh && topup && (
-        <div className="mb-3 flex items-center gap-2 border border-emerald-600/40 bg-emerald-50/70 px-3 py-2 animate-land-in">
+        <div className="flex items-center gap-2 border border-emerald-600/40 bg-emerald-50/70 px-3 py-2 animate-land-in">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600" aria-hidden />
           <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-800">
             Brief auto-funded the {topup.to} wallet · {topup.amountSui.toFixed(3)} SUI — self-healing gas
           </p>
         </div>
       )}
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-          {traderName}&apos;s trading floor · live
-        </p>
-        <p
-          className={`flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.22em] ${
-            connected ? "text-muted" : "text-amber-700"
-          }`}
-        >
-          <span
-            className={`inline-block h-1.5 w-1.5 rounded-full ${
-              connected ? "animate-pulse bg-emerald-500" : "animate-pulse bg-amber-500"
-            }`}
-            aria-hidden
-          />
-          {connected ? "streaming · live wire" : "reconnecting to the wire…"}
-        </p>
+
+      {/* ZONE 2 — The Bet: verdict beside the live chart, one card. */}
+      <div className="border-2 border-ink bg-bg-elev">
+        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2.5 sm:px-5">
+          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+            The bet · {traderName}
+          </p>
+          <span className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+            {state.asset ?? asset} · live
+          </span>
+        </div>
+        <div className="grid grid-cols-1 gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[1fr_1.5fr]">
+          <div className="min-w-0">
+            {verdictSlot ?? (
+              <p className="font-sans text-[15px] italic leading-snug text-muted">
+                {traderName} is picking a market — the decision streams in
+                the Wire tab below.
+              </p>
+            )}
+          </div>
+          <div className="min-w-0">
+            <MindPriceChart
+              points={series.points}
+              liveSpotUsd={liveSpotUsd}
+              strikeUsd={effStrikeUsd}
+              direction={effDirection}
+              asset={state.asset ?? asset}
+              decisions={trades.decisions}
+            />
+          </div>
+        </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-2.5 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <MindPriceChart
-            points={series.points}
-            liveSpotUsd={liveSpotUsd}
-            strikeUsd={effStrikeUsd}
-            direction={effDirection}
-            asset={state.asset ?? asset}
-            decisions={trades.decisions}
-          />
+      {/* ZONE 3 — The Mind: one tabbed card. */}
+      <div className="border-2 border-line bg-bg-elev">
+        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2.5 sm:px-5">
+          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+            How {traderName} thinks
+          </p>
+          <span
+            className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.22em] ${
+              connected ? "text-muted" : "text-amber-700"
+            }`}
+          >
+            <span
+              className={`inline-block h-1.5 w-1.5 rounded-full ${
+                connected ? "animate-pulse bg-emerald-500" : "animate-pulse bg-amber-500"
+              }`}
+              aria-hidden
+            />
+            {connected ? "live wire" : "reconnecting…"}
+          </span>
         </div>
-        <MindRSIGauge rsi={rsi} />
 
-        {isBtc ? (
-          <>
-            <div className="lg:col-span-2">
-              <MindVolSmile
-                smile={vol.smile}
-                surface={vol.surface}
-                strikeKValue={vol.strikeKValue}
-                strikeUsd={effStrikeUsd}
-              />
+        {/* tab row */}
+        <div role="tablist" className="flex gap-1 border-b border-line px-3 sm:px-4">
+          {tabs.map((t) => {
+            const on = t.id === activeTab;
+            return (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={on}
+                type="button"
+                onClick={() => pick(t.id)}
+                className={[
+                  "-mb-px border-b-2 px-3 py-2.5 font-mono text-[10px] uppercase tracking-[0.22em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
+                  on
+                    ? "border-ink text-ink"
+                    : "border-transparent text-muted hover:text-ink",
+                ].join(" ")}
+              >
+                {t.label}
+                {t.id === "wire" && inFlight && (
+                  <span
+                    className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle animate-pulse"
+                    aria-hidden
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div key={activeTab} className="px-4 py-4 animate-fade-up sm:px-5">
+          {activeTab === "signals" && (
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              <MindRSIGauge rsi={rsi} />
+              <MindROCTicker points={series.points} roc={roc} rocWindow={rocWindow} />
             </div>
-            <MindROCTicker points={series.points} roc={roc} rocWindow={rocWindow} />
-            <div className="lg:col-span-3">
+          )}
+
+          {activeTab === "smile" && (
+            <MindVolSmile
+              smile={vol.smile}
+              surface={vol.surface}
+              strikeKValue={vol.strikeKValue}
+              strikeUsd={effStrikeUsd}
+            />
+          )}
+
+          {activeTab === "edge" && (
+            <div className="space-y-4">
               <MindEdgeMeter
                 marketP={marketP}
                 agentP={agentP}
@@ -152,16 +252,33 @@ export default function MindCanvas({
                 decided={decided}
                 direction={effDirection}
               />
+              {reasoningText && (
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
+                    {abstained || !decided ? "Why no bet" : "Why this bet"}
+                  </p>
+                  <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
+                    {reasoningText}
+                  </p>
+                  {walrusBlobId && (
+                    <a
+                      href={`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${walrusBlobId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-3 inline-flex items-center gap-1.5 border border-emerald-600/40 bg-emerald-50/70 px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.22em] text-emerald-800 hover:bg-emerald-100/70"
+                    >
+                      <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                      Verifiable on Walrus
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
-          </>
-        ) : (
-          <div className="lg:col-span-3">
-            <MindROCTicker points={series.points} roc={roc} rocWindow={rocWindow} />
-          </div>
-        )}
+          )}
 
-        <div className="lg:col-span-3">
-          <MindDecisionWaterfall state={state} connected={connected} />
+          {activeTab === "wire" && (
+            <MindDecisionWaterfall state={state} connected={connected} />
+          )}
         </div>
       </div>
     </section>
