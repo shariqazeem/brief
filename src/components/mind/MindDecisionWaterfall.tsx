@@ -143,6 +143,19 @@ export function MindDecisionWaterfall({
         </p>
       </div>
 
+      {state.fallbackNote && !state.failure && (
+        <p className="mt-3 inline-flex items-center gap-1.5 border border-amber-600/40 bg-amber-50/60 px-2 py-1 font-mono text-[9.5px] uppercase tracking-[0.18em] text-amber-800 animate-land-in">
+          <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-600" />
+          {state.fallbackNote}
+        </p>
+      )}
+      {state.failure && (
+        <p className="mt-3 inline-flex items-center gap-1.5 border border-red-500/50 bg-red-50/70 px-2 py-1 font-mono text-[9.5px] uppercase tracking-[0.18em] text-red-700 animate-land-in">
+          <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-red-600" />
+          infra hiccup — closed honestly as simulated
+        </p>
+      )}
+
       {idle ? (
         <p className="mt-4 font-sans text-[14px] italic leading-relaxed text-muted">
           The wire is quiet. Dispatch a task and watch the agent think

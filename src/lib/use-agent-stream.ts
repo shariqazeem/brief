@@ -93,6 +93,12 @@ export type AgentStreamState = {
   /** Last self-healing gas top-up (global event) — drives the quiet
    *  "Brief auto-funded the trader" toast. */
   wardenTopup: { ts: number; from: string; to: string; amountSui: number } | null;
+  /** Set when the trader rotated off an unreadable pool, e.g.
+   *  "WAL pool unavailable → SUI". Cleared on the next task. */
+  fallbackNote: string | null;
+  /** Set when a task closed on an infra failure — drives the honest
+   *  "infra hiccup, dispatch again" state. */
+  failure: { error: string } | null;
 };
 
 const FRESH_STEPS = (): AgentStreamState["steps"] => ({
@@ -127,6 +133,8 @@ const INITIAL: AgentStreamState = {
   steps: FRESH_STEPS(),
   events: [],
   wardenTopup: null,
+  fallbackNote: null,
+  failure: null,
 };
 
 function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState {
@@ -153,6 +161,26 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         events: [...state.events.slice(-39), e],
         wardenTopup: state.wardenTopup,
       };
+    case "asset_fallback": {
+      const from = str(d.from) ?? state.asset ?? "?";
+      const to = str(d.to) ?? "?";
+      next.asset = to;
+      next.fallbackNote = `${from} pool unavailable → ${to}`;
+      // The observe step is what just failed-over; keep it active.
+      next.steps.observe = { status: "active", ts: e.ts };
+      return next;
+    }
+    case "task_failed": {
+      next.failure = { error: str(d.error) ?? "infra failure" };
+      // Any step not already done flips to failed so the wire never
+      // looks like it's still working.
+      (Object.keys(next.steps) as WaterfallStep[]).forEach((k) => {
+        if (next.steps[k].status !== "done") {
+          next.steps[k] = { status: "failed", ts: e.ts };
+        }
+      });
+      return next;
+    }
     case "warden_topup":
       next.wardenTopup = {
         ts: e.ts,

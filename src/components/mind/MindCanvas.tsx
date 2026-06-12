@@ -36,6 +36,9 @@ export default function MindCanvas({
   verdictSlot = null,
   walrusBlobId = null,
   abstained = false,
+  traderVoice = null,
+  onDispatchAgain,
+  dispatching = false,
 }: {
   policyId: string | null;
   oracleId: string | null;
@@ -53,6 +56,11 @@ export default function MindCanvas({
   /** Per-decision reasoning blob for the Edge tab's "verifiable" link. */
   walrusBlobId?: string | null;
   abstained?: boolean;
+  /** Personality voice line, shown in the pre-decision waiting state. */
+  traderVoice?: string | null;
+  /** Re-dispatch a task after an honest infra failure. */
+  onDispatchAgain?: () => void;
+  dispatching?: boolean;
 }) {
   const { state, connected } = useAgentStream(policyId);
   const series = usePriceSeries(asset === "BTC" ? "BTC" : asset);
@@ -128,6 +136,34 @@ export default function MindCanvas({
   // Guard: if the active tab isn't available for this asset, fall back.
   const activeTab = tabs.some((t) => t.id === tab) ? tab : "signals";
 
+  // "What it's doing now" — the live step label for the waiting state.
+  const doingNow = useMemo(() => {
+    if (state.lastEventTs === 0)
+      return "waiting for the planner to post the job…";
+    const labels: Record<string, string> = {
+      observe: `reading the ${state.asset ?? asset} pool mid…`,
+      signals: "computing signals (ROC · SMA · RSI)…",
+      svi: "reading the live SVI surface…",
+      decision: "weighing the edge…",
+      mint: "placing the bet on chain…",
+      walrus: "writing memory to Walrus…",
+      delivered: "finalizing the deliverable…",
+    };
+    const order: Array<keyof typeof state.steps> = [
+      "observe",
+      "signals",
+      "svi",
+      "decision",
+      "mint",
+      "walrus",
+      "delivered",
+    ];
+    const active = order.find((k) => state.steps[k].status === "active");
+    if (active) return labels[active]!;
+    const lastDone = [...order].reverse().find((k) => state.steps[k].status === "done");
+    return lastDone ? labels[lastDone]! : "studying the order book…";
+  }, [state, asset]);
+
   // Quiet self-healing toast: visible for 12s after the warden moves gas.
   const topup = state.wardenTopup;
   const topupFresh = topup !== null && Date.now() - topup.ts < 12_000;
@@ -156,10 +192,49 @@ export default function MindCanvas({
         <div className="grid grid-cols-1 gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[1fr_1.5fr]">
           <div className="min-w-0">
             {verdictSlot ?? (
-              <p className="font-sans text-[15px] italic leading-snug text-muted">
-                {traderName} is picking a market — the decision streams in
-                the Wire tab below.
-              </p>
+              state.failure ? (
+                <div className="border-2 border-red-400/70 bg-red-50/50 px-4 py-4">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-red-800">
+                    Infra hiccup · task closed honestly
+                  </p>
+                  <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
+                    Every DeepBook spot pool was unreadable this cycle, so the
+                    task closed as <span className="text-ink">simulated</span> —
+                    no bet placed, no funds touched. This is testnet pool
+                    flakiness, not your leash.
+                  </p>
+                  {onDispatchAgain && (
+                    <button
+                      type="button"
+                      onClick={onDispatchAgain}
+                      disabled={dispatching}
+                      className="mt-3 inline-flex items-center gap-2 border-2 border-ink bg-ink px-4 py-2 font-mono text-[10px] uppercase tracking-[0.28em] text-bg transition-colors hover:bg-ink-2 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {dispatching ? "Dispatching…" : "Dispatch again →"}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {traderVoice && (
+                    <p className="text-[15px] italic leading-snug text-ink-2">
+                      &ldquo;{traderVoice}&rdquo;
+                    </p>
+                  )}
+                  <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-ink">
+                    {traderName} · {doingNow}
+                  </p>
+                  <div className="flex gap-1" aria-hidden>
+                    {[0, 1, 2].map((i) => (
+                      <span
+                        key={i}
+                        className="inline-block h-1.5 w-1.5 rounded-full bg-muted animate-pulse"
+                        style={{ animationDelay: `${i * 200}ms` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
             )}
           </div>
           <div className="min-w-0">

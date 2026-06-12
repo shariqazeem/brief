@@ -138,9 +138,14 @@ function chooseAsset(spec: TraderSpec, taskId: string): "BTC" | "SUI" | "WAL" | 
   // BTC is intentionally excluded from spot rotation — the bundle's BTC
   // share gets a dedicated dispatch (the user adopting "all" can still
   // trigger a BTC task via the existing dispatch path).
-  const seed = parseInt(taskId.slice(2, 10), 16) >>> 0;
-  const spotAssets = ["SUI", "WAL", "DEEP"] as const;
-  return spotAssets[seed % spotAssets.length]!;
+  // Weighted rotation by task-id hash: SUI 50% / DEEP 30% / WAL 20%.
+  // WAL's DeepBook pool is the flakiest on testnet (readSpotMid often
+  // returns nothing), so it gets the smallest share — and handleSpotTask
+  // falls back across pools if the chosen one is unreadable anyway.
+  const roll = (parseInt(taskId.slice(2, 10), 16) >>> 0) % 100;
+  if (roll < 50) return "SUI";
+  if (roll < 80) return "DEEP";
+  return "WAL";
 }
 
 function parseSpec(raw: string): TraderSpec {
@@ -1053,6 +1058,112 @@ async function handleTask(
 // shape with the asset name in `market.underlying`. The auto-close
 // service below scans the cursor and closes each position when its
 // horizon elapses.
+// Close a spot task HONESTLY when every DeepBook pool is unreadable —
+// delivers a simulated deliverable whose reason_if_simulated names the
+// infra failure, so the task completes (not stranded in `accepted`) and
+// the UI can show "infra hiccup — dispatch again" instead of a silent
+// hang. Reuses the same inline-deliverable + appendMintAndSubmit path
+// as a normal spot delivery.
+async function deliverSpotInfraFailure(
+  ctx: AgentContext,
+  notice: TaskPostedNotice,
+  spec: TraderSpec,
+  strategyId: StrategyId,
+  balanceManagerId: string,
+  asset: "SUI" | "WAL" | "DEEP",
+  reason: string,
+): Promise<void> {
+  const simReason =
+    `Infra: every DeepBook spot pool was unreadable this cycle ` +
+    `(${asset} last: ${reason}). Task closed honestly as simulated — ` +
+    `no bet placed. Dispatch again to retry.`;
+  const deliverable: TraderDeliverable = {
+    task_title: notice.title,
+    primary_capability: notice.primaryCapability,
+    spec_context: spec.context ?? "(no context provided in spec)",
+    strategy: strategyId,
+    market: {
+      oracle_id: "",
+      underlying: asset,
+      expiry_ms: Date.now() + SPOT_HORIZON_MS,
+      strike: 0,
+      tick_size: 0,
+      spot_at_decision: 0,
+    },
+    decision: {
+      direction: "up",
+      quantity: 0,
+      cost_dusdc_base: 0,
+      reasoning: simReason,
+    },
+    execution: {
+      mode: "simulated",
+      mint_tx_digest: null,
+      walrus_blob_id: null,
+      reason_if_simulated: simReason,
+      journal_walrus_blob_id: null,
+      journal_entries: 0,
+    },
+    metadata: {
+      produced_by: ctx.address,
+      produced_at_ms: Date.now(),
+      schema_version: Number(SCHEMA_VERSION),
+      manager_id: balanceManagerId,
+      policy_id: spec.policyId ?? null,
+      venue: `spot-${asset.toLowerCase()}`,
+    },
+  };
+  const inlinePayload = new TextEncoder().encode(JSON.stringify(deliverable));
+  const submitRes = await signAndExecuteWithRetry(
+    ctx,
+    () => {
+      const tx = new Transaction();
+      appendMintAndSubmit(tx, ctx, {
+        taskId: notice.taskId,
+        deliverableOwner: notice.poster,
+        schemaVersion: SCHEMA_VERSION,
+        inlinePayload,
+        walrusBlobId: null,
+        paymentAmount: 0n,
+      });
+      return tx;
+    },
+    { showEffects: true },
+    {
+      label: "trader-spot:fail-deliver",
+      attempts: 3,
+      alreadyDone: async () => {
+        try {
+          const cur = await fetchTask(ctx, notice.taskId);
+          if (
+            (cur.status === "delivered" || cur.status === "approved") &&
+            cur.deliverableId
+          ) {
+            return "done";
+          }
+        } catch {
+          /* fall through */
+        }
+        return null;
+      },
+    },
+  );
+  if (submitRes.effects?.status?.status !== "success") {
+    throw new Error(
+      `spot infra-failure delivery PTB failed: ${submitRes.effects?.status?.error ?? "unknown"}`,
+    );
+  }
+  console.log(
+    `[trader-spot] infra-failure honest delivery tx=${submitRes.digest} asset=${asset}`,
+  );
+  emitAgentEvent("delivered", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset,
+    data: { tx: submitRes.digest, mode: "simulated" },
+  });
+}
+
 async function handleSpotTask(
   ctx: AgentContext,
   asset: "SUI" | "WAL" | "DEEP",
@@ -1060,7 +1171,6 @@ async function handleSpotTask(
   notice: TaskPostedNotice,
   spec: TraderSpec,
 ): Promise<void> {
-  const market = getMarket(asset);
   const strategyId = spec.strategy ?? DEFAULT_STRATEGY;
   const balanceManagerId = (
     process.env.BRIEF_BALANCE_MANAGER_ID ?? ""
@@ -1071,16 +1181,59 @@ async function handleSpotTask(
     );
   }
 
-  // Read the live mid price first so the deliverable carries an honest
-  // spot snapshot even if the trade itself ends up simulated.
-  let midUsd: number;
-  try {
-    midUsd = await readSpotMid(ctx, market);
-  } catch (e) {
-    throw new Error(
-      `spot mid read failed for ${asset}: ${(e as Error).message}`,
-    );
+  // Resolve a WORKING (asset, market, mid) — testnet DeepBook pools
+  // (WAL especially) often return nothing from readSpotMid, which used
+  // to throw and strand the task in `accepted` forever. Instead we try
+  // the chosen asset first, then fall back across [SUI, DEEP, WAL]
+  // (SUI = most liquid). Each hop emits "asset_fallback"; if every pool
+  // is dark we close the task HONESTLY as simulated rather than hang.
+  const FALLBACK_ORDER: Array<"SUI" | "WAL" | "DEEP"> = ["SUI", "DEEP", "WAL"];
+  const candidates = [asset, ...FALLBACK_ORDER.filter((a) => a !== asset)];
+  let market = getMarket(asset);
+  let midUsd = NaN;
+  let resolved = false;
+  for (let i = 0; i < candidates.length; i++) {
+    const cand = candidates[i]!;
+    const m = getMarket(cand);
+    try {
+      midUsd = await readSpotMid(ctx, m);
+      asset = cand;
+      market = m;
+      resolved = true;
+      break;
+    } catch (e) {
+      const reason = String((e as Error)?.message ?? e).slice(0, 120);
+      console.warn(`[trader-spot] ${cand} pool read failed: ${reason}`);
+      const next = candidates[i + 1];
+      if (next) {
+        emitAgentEvent("asset_fallback", {
+          policyId: spec.policyId ?? null,
+          taskId: notice.taskId,
+          asset: cand,
+          data: { from: cand, to: next, reason },
+        });
+      } else {
+        // Every spot pool is unreadable — close the task honestly.
+        emitAgentEvent("task_failed", {
+          policyId: spec.policyId ?? null,
+          taskId: notice.taskId,
+          asset: cand,
+          data: { error: `all spot pools unavailable — last: ${reason}` },
+        });
+        await deliverSpotInfraFailure(
+          ctx,
+          notice,
+          spec,
+          strategyId,
+          balanceManagerId,
+          asset,
+          reason,
+        );
+        return;
+      }
+    }
   }
+  if (!resolved) return; // unreachable — the loop either resolves or returns
 
   // Observe spot mid and append to rolling history BEFORE deciding —
   // every spot bet uses the same signal-based strategy logic the BTC
@@ -1707,10 +1860,20 @@ async function main(): Promise<void> {
       try {
         await handleTask(ctx, managerId, notice);
       } catch (e) {
+        const msg = String((e as Error)?.message ?? e).slice(0, 200);
         console.error(
           `[trader] task ${notice.taskId.slice(0, 10)}… handler failed:`,
-          (e as Error)?.message ?? e,
+          msg,
         );
+        // The wire must never go silent — surface the failure to the
+        // dashboard even when the handler threw before its own emits.
+        // (We log + emit but don't re-throw: the inbox cursor should
+        // still advance so a poison task can't loop forever.)
+        emitAgentEvent("task_failed", {
+          policyId: notice.parentPolicy ?? null,
+          taskId: notice.taskId,
+          data: { error: msg },
+        });
       }
     },
   });

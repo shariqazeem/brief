@@ -33,6 +33,7 @@ export type AgentEventType =
   | "walrus_uploaded"
   | "delivered"
   | "task_failed"
+  | "asset_fallback"
   | "warden_topup";
 
 export type AgentEvent = {
