@@ -49,9 +49,11 @@ import { appendPoint, loadHistory } from "./price-history.js";
 import { computeSignals, type SignalBundle } from "./signals.js";
 import {
   decodeSurface,
+  impliedProbUp,
   readSurfaceRaw,
   type SurfaceSnapshot,
 } from "./vol-surface.js";
+import { emitAgentEvent } from "../lib/agent-events.js";
 import {
   appendSpotPosition,
   dueSpotPositions,
@@ -590,6 +592,12 @@ async function handleTask(
   // The BTC path below this branch stays byte-for-byte unchanged so the
   // proven live BTC trader is never put at risk by spot wiring.
   const asset = chooseAsset(spec, notice.taskId);
+  emitAgentEvent("task_started", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset,
+    data: { title: notice.title, strategy: spec.strategy ?? DEFAULT_STRATEGY },
+  });
   if (asset !== "BTC") {
     await handleSpotTask(ctx, asset, t, notice, spec);
     return;
@@ -613,9 +621,26 @@ async function handleTask(
   // so the freshest tick is always one of the signals. Then compute the
   // signal bundle (ROC / SMA / RSI / realized vol) from disk.
   const spotUsdNow = Number(market.spotRaw) / PRICE_SCALAR;
+  emitAgentEvent("observe", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset: "BTC",
+    data: {
+      spot_usd: spotUsdNow,
+      oracle_id: market.oracle.oracle_id,
+      strike_usd: Number(market.strikeRaw) / PRICE_SCALAR,
+      expiry_ms: market.oracle.expiry,
+    },
+  });
   await appendPoint("BTC", { ts: Date.now(), price: spotUsdNow });
   const history = await loadHistory("BTC");
   const signals = computeSignals(history, Date.now());
+  emitAgentEvent("signals", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset: "BTC",
+    data: { signals },
+  });
 
   // Read the live SVI vol surface — the centerpiece input the quant
   // strategy diverges from. We tolerate a read failure (cold RPC) by
@@ -625,11 +650,23 @@ async function handleTask(
   try {
     const raw = await readSurfaceRaw(ctx, market.oracle.oracle_id);
     surface = decodeSurface(raw);
+    emitAgentEvent("svi", {
+      policyId: spec.policyId ?? null,
+      taskId: notice.taskId,
+      asset: "BTC",
+      data: { ok: true, surface },
+    });
   } catch (e) {
     console.warn(
       "[trader] SVI surface read failed:",
       String((e as Error)?.message ?? e).slice(0, 120),
     );
+    emitAgentEvent("svi", {
+      policyId: spec.policyId ?? null,
+      taskId: notice.taskId,
+      asset: "BTC",
+      data: { ok: false },
+    });
   }
 
   const strikeUsd = Number(market.strikeRaw) / PRICE_SCALAR;
@@ -659,6 +696,22 @@ async function handleTask(
       `[trader] strategy=${strategyId} → no-edge abstention (signals: ROC30m=${signals.roc_30m ?? "n/a"} RSI60m=${signals.rsi_60m ?? "n/a"})`,
     );
   }
+  emitAgentEvent("decision", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset: "BTC",
+    data: {
+      strategy: strategyId,
+      decided: !!decision,
+      direction: decision?.direction ?? null,
+      quantity: decision?.quantity ?? 0,
+      conviction: decision?.conviction ?? 0,
+      reasoning: decision?.reasoning ?? null,
+      strike_usd: strikeUsd,
+      spot_usd: spotUsdNow,
+      market_p: surface ? impliedProbUp(surface, strikeUsd) : null,
+    },
+  });
 
   // ---- 3) Decide mode (live vs simulated) -----
   // No-edge abstention is HONEST: we still deliver the task with a
@@ -688,6 +741,12 @@ async function handleTask(
   console.log(
     `[trader] mode=${mode} manager_dusdc=${Number(managerDusdcBase) / DUSDC_BASE} hasFunds=${hasFunds} hasGate=${hasGate} hasDecision=${!!decision}`,
   );
+  emitAgentEvent("mode", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset: "BTC",
+    data: { mode, sim_reason: simReason },
+  });
 
   // Materialize a placeholder for the journal + deliverable when the
   // strategy abstained. Direction is recorded as the would-have-been
@@ -720,6 +779,16 @@ async function handleTask(
       quantity: BigInt(decision.quantity),
       recordSpendAmount,
     });
+    emitAgentEvent("mint_pending", {
+      policyId: spec.policyId ?? null,
+      taskId: notice.taskId,
+      asset: "BTC",
+      data: {
+        direction: decision.direction,
+        quantity: decision.quantity,
+        oracle_id: market.oracle.oracle_id,
+      },
+    });
     try {
       const res = await signAndExecuteWithRetry(
         ctx,
@@ -732,6 +801,12 @@ async function handleTask(
       }
       mintDigest = res.digest;
       console.log(`[trader] LIVE mint ok tx=${mintDigest}`);
+      emitAgentEvent("mint_landed", {
+        policyId: spec.policyId ?? null,
+        taskId: notice.taskId,
+        asset: "BTC",
+        data: { tx: mintDigest },
+      });
       // Track the position locally for the auto-redeem service.
       const positions = await loadPositions();
       positions.push({
@@ -753,6 +828,12 @@ async function handleTask(
       mode = "simulated";
       simReason = `Live mint failed: ${(e as Error).message.slice(0, 160)}`;
       console.warn(`[trader] live mint failed, falling back to simulated:`, e);
+      emitAgentEvent("mint_failed", {
+        policyId: spec.policyId ?? null,
+        taskId: notice.taskId,
+        asset: "BTC",
+        data: { error: (e as Error).message.slice(0, 160) },
+      });
     }
   }
 
@@ -810,6 +891,12 @@ async function handleTask(
       console.log(
         `[trader] walrus reasoning blob=${walrusBlobId} (${uploaded.uploadMs}ms)`,
       );
+      emitAgentEvent("walrus_uploaded", {
+        policyId: spec.policyId ?? null,
+        taskId: notice.taskId,
+        asset: "BTC",
+        data: { kind: "reasoning", blob_id: walrusBlobId, upload_ms: uploaded.uploadMs },
+      });
     } catch (e) {
       console.warn("[trader] walrus reasoning upload failed:", e);
     }
@@ -857,6 +944,12 @@ async function handleTask(
       console.log(
         `[trader] walrus journal blob=${journalBlobId} entries=${journalEntries} (${uploaded.uploadMs}ms)`,
       );
+      emitAgentEvent("walrus_uploaded", {
+        policyId: spec.policyId ?? null,
+        taskId: notice.taskId,
+        asset: "BTC",
+        data: { kind: "journal", blob_id: journalBlobId, entries: journalEntries, upload_ms: uploaded.uploadMs },
+      });
     } catch (e) {
       console.warn("[trader] walrus journal upload failed:", e);
     }
@@ -944,6 +1037,12 @@ async function handleTask(
       (mintDigest ? ` mint=${mintDigest}` : "") +
       (walrusBlobId ? ` walrus=${walrusBlobId}` : ""),
   );
+  emitAgentEvent("delivered", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset: "BTC",
+    data: { tx: submitRes.digest, mode },
+  });
 }
 
 // === Spot task handler — DeepBook v3 directional bet over a horizon ===
@@ -991,6 +1090,18 @@ async function handleSpotTask(
   await appendPoint(asset, { ts: Date.now(), price: midUsd });
   const history = await loadHistory(asset);
   const signals = computeSignals(history, Date.now());
+  emitAgentEvent("observe", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset,
+    data: { spot_usd: midUsd, oracle_id: market.spotPoolId ?? null },
+  });
+  emitAgentEvent("signals", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset,
+    data: { signals },
+  });
 
   const baseQty = market.minOrderQty ?? 1;
 
@@ -1022,6 +1133,21 @@ async function handleSpotTask(
       (candidateDecision ? "" : " (no-edge abstention)"),
   );
   console.log(`[trader-spot] reasoning: ${reasoning}`);
+  emitAgentEvent("decision", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset,
+    data: {
+      strategy: strategyId,
+      decided: !!candidateDecision,
+      direction,
+      quantity: baseQty,
+      conviction,
+      reasoning,
+      spot_usd: midUsd,
+      market_p: null,
+    },
+  });
 
   // Pre-flight: consolidate SUI coins. Same fix that protects Walrus
   // applies to DeepBook PTBs — both auto-pick gas and abort at
@@ -1050,9 +1176,21 @@ async function handleSpotTask(
   if (!hasGate) {
     simReason = `No policy_id in task spec — live spot bets must be gated by an OperatorPolicy with venue "spot-${asset.toLowerCase()}".`;
   }
+  emitAgentEvent("mode", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset,
+    data: { mode, sim_reason: simReason },
+  });
 
   // ---- LIVE: open the position via the proven openSpot helper -----
   if (mode === "live" && spec.policyId) {
+    emitAgentEvent("mint_pending", {
+      policyId: spec.policyId ?? null,
+      taskId: notice.taskId,
+      asset,
+      data: { direction, quantity: baseQty },
+    });
     try {
       const open = await openSpot({
         ctx,
@@ -1067,6 +1205,12 @@ async function handleSpotTask(
       console.log(
         `[trader-spot] LIVE open ok tx=${openDigest} quoteBase=${openQuoteBase}`,
       );
+      emitAgentEvent("spot_opened", {
+        policyId: spec.policyId ?? null,
+        taskId: notice.taskId,
+        asset,
+        data: { tx: openDigest, direction, base_qty: baseQty },
+      });
       const positionId = `${asset.toLowerCase()}-${notice.taskId.slice(2, 14)}`;
       await appendSpotPosition({
         id: positionId,
@@ -1088,6 +1232,12 @@ async function handleSpotTask(
       mode = "simulated";
       simReason = `Live spot open failed: ${(e as Error).message.slice(0, 160)}`;
       console.warn(`[trader-spot] live open failed, falling back to simulated:`, e);
+      emitAgentEvent("mint_failed", {
+        policyId: spec.policyId ?? null,
+        taskId: notice.taskId,
+        asset,
+        data: { error: (e as Error).message.slice(0, 160) },
+      });
     }
   }
 
@@ -1132,6 +1282,12 @@ async function handleSpotTask(
       console.log(
         `[trader-spot] walrus reasoning blob=${walrusBlobId} (${uploaded.uploadMs}ms)`,
       );
+      emitAgentEvent("walrus_uploaded", {
+        policyId: spec.policyId ?? null,
+        taskId: notice.taskId,
+        asset,
+        data: { kind: "reasoning", blob_id: walrusBlobId, upload_ms: uploaded.uploadMs },
+      });
     } catch (e) {
       console.warn("[trader-spot] walrus reasoning upload failed:", e);
     }
@@ -1173,6 +1329,12 @@ async function handleSpotTask(
       console.log(
         `[trader-spot] walrus journal blob=${journalBlobId} entries=${journalEntries} (${uploaded.uploadMs}ms)`,
       );
+      emitAgentEvent("walrus_uploaded", {
+        policyId: spec.policyId ?? null,
+        taskId: notice.taskId,
+        asset,
+        data: { kind: "journal", blob_id: journalBlobId, entries: journalEntries, upload_ms: uploaded.uploadMs },
+      });
     } catch (e) {
       console.warn("[trader-spot] walrus journal upload failed:", e);
     }
@@ -1263,6 +1425,12 @@ async function handleSpotTask(
       (openDigest ? ` open=${openDigest}` : "") +
       (walrusBlobId ? ` walrus=${walrusBlobId}` : ""),
   );
+  emitAgentEvent("delivered", {
+    policyId: spec.policyId ?? null,
+    taskId: notice.taskId,
+    asset,
+    data: { tx: submitRes.digest, mode },
+  });
 }
 
 // === Auto-close spot loop — closes positions when their horizon elapses ===

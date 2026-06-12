@@ -72,6 +72,68 @@ function timeAgo(ms: number): string {
 const TRADER_AGENT =
   "0xa9f24640b32f33fcfa8582791e84a542251398acfc3b696f382a08a768b6ddbf";
 
+// A trader is "live on the wire" when its last trade landed within
+// this window — drives the pulsing dot next to the name.
+const LIVE_PULSE_MS = 90_000;
+
+// PnlSparkline — tiny inline area chart of the trader's cumulative
+// realized P&L (from /api/trader/trades). Hand-rolled SVG so the
+// leaderboard stays chart-library-free and first-load light.
+function PnlSparkline({ policyId }: { policyId: string }) {
+  const [series, setSeries] = useState<Array<{ ts: number; cum: number }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(
+          apiUrl(`/api/trader/trades?policy_id=${encodeURIComponent(policyId)}`),
+        );
+        if (!r.ok) return;
+        const j = (await r.json()) as {
+          pnl_series?: Array<{ ts: number; cum: number }>;
+        };
+        if (!cancelled && j.pnl_series) setSeries(j.pnl_series);
+      } catch {
+        /* sparkline is decorative — fail silent */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [policyId]);
+
+  if (series.length < 2) return null;
+
+  const W = 76;
+  const H = 22;
+  const vals = series.map((p) => p.cum);
+  const min = Math.min(0, ...vals);
+  const max = Math.max(0, ...vals);
+  const span = max - min || 1;
+  const x = (i: number) => (i / (series.length - 1)) * W;
+  const y = (v: number) => H - ((v - min) / span) * H;
+  const path = series
+    .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.cum).toFixed(1)}`)
+    .join(" ");
+  const last = vals[vals.length - 1]!;
+  const stroke = last > 0 ? "#047857" : last < 0 ? "#B91C1C" : "#8E8E93";
+
+  return (
+    <svg
+      width={W}
+      height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      className="mt-1 block sm:ml-auto"
+      aria-label="Realized P&L curve"
+      role="img"
+    >
+      <line x1={0} x2={W} y1={y(0)} y2={y(0)} stroke="#E5E5EA" strokeWidth={1} />
+      <path d={path} fill="none" stroke={stroke} strokeWidth={1.4} />
+      <circle cx={x(series.length - 1)} cy={y(last)} r={1.8} fill={stroke} />
+    </svg>
+  );
+}
+
 export default function LeaderboardPage() {
   const [data, setData] = useState<LeaderboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -276,6 +338,16 @@ function Row({
           <p className="truncate font-sans text-[15.5px] font-medium tracking-tight text-ink">
             {row.name || "Untitled trader"}
           </p>
+          {!row.revoked &&
+            Date.now() - row.last_trade_at_ms < LIVE_PULSE_MS && (
+              <span
+                className="relative flex h-2 w-2"
+                title="Decided within the last 90 seconds"
+              >
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+            )}
           {row.revoked && (
             <span className="inline-flex items-center border border-red-600 px-1.5 py-0.5 font-mono text-[8.5px] uppercase tracking-[0.22em] text-red-700">
               Revoked
@@ -326,6 +398,7 @@ function Row({
         className={`text-left font-sans text-[15px] font-medium tabular-nums sm:text-right ${pnlClass}`}
       >
         {fmtUsd(row.realized_pnl_usd)}
+        <PnlSparkline policyId={row.policy_id} />
       </div>
 
       <div className="row-start-3 col-start-2 flex flex-wrap items-center gap-2 sm:row-start-1 sm:col-start-6 sm:justify-end">

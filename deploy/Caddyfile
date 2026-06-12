@@ -10,7 +10,12 @@
 # public internet.
 
 __BRIEF_HOST__ {
-    encode gzip zstd
+    # Compress everything EXCEPT the SSE stream — gzip would buffer the
+    # live decision wire and events would arrive in stale clumps.
+    @compressible {
+        not path /api/agent-events
+    }
+    encode @compressible gzip zstd
     log {
         output stdout
         format console
@@ -52,6 +57,18 @@ __BRIEF_HOST__ {
         path /api/*
     }
     respond @apiOptions 204
+
+    # SSE — the live decision wire. Caddy buffers proxied bodies by
+    # default, which would hold agent events until the buffer flushes;
+    # flush_interval -1 streams every event the moment Next emits it.
+    # gzip must also be skipped or the stream stalls inside the encoder.
+    @sse {
+        path /api/agent-events
+    }
+    reverse_proxy @sse localhost:3000 {
+        flush_interval -1
+        header_up X-Real-IP {remote_host}
+    }
 
     reverse_proxy localhost:3000 {
         # Caddy automatically sets X-Forwarded-For / X-Forwarded-Proto;

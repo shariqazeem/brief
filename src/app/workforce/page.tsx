@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import nextDynamic from "next/dynamic";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -56,6 +57,17 @@ import {
   type OperatorPolicyDecoded,
 } from "@/lib/operator-policy-client";
 import { apiUrl } from "@/lib/api-base";
+
+// The Mind canvas (recharts + SSE) is the heaviest client surface on
+// the page — lazy-load it so first paint of /workforce stays lean.
+const MindCanvas = nextDynamic(() => import("@/components/mind/MindCanvas"), {
+  ssr: false,
+  loading: () => (
+    <section className="mt-6">
+      <div className="h-[240px] animate-pulse border border-line bg-bg-elev-2/40" />
+    </section>
+  ),
+});
 
 // =============================================================================
 // /workforce — single-step hire + live console.
@@ -2718,6 +2730,7 @@ function TraderDashboard({
         personality={personality}
         tasks={tasks}
         dispatchError={dispatchError}
+        policyId={policyId ?? null}
       />
 
       <TraderMemoryJournal
@@ -2895,11 +2908,13 @@ function TraderOpenPositionPanel({
   personality,
   tasks,
   dispatchError,
+  policyId,
 }: {
   traderName: string;
   personality: TraderPersonality | null;
   tasks: WorkforceTask[];
   dispatchError: string | null;
+  policyId: string | null;
 }) {
   // Newest first by postedAtMs.
   const sorted = [...tasks].sort((a, b) =>
@@ -2928,6 +2943,24 @@ function TraderOpenPositionPanel({
     settledForLive || !decoded?.market?.oracle_id
       ? null
       : (decoded.market.oracle_id ?? null),
+  );
+
+  // The live trading floor — charts + SSE decision wire. Rendered in
+  // every active state (even before the first deliverable lands) so
+  // the user watches the very first decision happen, not its receipt.
+  const mindCanvas = (
+    <MindCanvas
+      policyId={policyId}
+      oracleId={decoded?.market?.oracle_id ?? null}
+      asset={decoded?.market?.underlying ?? "BTC"}
+      strikeUsd={
+        decoded?.market?.strike ? Number(decoded.market.strike) / 1e9 : null
+      }
+      direction={(decoded?.decision?.direction as "up" | "down") ?? null}
+      liveSpotUsd={live.spotRaw !== null ? rawToUsd(live.spotRaw) : null}
+      traderName={traderName}
+      fallbackReasoning={decoded?.decision?.reasoning ?? null}
+    />
   );
 
   if (dispatchError) {
@@ -2966,8 +2999,11 @@ function TraderOpenPositionPanel({
   }
 
   // Task exists but no deliverable yet — trader is actively working.
+  // This is the moment the canvas earns its keep: the decision wire
+  // animates each step live while the panel below says "on the wire."
   if (!deliverable.body || !decoded) {
     return (
+      <>
       <section className="mt-8 border-2 border-ink bg-bg-elev">
         <span
           className="pointer-events-none block h-px w-full bg-emerald-500/70 animate-operator-pulse-line"
@@ -2997,6 +3033,8 @@ function TraderOpenPositionPanel({
           </p>
         </div>
       </section>
+      {mindCanvas}
+      </>
     );
   }
 
@@ -3172,6 +3210,7 @@ function TraderOpenPositionPanel({
         </div>
       </article>
     </section>
+    {mindCanvas}
     <TraderMindPanel
       traderName={traderName}
       strategy={decoded.strategy ?? null}
