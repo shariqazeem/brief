@@ -32,6 +32,11 @@ const REPO_URL = "https://github.com/shariqazeem/brief";
 const PREDICT_INDEXER = "https://predict-server.testnet.mystenlabs.com";
 const TREASURY_ADDRESS =
   "0xa9f24640b32f33fcfa8582791e84a542251398acfc3b696f382a08a768b6ddbf";
+// Real kill-switch proof on chain (see SUBMISSION.md "Kill switch on a
+// live policy"): the owner's revoke tx; the very next trader mint then
+// aborted EPolicyRevoked. This is the verifiable artifact under ChapterYank.
+const REVOKE_TX = "4yBvc6qVwoXugmZu1jNgNjHRC8ZtqMtoVefsuQZyB4YL";
+const REVOKE_TX_EXPLORER = `https://suiscan.xyz/testnet/tx/${REVOKE_TX}`;
 
 export default function Home() {
   return (
@@ -39,6 +44,7 @@ export default function Home() {
       <Header />
       <Hero />
       <LiveBtcStrip />
+      <AgentFloor />
       <ChapterAdopt />
       <ChapterBet />
       <ChapterYank />
@@ -407,9 +413,105 @@ async function loadLiveBtc(): Promise<LiveBtcSnapshot | null> {
   }
 }
 
+// --------------------------------------------------------------------------
+// Shared leaderboard read — real adopted traders. Feeds both the live
+// "Adopted traders" stat card and the agent-floor band. Polls every 60s.
+// No fabrication: rows come straight from /api/leaderboard (on-chain
+// aggregation); empty → consumers render their honest empty/absent state.
+// --------------------------------------------------------------------------
+
+type FloorRow = {
+  policyId: string;
+  name: string;
+  assets: string[];
+  realizedPnlUsd: number;
+  liveCount: number;
+  tradeCount: number;
+  lastTradeAtMs: number;
+  revoked: boolean;
+};
+
+type LeaderboardSummary = {
+  rows: FloorRow[];
+  traders: number;
+  liveTrades: number;
+  realizedPnlUsd: number;
+  loaded: boolean;
+};
+
+function useLeaderboardSummary(): LeaderboardSummary {
+  const [summary, setSummary] = useState<LeaderboardSummary>({
+    rows: [],
+    traders: 0,
+    liveTrades: 0,
+    realizedPnlUsd: 0,
+    loaded: false,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    async function tick() {
+      try {
+        const r = await fetch(apiUrl("/api/leaderboard"), { cache: "no-store" });
+        if (r.ok) {
+          const j = (await r.json()) as {
+            rows?: Array<{
+              policy_id: string;
+              name: string;
+              distinct_assets?: string[];
+              realized_pnl_usd?: number;
+              live_count?: number;
+              trade_count?: number;
+              last_trade_at_ms?: number;
+              revoked?: boolean;
+            }>;
+          };
+          const raw = j.rows ?? [];
+          const rows: FloorRow[] = raw
+            .filter((x) => (x.trade_count ?? 0) > 0)
+            .map((x) => ({
+              policyId: x.policy_id,
+              name: x.name || "Untitled trader",
+              assets: x.distinct_assets ?? [],
+              realizedPnlUsd: x.realized_pnl_usd ?? 0,
+              liveCount: x.live_count ?? 0,
+              tradeCount: x.trade_count ?? 0,
+              lastTradeAtMs: x.last_trade_at_ms ?? 0,
+              revoked: x.revoked ?? false,
+            }))
+            .sort((a, b) => b.lastTradeAtMs - a.lastTradeAtMs);
+          if (!cancelled) {
+            setSummary({
+              rows,
+              traders: rows.length,
+              liveTrades: rows.reduce((n, x) => n + x.liveCount, 0),
+              realizedPnlUsd: rows.reduce((n, x) => n + x.realizedPnlUsd, 0),
+              loaded: true,
+            });
+          }
+        } else if (!cancelled) {
+          setSummary((s) => ({ ...s, loaded: true }));
+        }
+      } catch {
+        if (!cancelled) setSummary((s) => ({ ...s, loaded: true }));
+      }
+      if (!cancelled) timer = setTimeout(tick, 60_000);
+    }
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+  return summary;
+}
+
 function LiveBtcStrip() {
   const [data, setData] = useState<LiveBtcSnapshot | null>(null);
   const [done, setDone] = useState(false);
+  const board = useLeaderboardSummary();
 
   useEffect(() => {
     let cancelled = false;
@@ -428,9 +530,13 @@ function LiveBtcStrip() {
     };
   }, []);
 
-  if (!done || !data) return null;
-  const { nearestActive, lastSettled } = data;
-  if (!nearestActive && !lastSettled) return null;
+  const nearestActive = data?.nearestActive ?? null;
+  const lastSettled = data?.lastSettled ?? null;
+  // Render once EITHER feed is ready — the BTC indexer and the
+  // leaderboard fail independently; a dead indexer shouldn't hide the
+  // adopted-trader stats and vice-versa.
+  if (!done && !board.loaded) return null;
+  if (!nearestActive && !lastSettled && board.traders === 0) return null;
 
   return (
     <section className="border-b border-line bg-bg-elev/40">
@@ -446,7 +552,7 @@ function LiveBtcStrip() {
             Adopt a trader →
           </a>
         </div>
-        <div className="mt-5 grid gap-4 sm:grid-cols-3">
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {nearestActive && (
             <article className="border border-line bg-bg-elev px-4 py-3">
               <p className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
@@ -515,9 +621,149 @@ function LiveBtcStrip() {
               <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
             </a>
           </article>
+          {board.traders > 0 && (
+            <a
+              href="/leaderboard"
+              className="group block border border-line bg-bg-elev px-4 py-3 transition-colors hover:border-line-strong"
+            >
+              <p className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                Adopted traders · on chain
+              </p>
+              <p
+                key={board.traders}
+                className="mt-1 font-sans text-[18px] tabular-nums tracking-tight text-ink animate-value-tick"
+              >
+                {board.traders} {board.traders === 1 ? "trader" : "traders"}
+              </p>
+              <p className="mt-0.5 font-mono text-[10.5px] tabular-nums text-muted">
+                {board.liveTrades} live {board.liveTrades === 1 ? "trade" : "trades"} ·{" "}
+                <span
+                  className={
+                    board.realizedPnlUsd > 0
+                      ? "text-emerald-700"
+                      : board.realizedPnlUsd < 0
+                        ? "text-red-700"
+                        : "text-muted"
+                  }
+                >
+                  {board.realizedPnlUsd >= 0 ? "+" : "−"}$
+                  {Math.abs(board.realizedPnlUsd).toFixed(2)}
+                </span>{" "}
+                realized
+              </p>
+              <span className="mt-2 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.22em] text-ink-2 transition-colors group-hover:text-ink">
+                leaderboard
+                <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
+              </span>
+            </a>
+          )}
         </div>
       </div>
     </section>
+  );
+}
+
+// --------------------------------------------------------------------------
+// AgentFloor — "the floor is open." A horizontal, auto-scrolling band of
+// REAL adopted traders (from /api/leaderboard). Two copies of the list
+// loop seamlessly; hover pauses; reduced-motion freezes it. Renders
+// nothing unless ≥2 real traders exist — never fabricates cards. The
+// leaderboard rows carry no personality field, so each card leads with
+// the trader's real asset chips + realized P&L + live status, not an
+// invented glyph.
+// --------------------------------------------------------------------------
+
+function AgentFloor() {
+  const board = useLeaderboardSummary();
+  if (!board.loaded || board.rows.length < 2) return null;
+  const cards = board.rows.slice(0, 12);
+  // Duplicate the list so the -50% translate loops seamlessly.
+  const loop = [...cards, ...cards];
+
+  return (
+    <section className="overflow-hidden border-b border-line bg-bg-elev/40">
+      <div className="mx-auto max-w-page px-6 pt-8 sm:px-10">
+        <div className="flex items-baseline justify-between gap-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+            The floor is open · live adopted traders
+          </p>
+          <a
+            href="/leaderboard"
+            className="hidden font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink sm:inline"
+          >
+            See the board →
+          </a>
+        </div>
+      </div>
+      <div
+        className="group relative mt-5 overflow-hidden pb-8"
+        aria-label="Live adopted traders, auto-scrolling"
+      >
+        {/* edge fades */}
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 bg-gradient-to-r from-bg-elev/90 to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-bg-elev/90 to-transparent" />
+        <div className="agent-floor-track flex w-max gap-3 px-6 sm:px-10">
+          {loop.map((row, i) => (
+            <FloorCard key={`${row.policyId}-${i}`} row={row} aria-hidden={i >= cards.length} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FloorCard({ row }: { row: FloorRow; "aria-hidden"?: boolean }) {
+  const pnl = row.realizedPnlUsd;
+  const live = !row.revoked && Date.now() - row.lastTradeAtMs < 90_000;
+  return (
+    <a
+      href="/leaderboard"
+      className="block w-[230px] shrink-0 border border-line bg-bg-elev px-4 py-3 transition-colors hover:border-line-strong"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate font-sans text-[14px] font-medium tracking-tight text-ink">
+          {row.name}
+        </span>
+        {live ? (
+          <span className="relative flex h-1.5 w-1.5 shrink-0" title="Decided within 90s">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          </span>
+        ) : row.revoked ? (
+          <span className="shrink-0 font-mono text-[8px] uppercase tracking-[0.18em] text-red-700">
+            revoked
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1">
+        {row.assets.length > 0 ? (
+          row.assets.slice(0, 4).map((a) => (
+            <span
+              key={a}
+              className="border border-line px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-ink-2"
+            >
+              {a}
+            </span>
+          ))
+        ) : (
+          <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted">
+            no markets yet
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex items-baseline justify-between gap-2">
+        <span
+          className={`font-sans text-[15px] font-medium tabular-nums ${
+            pnl > 0 ? "text-emerald-700" : pnl < 0 ? "text-red-700" : "text-ink-2"
+          }`}
+        >
+          {pnl >= 0 ? "+" : "−"}${Math.abs(pnl).toFixed(2)}
+        </span>
+        <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted">
+          {row.lastTradeAtMs ? formatRelative(row.lastTradeAtMs) : `${row.tradeCount} trades`}
+        </span>
+      </div>
+    </a>
   );
 }
 
@@ -737,6 +983,80 @@ function ChapterBet() {
   );
 }
 
+// Live framing for ChapterBet: a REAL recent decision from the leading
+// trader (direction + strike + spot from /api/trader/trades) plus the
+// live BTC spot (/api/trader/signals). Null → BetStage shows the static
+// illustration, labeled honestly.
+type BetData = {
+  traderName: string;
+  direction: "up" | "down";
+  strikeUsd: number;
+  spotAtDecisionUsd: number;
+  liveSpotUsd: number;
+  mode: "live" | "simulated";
+};
+
+function useBetData(): BetData | null {
+  const [data, setData] = useState<BetData | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [sigR, lbR] = await Promise.all([
+          fetch(apiUrl("/api/trader/signals?asset=BTC&minutes=60")),
+          fetch(apiUrl("/api/leaderboard"), { cache: "no-store" }),
+        ]);
+        const sig = sigR.ok ? await sigR.json() : null;
+        const liveSpot = sig?.latest?.spot ?? null;
+        const lb = lbR.ok ? await lbR.json() : null;
+        const rows = ((lb?.rows ?? []) as Array<{
+          policy_id: string;
+          name: string;
+          trade_count?: number;
+          last_trade_at_ms?: number;
+        }>)
+          .filter((r) => (r.trade_count ?? 0) > 0)
+          .sort((a, b) => (b.last_trade_at_ms ?? 0) - (a.last_trade_at_ms ?? 0));
+        if (rows.length === 0 || liveSpot == null) return;
+        // Walk the most-active traders until one yields a usable decision
+        // (a row's journal may be empty/unavailable; don't give up on the
+        // first miss).
+        for (const row of rows.slice(0, 4)) {
+          if (cancelled) return;
+          const tR = await fetch(
+            apiUrl(`/api/trader/trades?policy_id=${row.policy_id}`),
+          );
+          const t = tR.ok ? await tR.json() : null;
+          const dec = ((t?.decisions ?? []) as Array<{
+            direction?: string;
+            strike_usd?: number | null;
+            spot_usd?: number | null;
+            mode?: string;
+          }>)[0];
+          if (!dec || dec.strike_usd == null || !dec.direction) continue;
+          if (!cancelled) {
+            setData({
+              traderName: row.name || "A trader",
+              direction: dec.direction === "down" ? "down" : "up",
+              strikeUsd: dec.strike_usd,
+              spotAtDecisionUsd: dec.spot_usd ?? liveSpot,
+              liveSpotUsd: liveSpot,
+              mode: dec.mode === "simulated" ? "simulated" : "live",
+            });
+          }
+          return;
+        }
+      } catch {
+        /* stays null → illustration fallback */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return data;
+}
+
 function BetStage({ progress }: { progress: number }) {
   // Beat 1: 0.05 – 0.18 → card frame fades in with the chosen market
   // Beat 2: 0.18 – 0.36 → direction lands (UP, emerald)
@@ -753,6 +1073,22 @@ function BetStage({ progress }: { progress: number }) {
   const payoutOpacity = clamp(remap(progress, 0.56, 0.78, 0, 1));
   const directionGlow = clamp(remap(progress, 0.18, 0.32, 0, 1));
 
+  // Live framing when we have a real recent decision; otherwise the card
+  // is a labeled illustration. Every shown number stays real.
+  const live = useBetData();
+  const usd0 = (n: number) =>
+    `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const traderName = live?.traderName ?? "Bolt";
+  const direction = live?.direction ?? "up";
+  const isUp = direction === "up";
+  const strikeUsd = live?.strikeUsd ?? 109_000;
+  const spotAtDecisionUsd = live?.spotAtDecisionUsd ?? 109_234;
+  const liveSpotUsd = live?.liveSpotUsd ?? 109_415;
+  // In/out of the money right now, from live spot vs the real strike.
+  const winning = isUp ? liveSpotUsd >= strikeUsd : liveSpotUsd <= strikeUsd;
+  const gapUsd = Math.abs(liveSpotUsd - strikeUsd);
+  const dirColor = isUp ? "4, 120, 87" : "185, 28, 28"; // emerald-700 / red-700
+
   return (
     <div
       className="w-full max-w-[560px] border-2 border-ink bg-bg-elev font-mono"
@@ -762,34 +1098,45 @@ function BetStage({ progress }: { progress: number }) {
         transition: "opacity 80ms linear, transform 80ms linear",
       }}
     >
-      <div className="border-b border-ink-2 px-4 py-3 text-[9.5px] uppercase tracking-[0.36em] text-muted">
-        DeepBook Predict · BTC binary · atomic PTB
+      <div className="flex items-center justify-between gap-3 border-b border-ink-2 px-4 py-3">
+        <span className="text-[9.5px] uppercase tracking-[0.36em] text-muted">
+          DeepBook Predict · BTC binary · atomic PTB
+        </span>
+        {live ? (
+          <span className="inline-flex shrink-0 items-center gap-1 text-[9px] uppercase tracking-[0.18em] text-emerald-700">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            live · testnet
+          </span>
+        ) : (
+          <span className="shrink-0 text-[9px] uppercase tracking-[0.18em] text-muted">
+            illustration
+          </span>
+        )}
       </div>
 
       <div className="px-4 py-4">
         <div className="flex items-baseline justify-between gap-3">
-          <span className="text-[10.5px] uppercase tracking-[0.22em] text-muted">
-            Bolt&apos;s bet
+          <span className="truncate text-[10.5px] uppercase tracking-[0.22em] text-muted">
+            {traderName}&apos;s bet
           </span>
-          <span className="font-mono text-[10.5px] text-muted">
-            BTC · 4-hour
+          <span className="shrink-0 font-mono text-[10.5px] text-muted">
+            BTC binary
           </span>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-3 text-[11px]">
-          <KV label="strike">$109,000</KV>
-          <KV label="spot at decision">$109,234</KV>
+          <KV label="strike">{usd0(strikeUsd)}</KV>
+          <KV label="spot at decision">{usd0(spotAtDecisionUsd)}</KV>
         </div>
         <p
           className="mt-4 font-sans text-[26px] leading-[1.1] tracking-tight"
           style={{
-            color: `rgba(4, 120, 87, ${directionGlow})`,
+            color: `rgba(${dirColor}, ${directionGlow})`,
             transform: directionLanded ? "translateY(0)" : "translateY(8px)",
             transition: "transform 280ms ease, color 220ms linear",
           }}
         >
-          <span className="text-ink-2">Bolt bets </span>
-          UP
-          <span className="text-ink-2"> · $1 stake</span>
+          <span className="text-ink-2">{traderName} bets </span>
+          {isUp ? "UP" : "DOWN"}
         </p>
       </div>
 
@@ -810,7 +1157,7 @@ function BetStage({ progress }: { progress: number }) {
             label="predict::mint·DUSDC"
             value={
               <span className="tabular-nums text-ink">
-                UP position{" "}
+                {isUp ? "UP" : "DOWN"} position{" "}
                 <span className="text-muted">· DeepBook order id minted</span>
               </span>
             }
@@ -819,24 +1166,61 @@ function BetStage({ progress }: { progress: number }) {
       </div>
 
       <div
-        className="border-t border-ink/30 bg-emerald-50/30 px-4 py-4"
+        className={`border-t border-ink/30 px-4 py-4 ${
+          !live
+            ? "bg-emerald-50/30"
+            : winning
+              ? "bg-emerald-50/30"
+              : "bg-red-50/30"
+        }`}
         style={{
           opacity: payoutOpacity,
           transform: settled ? "translateY(0)" : "translateY(6px)",
           transition: "opacity 280ms ease, transform 280ms ease",
         }}
       >
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-[9.5px] uppercase tracking-[0.32em] text-emerald-800">
-            Settled · BTC closed $109,415
-          </span>
-          <span className="font-sans text-[20px] font-medium tabular-nums tracking-tight text-emerald-800">
-            +$0.83
-          </span>
-        </div>
-        <p className="mt-2 text-[10.5px] uppercase tracking-[0.18em] text-emerald-700">
-          predict::redeem_permissionless · payout claimed
-        </p>
+        {live ? (
+          <>
+            <div className="flex items-baseline justify-between gap-3">
+              <span
+                className={`text-[9.5px] uppercase tracking-[0.32em] ${
+                  winning ? "text-emerald-800" : "text-red-800"
+                }`}
+              >
+                Live · BTC spot now {usd0(liveSpotUsd)}
+              </span>
+              <span
+                className={`font-sans text-[20px] font-medium tabular-nums tracking-tight ${
+                  winning ? "text-emerald-800" : "text-red-800"
+                }`}
+              >
+                {winning ? "in the money" : "out of the money"}
+              </span>
+            </div>
+            <p
+              className={`mt-2 text-[10.5px] uppercase tracking-[0.18em] ${
+                winning ? "text-emerald-700" : "text-red-700"
+              }`}
+            >
+              {usd0(gapUsd)} {winning ? "above" : "below"} strike · settles at
+              expiry · redeem is gateless
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[9.5px] uppercase tracking-[0.32em] text-emerald-800">
+                Settled · BTC closed $109,415
+              </span>
+              <span className="font-sans text-[20px] font-medium tabular-nums tracking-tight text-emerald-800">
+                +$0.83
+              </span>
+            </div>
+            <p className="mt-2 text-[10.5px] uppercase tracking-[0.18em] text-emerald-700">
+              predict::redeem_permissionless · payout claimed
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -915,8 +1299,9 @@ function YankStage({ progress }: { progress: number }) {
   const punchlineLanded = progress >= 0.76;
 
   return (
+    <div className="w-full max-w-[600px]">
     <div
-      className="w-full max-w-[600px] border-2 border-ink bg-bg-elev font-mono"
+      className="border-2 border-ink bg-bg-elev font-mono"
       style={{
         opacity: cardOpacity,
         transform: `translateY(${cardLift}px)`,
@@ -1066,6 +1451,21 @@ function YankStage({ progress }: { progress: number }) {
         <br />
         The policy was.
       </p>
+    </div>
+
+    {/* Real, verifiable: the ledger above is the story; this is the
+        receipt. Owner revoke tx on chain — the next mint aborted
+        EPolicyRevoked (SUBMISSION.md "Kill switch on a live policy"). */}
+    <a
+      href={REVOKE_TX_EXPLORER}
+      target="_blank"
+      rel="noreferrer"
+      className="mt-3 inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-800 underline-offset-4 transition-colors hover:underline"
+    >
+      <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600" />
+      see a real revoke on chain
+      <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
+    </a>
     </div>
   );
 }
@@ -1228,6 +1628,19 @@ function Cta() {
 function Footer() {
   return (
     <footer className="mx-auto max-w-page px-6 py-10 sm:px-10">
+      <div className="mb-6 flex flex-wrap items-center gap-2 border-b border-line pb-6">
+        <span className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+          Built for Sui Overflow 2026 —
+        </span>
+        {["Agentic Web", "DeepBook", "Walrus"].map((t) => (
+          <span
+            key={t}
+            className="border border-line px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.2em] text-ink-2"
+          >
+            {t}
+          </span>
+        ))}
+      </div>
       <div className="flex flex-col items-baseline justify-between gap-4 sm:flex-row">
         <div className="flex items-center gap-2.5">
           <Mark />

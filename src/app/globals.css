@@ -43,6 +43,23 @@ body {
   animation: pageEnter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Agent-floor marquee — the "floor is open" band scrolls real adopted
+   traders. Two copies of the list sit side by side and we translate by
+   -50% for a seamless loop; pausing on hover lets a judge read a card.
+   The reduced-motion guard below freezes it at translateX(0) (static,
+   first cards visible) — acceptable, no motion. */
+@keyframes floorScroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.agent-floor-track {
+  animation: floorScroll 48s linear infinite;
+  will-change: transform;
+}
+.agent-floor-track:hover {
+  animation-play-state: paused;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
