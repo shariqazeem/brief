@@ -434,40 +434,276 @@ function Mark() {
 }
 
 // =============================================================================
-// Disconnected — roster + activity, then the connect prompt
+// Disconnected — personality-first hero, then the connect prompt
 // =============================================================================
+
+// Cross-mount preselect: a card click on the disconnected screen stores
+// the chosen strategy so the post-connect TraderGallery can pre-open its
+// adoption panel on it. sessionStorage survives BOTH paths — the in-app
+// wallet re-render AND the zkLogin OAuth redirect (which reloads the page).
+const PRESELECT_KEY = "brief:preselect-strategy";
+
+function setPreselectedStrategy(s: StrategyId): void {
+  try {
+    if (typeof window !== "undefined") sessionStorage.setItem(PRESELECT_KEY, s);
+  } catch {
+    /* storage blocked — preselect is a nicety, not required */
+  }
+}
+
+function takePreselectedStrategy(): StrategyId | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const v = sessionStorage.getItem(PRESELECT_KEY);
+    if (v) sessionStorage.removeItem(PRESELECT_KEY);
+    return (v as StrategyId) || null;
+  } catch {
+    return null;
+  }
+}
+
+// Live signal chip per personality — the real number each strategy acts
+// on, from /api/trader/signals. Cold feed → honest "warming up". Quant
+// reads the on-chain SVI surface (no scalar in this feed) so it shows a
+// descriptive chip rather than a fabricated number.
+type DisconnectedSignals = {
+  spot: number | null;
+  roc30: number | null;
+  rsi60: number | null;
+  sma15: number | null;
+  sma60: number | null;
+  loaded: boolean;
+};
+
+function useDisconnectedSignals(): DisconnectedSignals {
+  const [s, setS] = useState<DisconnectedSignals>({
+    spot: null,
+    roc30: null,
+    rsi60: null,
+    sma15: null,
+    sma60: null,
+    loaded: false,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    async function tick() {
+      try {
+        const r = await fetch(apiUrl("/api/trader/signals?asset=BTC&minutes=60"));
+        if (r.ok) {
+          const j = (await r.json()) as {
+            latest?: {
+              spot?: number;
+              roc30?: number | null;
+              rsi60?: number | null;
+              sma15?: number | null;
+              sma60?: number | null;
+            } | null;
+          };
+          if (!cancelled) {
+            setS({
+              spot: j.latest?.spot ?? null,
+              roc30: j.latest?.roc30 ?? null,
+              rsi60: j.latest?.rsi60 ?? null,
+              sma15: j.latest?.sma15 ?? null,
+              sma60: j.latest?.sma60 ?? null,
+              loaded: true,
+            });
+          }
+        } else if (!cancelled) setS((p) => ({ ...p, loaded: true }));
+      } catch {
+        if (!cancelled) setS((p) => ({ ...p, loaded: true }));
+      }
+      if (!cancelled) timer = setTimeout(tick, 15_000);
+    }
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+  return s;
+}
+
+type SignalChip = { text: string; tone: "up" | "down" | "neutral" | "muted" };
+
+function chipFor(strategy: StrategyId, s: DisconnectedSignals): SignalChip {
+  if (!s.loaded || s.spot == null) {
+    return { text: "warming up", tone: "muted" };
+  }
+  switch (strategy) {
+    case "conservative": {
+      if (s.sma15 == null || s.sma60 == null)
+        return { text: "MAs warming up", tone: "muted" };
+      const up = s.sma15 >= s.sma60;
+      return {
+        text: up ? "SMA15 ≥ SMA60 · aligned up" : "SMA15 < SMA60 · aligned down",
+        tone: up ? "up" : "down",
+      };
+    }
+    case "momentum": {
+      if (s.roc30 == null) return { text: "ROC30m warming up", tone: "muted" };
+      const pct = s.roc30 * 100;
+      return {
+        text: `ROC30m ${pct >= 0 ? "+" : ""}${pct.toFixed(3)}%`,
+        tone: pct > 0.05 ? "up" : pct < -0.05 ? "down" : "neutral",
+      };
+    }
+    case "contrarian": {
+      if (s.rsi60 == null) return { text: "RSI warming up", tone: "muted" };
+      const z =
+        s.rsi60 > 70 ? "overbought" : s.rsi60 < 30 ? "oversold" : "neutral";
+      return {
+        text: `RSI60 ${s.rsi60.toFixed(0)} · ${z}`,
+        tone: s.rsi60 > 70 ? "down" : s.rsi60 < 30 ? "up" : "neutral",
+      };
+    }
+    case "quant":
+      return { text: "reads the live SVI surface", tone: "neutral" };
+  }
+}
+
+function DisconnectedGallery({
+  picked,
+  onPick,
+}: {
+  picked: StrategyId | null;
+  onPick: (s: StrategyId) => void;
+}) {
+  const signals = useDisconnectedSignals();
+  return (
+    <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {TRADER_PERSONALITIES.map((p, i) => (
+        <DisconnectedCard
+          key={p.strategy}
+          personality={p}
+          chip={chipFor(p.strategy, signals)}
+          active={picked === p.strategy}
+          index={i}
+          onPick={() => onPick(p.strategy)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DisconnectedCard({
+  personality,
+  chip,
+  active,
+  index,
+  onPick,
+}: {
+  personality: TraderPersonality;
+  chip: SignalChip;
+  active: boolean;
+  index: number;
+  onPick: () => void;
+}) {
+  const chipClass =
+    chip.tone === "up"
+      ? "border-emerald-600/40 bg-emerald-50/70 text-emerald-800"
+      : chip.tone === "down"
+        ? "border-red-600/40 bg-red-50/70 text-red-800"
+        : chip.tone === "neutral"
+          ? "border-line bg-bg-elev text-ink-2"
+          : "border-line bg-bg-elev-2/50 text-muted";
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      aria-pressed={active}
+      className={[
+        "group flex flex-col items-start gap-3 border-2 bg-bg-elev px-4 py-5 text-left transition-all duration-200 animate-fade-up",
+        "hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
+        active ? "border-ink" : "border-line hover:border-ink",
+      ].join(" ")}
+      style={{ animationDelay: `${index * 70}ms` }}
+    >
+      <div className="flex w-full items-start justify-between">
+        <span className="font-sans text-[34px] leading-none text-ink" aria-hidden>
+          {personality.glyph}
+        </span>
+        {active && (
+          <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-emerald-700">
+            selected ✓
+          </span>
+        )}
+      </div>
+      <div>
+        <h3 className="font-sans text-[17px] font-medium tracking-tight text-ink">
+          {personality.label}
+        </h3>
+        <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+          {personality.temperament}
+        </p>
+      </div>
+      <span
+        className={`inline-flex items-center gap-1.5 border px-2 py-1 font-mono text-[9.5px] uppercase tracking-[0.12em] tabular-nums ${chipClass}`}
+      >
+        <span
+          aria-hidden
+          className={`inline-block h-1 w-1 rounded-full ${
+            chip.tone === "up"
+              ? "bg-emerald-600"
+              : chip.tone === "down"
+                ? "bg-red-600"
+                : chip.tone === "neutral"
+                  ? "bg-sui"
+                  : "bg-muted-2"
+          }`}
+        />
+        {chip.text}
+      </span>
+      <span className="mt-auto font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted transition-colors group-hover:text-ink">
+        {active ? "ready — connect to adopt" : "choose →"}
+      </span>
+    </button>
+  );
+}
 
 function Disconnected() {
   const zk = useZkLogin();
+  const [picked, setPicked] = useState<StrategyId | null>(null);
+  const pickedLabel = picked ? personalityById(picked)?.label ?? null : null;
+  const onPick = (s: StrategyId) => {
+    setPicked(s);
+    setPreselectedStrategy(s);
+  };
   const phaseStarting =
     zk.phase.kind === "starting" || zk.phase.kind === "callback";
   return (
     <section className="mx-auto max-w-page px-6 pt-12 pb-24 sm:px-10 sm:pt-16">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-page">
         <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
           Brief · live on Sui testnet
         </p>
         <h1 className="mt-4 font-sans text-4xl font-medium tracking-tightest sm:text-5xl">
           Adopt an AI trader.
         </h1>
-        <p className="mt-5 max-w-prose text-lg leading-relaxed text-ink-2">
-          An autonomous agent that bets BTC up/down on DeepBook Predict —
-          and takes directional positions on SUI / WAL / DEEP via DeepBook
-          spot — bounded by a Move policy you hold. Sign in with Google,
-          set a budget, and yank the leash any time. The chain refuses
-          the next bet, but past wins still pay out.
-        </p>
-        <p className="mt-3 max-w-prose text-[13.5px] leading-relaxed text-muted">
-          No wallet required — zkLogin gives you a real Sui address straight from
-          your Google account.{" "}
+        <p className="mt-4 max-w-prose text-[16px] leading-relaxed text-ink-2 sm:text-lg">
+          Pick a personality. It trades on chain, bounded by a Move policy
+          you can revoke in one tap.{" "}
           <Link
             href="/leaderboard"
-            className="underline-offset-2 hover:text-ink hover:underline"
+            className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
           >
             See whose trader is winning →
           </Link>
         </p>
-        <div className="mt-8 flex flex-wrap items-center gap-3">
+
+        {/* Personality-first hero — pick before you connect; the choice
+            carries through the wallet step via sessionStorage. */}
+        <DisconnectedGallery picked={picked} onPick={onPick} />
+
+        {pickedLabel && (
+          <p className="mt-5 inline-flex items-center gap-2 border border-emerald-600/40 bg-emerald-50/70 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-800 animate-land-in">
+            <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600" />
+            {pickedLabel} selected — connect a wallet to adopt
+          </p>
+        )}
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
           <ConnectButton connectText="Connect a Sui wallet" />
           {zk.available && zk.signingEnabled && (
             <button
@@ -979,8 +1215,22 @@ function TraderGallery({
   onActivated: (a: ActivationResult) => void;
 }) {
   const { phase, adopt } = useTraderLauncher({ address, onActivated });
-  const [pickedId, setPickedId] = useState<StrategyId | null>(null);
+  // Pre-open the panel on the personality the user chose on the
+  // disconnected screen (survives the wallet-connect step via
+  // sessionStorage); takePreselectedStrategy() also clears it.
+  const [pickedId, setPickedId] = useState<StrategyId | null>(() =>
+    takePreselectedStrategy(),
+  );
   const picked = pickedId ? personalityById(pickedId) ?? null : null;
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  // If we arrived with a preselect, ease the adoption panel into view.
+  useEffect(() => {
+    if (pickedId && panelRef.current) {
+      panelRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    // once, on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <section className="mt-10">
@@ -1005,14 +1255,16 @@ function TraderGallery({
       </div>
 
       {picked && (
-        <TraderAdoptionPanel
-          personality={picked}
-          phase={phase}
-          onAdopt={(name, budgetSui, markets) =>
-            adopt({ personality: picked, traderName: name, budgetSui, markets })
-          }
-          onCancel={() => setPickedId(null)}
-        />
+        <div ref={panelRef}>
+          <TraderAdoptionPanel
+            personality={picked}
+            phase={phase}
+            onAdopt={(name, budgetSui, markets) =>
+              adopt({ personality: picked, traderName: name, budgetSui, markets })
+            }
+            onCancel={() => setPickedId(null)}
+          />
+        </div>
       )}
 
       <ControlReassurance />
@@ -1123,12 +1375,15 @@ function TraderAdoptionPanel({
   const [name, setName] = useState("");
   const [budgetSui, setBudgetSui] = useState(personality.defaultBudgetSui);
   const [markets, setMarkets] = useState<TraderMarketBundleId>("btc_only");
+  const selectedBundle =
+    MARKET_BUNDLES.find((b) => b.id === markets) ?? MARKET_BUNDLES[0]!;
   const busy =
     phase.kind === "checking-balance" ||
     phase.kind === "funding" ||
     phase.kind === "signing" ||
     phase.kind === "dispatching";
   const errMsg = phase.kind === "error" ? phase.msg : null;
+  const nameReady = name.trim().length > 0;
 
   return (
     <div className="relative mt-6 animate-fade-up overflow-hidden border-2 border-ink bg-bg-elev">
@@ -1136,11 +1391,50 @@ function TraderAdoptionPanel({
         className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/70 animate-operator-pulse-line"
         aria-hidden
       />
-      <div className="grid gap-6 px-6 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1fr_1fr]">
-        <div className="space-y-5">
+      {/* Step rail — the single panel reads as a 4-beat flow. Done
+          beats get an emerald check; "Sign" lights once a name exists. */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-line px-6 py-3.5 sm:px-8">
+        {[
+          { n: "01", label: "Name", done: nameReady, ready: false },
+          { n: "02", label: "Leash", done: true, ready: false },
+          { n: "03", label: "Markets", done: true, ready: false },
+          { n: "04", label: "Sign", done: false, ready: nameReady },
+        ].map((s, i) => (
+          <div
+            key={s.n}
+            className="flex items-center gap-2 animate-fade-up"
+            style={{ animationDelay: `${i * 60}ms` }}
+          >
+            <span
+              className={[
+                "inline-flex h-5 w-5 items-center justify-center border font-mono text-[9px] tabular-nums",
+                s.done
+                  ? "border-emerald-600 text-emerald-700"
+                  : s.ready
+                    ? "border-ink text-ink"
+                    : "border-line text-muted",
+              ].join(" ")}
+            >
+              {s.done ? "✓" : s.n}
+            </span>
+            <span
+              className={[
+                "font-mono text-[9.5px] uppercase tracking-[0.22em]",
+                s.done || s.ready ? "text-ink-2" : "text-muted",
+              ].join(" ")}
+            >
+              {s.label}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-6 px-6 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.25fr_0.85fr]">
+        {/* LEFT — the form (name · leash · markets) */}
+        <div className="space-y-7">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-              Step 1 · Name your trader
+              Name your trader
             </p>
             <label className="mt-2 block">
               <span className="sr-only">Trader name</span>
@@ -1154,17 +1448,15 @@ function TraderAdoptionPanel({
               />
             </label>
             <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-              {name.trim().length > 0
+              {nameReady
                 ? `That's ${name.trim()}, your ${personality.label.toLowerCase()} trader.`
                 : `Give them a name you'll cheer for. Up to 32 characters.`}
             </p>
           </div>
-        </div>
 
-        <div className="space-y-5 lg:border-l lg:border-line lg:pl-6">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-              Step 2 · Set the leash
+              Set the leash
             </p>
             <div className="mt-2 flex items-baseline gap-3">
               <span className="font-sans text-[32px] font-medium tabular-nums tracking-tight text-ink">
@@ -1206,45 +1498,112 @@ function TraderAdoptionPanel({
               also hold a one-tap kill switch.
             </p>
           </div>
-        </div>
-      </div>
 
-      <div className="border-t border-line px-6 py-5 sm:px-8">
-        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-          Step 3 · Which markets?
-        </p>
-        <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-          One leash governs every asset {name.trim() || personality.label} plays.
-        </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          {MARKET_BUNDLES.map((b) => {
-            const active = markets === b.id;
-            return (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => setMarkets(b.id)}
-                className={[
-                  "flex flex-col gap-1.5 border-2 px-3.5 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
-                  active
-                    ? "border-ink bg-bg-elev"
-                    : "border-line hover:border-line-strong",
-                ].join(" ")}
-                aria-pressed={active}
-              >
-                <span className="font-sans text-[14.5px] font-medium tracking-tight text-ink">
-                  {b.label}
-                </span>
-                <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-                  {b.assets.join(" · ")}
-                </span>
-                <span className="text-[12px] leading-snug text-muted">
-                  {b.blurb}
-                </span>
-              </button>
-            );
-          })}
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+              Which markets?
+            </p>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+              One leash governs every asset {name.trim() || personality.label} plays.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {MARKET_BUNDLES.map((b) => {
+                const active = markets === b.id;
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => setMarkets(b.id)}
+                    className={[
+                      "flex flex-col gap-1.5 border-2 px-3.5 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
+                      active
+                        ? "border-ink bg-bg-elev"
+                        : "border-line hover:border-line-strong",
+                    ].join(" ")}
+                    aria-pressed={active}
+                  >
+                    <span className="font-sans text-[14.5px] font-medium tracking-tight text-ink">
+                      {b.label}
+                    </span>
+                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+                      {b.assets.join(" · ")}
+                    </span>
+                    <span className="text-[12px] leading-snug text-muted">
+                      {b.blurb}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
+
+        {/* RIGHT — the OperatorPolicy preview. This card IS the product:
+            it's the leash, drawn live from the choices above. Every field
+            is a real policy parameter the mint will set on chain. */}
+        <aside className="relative self-start overflow-hidden border-2 border-ink bg-bg-elev">
+          <span
+            className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/70 animate-operator-pulse-line"
+            aria-hidden
+          />
+          <div className="px-5 py-5">
+            <p className="font-mono text-[9.5px] uppercase tracking-[0.32em] text-muted">
+              Your OperatorPolicy · preview
+            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <span
+                className="font-sans text-[30px] leading-none text-ink"
+                aria-hidden
+              >
+                {personality.glyph}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate font-sans text-[17px] font-medium tracking-tight text-ink">
+                  {name.trim() || defaultNameSuggestion(personality.strategy)}
+                </p>
+                <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+                  {personality.label}
+                </p>
+              </div>
+            </div>
+            <dl className="mt-4 space-y-3 border-t border-line pt-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                  Budget cap
+                </dt>
+                <dd className="font-sans text-[18px] font-medium tabular-nums tracking-tight text-ink">
+                  {budgetSui.toFixed(2)} SUI
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                  Venues
+                </dt>
+                <dd className="flex flex-wrap justify-end gap-1">
+                  {selectedBundle.assets.map((a) => (
+                    <span
+                      key={a}
+                      className="border border-line px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-ink-2"
+                    >
+                      {a}
+                    </span>
+                  ))}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                  Kill switch
+                </dt>
+                <dd className="font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-800">
+                  revocable any time
+                </dd>
+              </div>
+            </dl>
+            <p className="mt-4 border-t border-line pt-3 font-mono text-[9px] uppercase leading-relaxed tracking-[0.18em] text-muted">
+              Enforced by Move · on chain · not our server
+            </p>
+          </div>
+        </aside>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-bg-elev-2/50 px-6 py-5 sm:px-8">
@@ -2697,7 +3056,17 @@ function TraderDashboard({
   }, [interventionActive]);
 
   return (
-    <section className="mx-auto max-w-page px-6 py-12 sm:px-10 sm:py-16">
+    <section className="relative mx-auto max-w-page px-6 py-12 sm:px-10 sm:py-16">
+      {/* Boot ceremony — a single scanner sweep plays once when the
+          dashboard mounts right after the leash is minted. Clipped so the
+          translate never causes horizontal scroll; reduced-motion guard
+          neutralizes it. */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[2px] overflow-hidden"
+        aria-hidden
+      >
+        <div className="h-full w-3/4 animate-boot-sweep bg-gradient-to-r from-transparent via-emerald-500 to-transparent" />
+      </div>
       <TraderHeader
         traderName={traderName}
         personality={personality}
