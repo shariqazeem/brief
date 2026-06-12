@@ -90,6 +90,9 @@ export type AgentStreamState = {
   deliveredTx: string | null;
   steps: Record<WaterfallStep, { status: StepStatus; ts: number | null }>;
   events: AgentStreamEvent[];
+  /** Last self-healing gas top-up (global event) — drives the quiet
+   *  "Brief auto-funded the trader" toast. */
+  wardenTopup: { ts: number; from: string; to: string; amountSui: number } | null;
 };
 
 const FRESH_STEPS = (): AgentStreamState["steps"] => ({
@@ -123,6 +126,7 @@ const INITIAL: AgentStreamState = {
   deliveredTx: null,
   steps: FRESH_STEPS(),
   events: [],
+  wardenTopup: null,
 };
 
 function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState {
@@ -147,7 +151,16 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         startedAtMs: e.ts,
         steps: FRESH_STEPS(),
         events: [...state.events.slice(-39), e],
+        wardenTopup: state.wardenTopup,
       };
+    case "warden_topup":
+      next.wardenTopup = {
+        ts: e.ts,
+        from: str(d.from) ?? "fleet",
+        to: str(d.to) ?? "trader",
+        amountSui: num(d.amount_sui) ?? 0,
+      };
+      return next;
     case "observe":
       next.spotUsd = num(d.spot_usd);
       next.oracleId = str(d.oracle_id);

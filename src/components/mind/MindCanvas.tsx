@@ -85,8 +85,21 @@ export default function MindCanvas({
   const roc = roc30 ?? roc5;
   const rocWindow = roc30 !== null ? "30m" : "5m";
 
+  // Quiet self-healing toast: visible for 12s after the warden moves
+  // gas. Real digest behind it (the event carries the transfer tx).
+  const topup = state.wardenTopup;
+  const topupFresh = topup !== null && Date.now() - topup.ts < 12_000;
+
   return (
     <section className="mt-6">
+      {topupFresh && topup && (
+        <div className="mb-3 flex items-center gap-2 border border-emerald-600/40 bg-emerald-50/70 px-3 py-2 animate-land-in">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600" aria-hidden />
+          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-800">
+            Brief auto-funded the {topup.to} wallet · {topup.amountSui.toFixed(3)} SUI — self-healing gas
+          </p>
+        </div>
+      )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
           {traderName}&apos;s trading floor · live

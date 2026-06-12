@@ -57,6 +57,8 @@ import {
   type OperatorPolicyDecoded,
 } from "@/lib/operator-policy-client";
 import { apiUrl } from "@/lib/api-base";
+import { SystemHealthDot } from "@/components/system-health";
+import { WalletBoundary } from "@/components/wallet-boundary";
 
 // The Mind canvas (recharts + SSE) is the heaviest client surface on
 // the page — lazy-load it so first paint of /workforce stays lean.
@@ -111,6 +113,17 @@ function venuesForBundle(
 }
 
 export default function WorkforcePage() {
+  // The wallet provider must be an ANCESTOR of any component calling
+  // dapp-kit / zkLogin hooks, so the page export is a thin boundary and
+  // the hook-calling console lives one level down.
+  return (
+    <WalletBoundary>
+      <WorkforceConsole />
+    </WalletBoundary>
+  );
+}
+
+function WorkforceConsole() {
   // zkLogin and the dApp Kit wallet are equally valid sources of an
   // "I have a Sui address" identity. Either one keys the connected
   // console; if neither is present we render the disconnected screen
@@ -192,6 +205,9 @@ function Header({
           </span>
         </Link>
         <div className="flex items-center gap-3">
+          <span className="hidden sm:inline-flex">
+            <SystemHealthDot />
+          </span>
           <Link
             href="/leaderboard"
             className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink sm:inline-flex"

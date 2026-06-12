@@ -1,19 +1,13 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
-import dynamicImport from "next/dynamic";
 import "./globals.css";
 
-// dApp Kit's SuiClientProvider + WalletProvider touch `window`/
-// `localStorage` during construction (auto-reconnect logic). SSR on
-// Vercel was throwing "Cannot read properties of undefined (reading
-// 'network')" from inside the dApp Kit constructor chain. Dynamic-
-// loading the provider with ssr: false makes the whole tree client-
-// only — the body still renders SSR'd HTML for the page meta, but the
-// dApp-Kit-dependent React tree mounts in the browser.
-const SuiProvider = dynamicImport(
-  () => import("@/components/sui-provider").then((m) => m.SuiProvider),
-  { ssr: false },
-);
+// NOTE: the dApp Kit provider is NO LONGER in the root layout. It lived
+// here wrapped in `ssr: false`, which forced EVERY route — including the
+// wallet-free marketing landing — to bail out of SSR and paint blank
+// until hydration. It now lives in <WalletBoundary> (src/components/
+// wallet-boundary.tsx), used only by the routes that need a wallet
+// (/workforce, /leaderboard). The landing now server-renders fully.
 
 const inter = Inter({
   subsets: ["latin"],
@@ -28,9 +22,9 @@ const jetbrains = JetBrains_Mono({
 });
 
 const SITE_URL = "https://brief.xyz";
-const TITLE = "Brief — Composable work objects for autonomous agents";
+const TITLE = "Brief — Adopt an AI trader. The chain holds the leash.";
 const DESCRIPTION =
-  "Agents shouldn't just transact — they should compose. Brief makes agent work into owned, transferable objects on Sui.";
+  "Adopt an autonomous AI trader on Sui. It trades BTC binaries on DeepBook Predict and SUI/WAL/DEEP spot, streams every decision live, remembers on Walrus — and every bet is gated by a Move policy you can revoke in one tap.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -60,9 +54,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
-      <body className="font-sans">
-        <SuiProvider>{children}</SuiProvider>
-      </body>
+      <body className="font-sans">{children}</body>
     </html>
   );
 }

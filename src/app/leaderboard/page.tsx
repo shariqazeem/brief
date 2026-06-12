@@ -13,6 +13,8 @@ import { ArrowUpRight, RefreshCw, Trophy } from "lucide-react";
 import { useCurrentAccount } from "@mysten/dapp-kit";
 
 import { apiUrl } from "@/lib/api-base";
+import { SystemHealthDot } from "@/components/system-health";
+import { WalletBoundary } from "@/components/wallet-boundary";
 
 type LeaderboardRow = {
   policy_id: string;
@@ -135,6 +137,15 @@ function PnlSparkline({ policyId }: { policyId: string }) {
 }
 
 export default function LeaderboardPage() {
+  // useCurrentAccount() needs the dapp-kit provider as an ancestor.
+  return (
+    <WalletBoundary>
+      <LeaderboardConsole />
+    </WalletBoundary>
+  );
+}
+
+function LeaderboardConsole() {
   const [data, setData] = useState<LeaderboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshAt, setRefreshAt] = useState(0);
@@ -197,9 +208,12 @@ export default function LeaderboardPage() {
           >
             ← Brief
           </Link>
-          <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-            <Trophy className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-            Leaderboard · testnet
+          <span className="inline-flex items-center gap-3">
+            <SystemHealthDot />
+            <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+              <Trophy className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+              Leaderboard · testnet
+            </span>
           </span>
         </div>
       </header>

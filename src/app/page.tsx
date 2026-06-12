@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Github } from "lucide-react";
 import { useReveal, useScrollProgress } from "@/lib/use-scroll-reveal";
+import { apiUrl } from "@/lib/api-base";
 
 /**
  * Landing — cinematic, scroll-driven, minimal text.
@@ -106,53 +107,62 @@ function Hero() {
         Brief
       </div>
 
-      <div className="relative mx-auto w-full max-w-page px-6 sm:px-10">
-        <p
-          className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted"
-          style={{ animation: "fadeUp 700ms cubic-bezier(0.22, 1, 0.36, 1) both" }}
-        >
-          Sui Overflow 2026 · Agentic Web
-        </p>
+      <div className="relative mx-auto grid w-full max-w-page items-center gap-12 px-6 sm:px-10 lg:grid-cols-[1.25fr_0.75fr]">
+        <div>
+          <p
+            className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted"
+            style={{ animation: "fadeUp 700ms cubic-bezier(0.22, 1, 0.36, 1) both" }}
+          >
+            Sui Overflow 2026 · Agentic Web
+          </p>
 
-        <h1
-          className="mt-8 font-sans text-[44px] font-medium leading-[1.04] tracking-tightest text-ink sm:text-[80px] sm:leading-[1.02]"
-          style={{ animation: "fadeUp 900ms cubic-bezier(0.22, 1, 0.36, 1) 100ms both" }}
-        >
-          Adopt an AI trader.
-          <br />
-          <span className="italic">It bets BTC up or down on chain. You hold the leash.</span>
-        </h1>
+          <h1
+            className="mt-8 font-sans text-[44px] font-medium leading-[1.04] tracking-tightest text-ink sm:text-[72px] sm:leading-[1.02]"
+            style={{ animation: "fadeUp 900ms cubic-bezier(0.22, 1, 0.36, 1) 100ms both" }}
+          >
+            Adopt an AI trader.
+            <br />
+            <span className="italic">Watch it think. The chain holds the leash.</span>
+          </h1>
 
-        <p
-          className="mt-8 max-w-[52ch] text-[16px] leading-[1.55] text-ink-2 sm:text-[17.5px]"
-          style={{ animation: "fadeUp 900ms cubic-bezier(0.22, 1, 0.36, 1) 220ms both" }}
-        >
-          Pick a personality. Give it a name. Set how much it can bet on
-          your behalf. Watch it trade BTC up/down on DeepBook Predict —
-          and yank the leash any time. The chain itself refuses the next
-          bet.
-        </p>
+          <p
+            className="mt-8 max-w-[52ch] text-[16px] leading-[1.55] text-ink-2 sm:text-[17.5px]"
+            style={{ animation: "fadeUp 900ms cubic-bezier(0.22, 1, 0.36, 1) 220ms both" }}
+          >
+            Pick a personality. Set how much it can risk. It trades BTC
+            binaries on DeepBook Predict and SUI · WAL · DEEP spot on
+            DeepBook v3 — every decision streamed live, every bet gated
+            by a Move policy you can revoke in one tap.
+          </p>
+
+          <div
+            className="mt-10 flex flex-wrap items-center gap-3"
+            style={{ animation: "fadeUp 900ms cubic-bezier(0.22, 1, 0.36, 1) 340ms both" }}
+          >
+            <a
+              href="/workforce"
+              className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-5 py-3 font-mono text-[11px] uppercase tracking-[0.32em] text-bg transition-all hover:bg-ink-2 hover:gap-3"
+            >
+              Adopt a trader
+              <span aria-hidden>→</span>
+            </a>
+            <a
+              href={PACKAGE_EXPLORER}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.28em] text-ink-2 transition-colors hover:text-ink"
+            >
+              Live on testnet
+              <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
+            </a>
+          </div>
+        </div>
 
         <div
-          className="mt-10 flex flex-wrap items-center gap-3"
-          style={{ animation: "fadeUp 900ms cubic-bezier(0.22, 1, 0.36, 1) 340ms both" }}
+          className="hidden lg:block"
+          style={{ animation: "fadeUp 900ms cubic-bezier(0.22, 1, 0.36, 1) 480ms both" }}
         >
-          <a
-            href="/workforce"
-            className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-5 py-3 font-mono text-[11px] uppercase tracking-[0.32em] text-bg transition-colors hover:bg-ink-2"
-          >
-            Adopt a trader
-            <span aria-hidden>→</span>
-          </a>
-          <a
-            href={PACKAGE_EXPLORER}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.28em] text-ink-2 transition-colors hover:text-ink"
-          >
-            Live on testnet
-            <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
-          </a>
+          <HeroLivePanel />
         </div>
 
         <p
@@ -164,6 +174,170 @@ function Hero() {
         </p>
       </div>
     </section>
+  );
+}
+
+// --------------------------------------------------------------------------
+// HeroLivePanel — the first five seconds are proof, not promise. Streams
+// the SAME rolling price feed the deployed trader computes its signals
+// from (cached server route, 12s poll): ticking spot, a 60-minute
+// sparkline, and the live RSI/ROC the strategies act on. If the feed is
+// cold we say so — no fake numbers, ever.
+// --------------------------------------------------------------------------
+
+type HeroFeed = {
+  points: Array<{ ts: number; price: number }>;
+  spot: number | null;
+  rsi: number | null;
+  roc30: number | null;
+};
+
+function HeroLivePanel() {
+  const [feed, setFeed] = useState<HeroFeed | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    async function tick() {
+      try {
+        const r = await fetch(apiUrl("/api/trader/signals?asset=BTC&minutes=60"));
+        if (r.ok) {
+          const j = (await r.json()) as {
+            points?: Array<{ ts: number; price: number }>;
+            latest?: { spot?: number; rsi60?: number | null; roc30?: number | null } | null;
+          };
+          if (!cancelled) {
+            setFeed({
+              points: j.points ?? [],
+              spot: j.latest?.spot ?? null,
+              rsi: j.latest?.rsi60 ?? null,
+              roc30: j.latest?.roc30 ?? null,
+            });
+          }
+        }
+      } catch {
+        /* keep last good frame */
+      }
+      if (!cancelled) timer = setTimeout(tick, 12_000);
+    }
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+  const pts = feed?.points ?? [];
+  const W = 360;
+  const H = 84;
+  let path = "";
+  let lastXY: { x: number; y: number } | null = null;
+  if (pts.length >= 2) {
+    const min = Math.min(...pts.map((p) => p.price));
+    const max = Math.max(...pts.map((p) => p.price));
+    const span = max - min || 1;
+    const x = (i: number) => (i / (pts.length - 1)) * W;
+    const y = (v: number) => H - 6 - ((v - min) / span) * (H - 12);
+    path = pts
+      .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.price).toFixed(1)}`)
+      .join(" ");
+    lastXY = { x: x(pts.length - 1), y: y(pts[pts.length - 1]!.price) };
+  }
+
+  const rocPct = feed?.roc30 != null ? feed.roc30 * 100 : null;
+
+  return (
+    <aside className="relative overflow-hidden border-2 border-ink bg-bg-elev">
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/70 animate-operator-pulse-line"
+        aria-hidden
+      />
+      <div className="px-5 py-5">
+        <div className="flex items-center justify-between gap-3">
+          <p className="font-mono text-[9.5px] uppercase tracking-[0.3em] text-muted">
+            Live · what the trader sees
+          </p>
+          <span className="relative flex h-1.5 w-1.5" aria-hidden>
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          </span>
+        </div>
+
+        {feed?.spot ? (
+          <p
+            key={feed.spot}
+            className="mt-3 font-sans text-[34px] font-medium leading-none tabular-nums tracking-tighter text-ink animate-value-tick"
+          >
+            $
+            {feed.spot.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+            <span className="ml-2 align-middle font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+              BTC
+            </span>
+          </p>
+        ) : (
+          <p className="mt-3 font-mono text-[12px] uppercase tracking-[0.22em] text-muted">
+            price feed warming up…
+          </p>
+        )}
+
+        <div className="mt-4 h-[84px] w-full">
+          {path ? (
+            <svg
+              viewBox={`0 0 ${W} ${H}`}
+              className="h-full w-full"
+              role="img"
+              aria-label="BTC last hour, from the trader's own price feed"
+            >
+              <path d={path} fill="none" stroke="#0A0A0A" strokeWidth={1.5} />
+              {lastXY && (
+                <circle cx={lastXY.x} cy={lastXY.y} r={2.5} fill="#0A0A0A" />
+              )}
+            </svg>
+          ) : (
+            <div className="flex h-full items-center justify-center border border-line bg-bg-elev-2/40">
+              <p className="font-mono text-[9.5px] uppercase tracking-[0.2em] text-muted">
+                60-minute window fills as the agent observes
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="border border-line bg-bg px-3 py-2">
+            <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted">
+              RSI 60m
+            </p>
+            <p className="mt-0.5 font-sans text-[16px] font-medium tabular-nums leading-none text-ink">
+              {feed?.rsi != null ? feed.rsi.toFixed(1) : "—"}
+            </p>
+          </div>
+          <div className="border border-line bg-bg px-3 py-2">
+            <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted">
+              ROC 30m
+            </p>
+            <p
+              className={`mt-0.5 font-sans text-[16px] font-medium tabular-nums leading-none ${
+                rocPct == null
+                  ? "text-ink"
+                  : rocPct >= 0
+                    ? "text-emerald-700"
+                    : "text-red-700"
+              }`}
+            >
+              {rocPct != null ? `${rocPct >= 0 ? "+" : ""}${rocPct.toFixed(3)}%` : "—"}
+            </p>
+          </div>
+        </div>
+
+        <p className="mt-4 font-mono text-[9px] leading-relaxed tracking-[0.06em] text-muted">
+          The deployed agent&apos;s own rolling price feed — the same
+          numbers its strategies act on. Nothing staged.
+        </p>
+      </div>
+    </aside>
   );
 }
 
@@ -326,10 +500,10 @@ function LiveBtcStrip() {
               Your trader agent · 24/7
             </p>
             <p className="mt-1 font-sans text-[18px] tabular-nums tracking-tight text-ink">
-              ◇➤⊘ three personalities
+              ◇➤⊘∿ four personalities
             </p>
             <p className="mt-0.5 font-mono text-[10.5px] text-muted">
-              capability · predict-btc
+              predict-btc · spot-sui · spot-wal · spot-deep
             </p>
             <a
               href={`https://suiscan.xyz/testnet/object/${TREASURY_ADDRESS}`}
@@ -950,7 +1124,7 @@ const PILLARS: { glyph: string; title: string; body: string }[] = [
     glyph: "04",
     title: "zkLogin",
     body:
-      "Continue with Google. No wallet install, no seed phrase. We derive a real Sui address from your Google identity with a zero-knowledge proof.",
+      "Wallet-first today; zkLogin wired for Google sign-in (Enoki-gated on testnet). The same policy + leash works for both — no separate account system.",
   },
   {
     glyph: "05",
