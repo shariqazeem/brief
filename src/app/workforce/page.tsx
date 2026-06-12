@@ -1058,7 +1058,17 @@ type AdoptPhase =
   | { kind: "dispatching" }
   | { kind: "error"; msg: string };
 
-const TRADER_BUDGET_PRESETS_SUI = [0.5, 1, 2, 5];
+const TRADER_BUDGET_PRESETS_SUI = [1, 2, 3, 5];
+
+// Real per-bet quantity ceiling each strategy sizes up to (from the
+// trader's strategy sizing). Every $1 staked records 1 SUI against the
+// leash, so budget / typicalQty ≈ how many full-size bets fit.
+const TYPICAL_QTY_BY_STRATEGY: Record<StrategyId, number> = {
+  conservative: 1,
+  momentum: 2,
+  contrarian: 2,
+  quant: 4,
+};
 const TRADER_DEFAULT_BUDGET_SUI = 1;
 const TRADER_EXPIRY_HOURS = 12;
 const TRADER_FAUCET_TIMEOUT_MS = 15_000;
@@ -1374,10 +1384,16 @@ function TraderAdoptionPanel({
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
-  const [budgetSui, setBudgetSui] = useState(personality.defaultBudgetSui);
+  // Floor at 1 SUI so every personality can place at least one live bet
+  // (each $1 stake records 1 SUI against the leash).
+  const [budgetSui, setBudgetSui] = useState(
+    Math.max(1, personality.defaultBudgetSui),
+  );
   const [markets, setMarkets] = useState<TraderMarketBundleId>("btc_only");
   const selectedBundle =
     MARKET_BUNDLES.find((b) => b.id === markets) ?? MARKET_BUNDLES[0]!;
+  const typicalQty = TYPICAL_QTY_BY_STRATEGY[personality.strategy] ?? 1;
+  const typicalBets = Math.floor(budgetSui / typicalQty);
   const busy =
     phase.kind === "checking-balance" ||
     phase.kind === "funding" ||
@@ -1469,13 +1485,17 @@ function TraderAdoptionPanel({
             </div>
             <input
               type="range"
-              min={0.2}
+              min={1}
               max={5}
               step={0.1}
               value={budgetSui}
               onChange={(e) => setBudgetSui(Number(e.target.value))}
               className="mt-3 w-full accent-ink"
             />
+            <p className="mt-1.5 font-mono text-[10px] leading-relaxed tracking-[0.04em] text-muted">
+              Each $1 the trader stakes records 1 SUI against the leash —
+              1 SUI ≈ one bet&apos;s headroom.
+            </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {TRADER_BUDGET_PRESETS_SUI.map((b) => (
                 <button
@@ -1597,6 +1617,20 @@ function TraderAdoptionPanel({
                 </dt>
                 <dd className="font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-800">
                   revocable any time
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                  Headroom
+                </dt>
+                <dd
+                  className={`font-mono text-[10px] uppercase tracking-[0.18em] ${
+                    typicalBets >= 1 ? "text-ink-2" : "text-amber-700"
+                  }`}
+                >
+                  {typicalBets >= 1
+                    ? `~${typicalBets} bet${typicalBets === 1 ? "" : "s"} at typical size`
+                    : `raise to ${typicalQty} SUI for full size`}
                 </dd>
               </div>
             </dl>
@@ -3480,7 +3514,10 @@ function TraderOpenPositionPanel({
         <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
           Current bet · {settled ? "settled" : expired ? "awaiting settlement" : "live"}
         </p>
-        <ModeBadge mode={isLive ? "live" : "simulated"} />
+        <ModeBadge
+          mode={isLive ? "live" : "simulated"}
+          reason={decoded.execution?.reason_if_simulated ?? null}
+        />
       </div>
       <article className="mt-3 overflow-hidden border-2 border-ink bg-bg-elev">
         {!settled && !expired && (
@@ -4219,7 +4256,18 @@ function DD({ label, children }: { label: string; children: React.ReactNode }) {
   );
 }
 
-function ModeBadge({ mode }: { mode: "live" | "simulated" }) {
+// ModeBadge — tells the truth about WHY a cycle was simulated, derived
+// from the deliverable's reason_if_simulated. Abstention is discipline
+// (neutral, never a warning); funding/leash issues are amber; a revoked
+// policy is the chain refusing (red). Passing no reason → plain
+// "Simulated".
+function ModeBadge({
+  mode,
+  reason,
+}: {
+  mode: "live" | "simulated";
+  reason?: string | null;
+}) {
   if (mode === "live") {
     return (
       <span className="inline-flex items-center gap-1.5 border-2 border-emerald-600 bg-emerald-600 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.3em] text-bg">
@@ -4231,13 +4279,47 @@ function ModeBadge({ mode }: { mode: "live" | "simulated" }) {
       </span>
     );
   }
+
+  const r = (reason ?? "").toLowerCase();
+  let tone: "neutral" | "amber" | "red" = "amber";
+  let label = "Simulated";
+  let title: string | undefined;
+  if (r.includes("no edge") || r.includes("abstention") || r.includes("abstain")) {
+    tone = "neutral";
+    label = "Sat out · no edge";
+  } else if (r.includes("manager dusdc")) {
+    label = "Simulated · awaiting dUSDC";
+  } else if (r.includes("epolicyrevoked") || r.includes("revoked")) {
+    tone = "red";
+    label = "Chain refused · revoked";
+  } else if (r.includes("ebudgetexceeded") || r.includes("budget")) {
+    label = "Simulated · leash too short for this stake";
+  } else if (r.includes("no policy") || r.includes("policy_id")) {
+    label = "Simulated · no policy gate";
+  } else if (r) {
+    title = (reason ?? "").slice(0, 60);
+  }
+
+  const cls =
+    tone === "neutral"
+      ? "border-line bg-bg-elev-2 text-ink-2"
+      : tone === "red"
+        ? "border-red-500 bg-red-50 text-red-700"
+        : "border-amber-600 bg-amber-100 text-amber-900";
+  const dot =
+    tone === "neutral"
+      ? "bg-muted"
+      : tone === "red"
+        ? "bg-red-600"
+        : "bg-amber-700";
+
   return (
-    <span className="inline-flex items-center gap-1.5 border-2 border-amber-600 bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.3em] text-amber-900">
-      <span
-        aria-hidden
-        className="inline-block h-1.5 w-1.5 rounded-full bg-amber-700"
-      />
-      Simulated · awaiting dUSDC
+    <span
+      title={title}
+      className={`inline-flex items-center gap-1.5 border-2 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.3em] ${cls}`}
+    >
+      <span aria-hidden className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} />
+      {label}
     </span>
   );
 }

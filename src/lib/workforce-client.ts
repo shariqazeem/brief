@@ -258,7 +258,7 @@ export const TRADER_PERSONALITIES: TraderPersonality[] = [
       "I keep your stake small. I sit out when MAs disagree or RSI is extreme.",
     blurb:
       "I only bet when the 15m and 60m moving averages agree on direction and RSI isn't already overextended. I never upsize — discipline beats conviction.",
-    defaultBudgetSui: 0.5,
+    defaultBudgetSui: 1.0,
     cadence: "~$1 per bet, only on clean signals.",
   },
   {
