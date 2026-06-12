@@ -9,6 +9,7 @@ import { useMemo } from "react";
 import {
   Line,
   LineChart,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -16,8 +17,56 @@ import {
   YAxis,
 } from "recharts";
 
-import type { SeriesPoint } from "@/lib/use-mind-data";
+import type { SeriesPoint, TradeDecision } from "@/lib/use-mind-data";
 import { C, MONO_TICK, fmtClock, fmtUsd } from "./theme";
+
+// Decision marker — a real past decision plotted at (ts, spot). Up bets
+// are emerald ▲ at the price, down bets red ▼, honest abstentions a
+// hollow ○ in muted. Custom ReferenceDot shape so it renders inside the
+// LineChart; native <title> gives hover detail without touching the
+// line's own tooltip.
+function MarkerShape(props: {
+  cx?: number;
+  cy?: number;
+  decision: TradeDecision;
+}) {
+  const { cx, cy, decision } = props;
+  if (cx == null || cy == null) return null;
+  const title = `${
+    decision.abstained
+      ? "abstained"
+      : `${decision.quantity} ${decision.direction?.toUpperCase() ?? ""}`
+  } · ${decision.strategy} · ${decision.mode}${
+    decision.mint_tx ? ` · ${decision.mint_tx.slice(0, 8)}…` : ""
+  }`;
+  if (decision.abstained) {
+    return (
+      <g>
+        <title>{title}</title>
+        <circle
+          cx={cx}
+          cy={cy}
+          r={4}
+          fill="#FFFFFF"
+          stroke={C.muted}
+          strokeWidth={1.4}
+        />
+      </g>
+    );
+  }
+  const up = decision.direction !== "down";
+  const color = up ? C.up : C.down;
+  // Triangle pointing up (bet UP) or down (bet DOWN), apex on the point.
+  const d = up
+    ? `M ${cx} ${cy - 6} L ${cx - 5} ${cy + 4} L ${cx + 5} ${cy + 4} Z`
+    : `M ${cx} ${cy + 6} L ${cx - 5} ${cy - 4} L ${cx + 5} ${cy - 4} Z`;
+  return (
+    <g>
+      <title>{title}</title>
+      <path d={d} fill={color} stroke="#FFFFFF" strokeWidth={1} />
+    </g>
+  );
+}
 
 function ChartTooltip({
   active,
@@ -47,12 +96,14 @@ export function MindPriceChart({
   strikeUsd,
   direction,
   asset,
+  decisions = [],
 }: {
   points: SeriesPoint[];
   liveSpotUsd?: number | null;
   strikeUsd?: number | null;
   direction?: "up" | "down" | null;
   asset: string;
+  decisions?: TradeDecision[];
 }) {
   const data = useMemo(() => {
     const base = points.map((p) => ({
@@ -78,16 +129,28 @@ export function MindPriceChart({
     return base;
   }, [points, liveSpotUsd]);
 
+  // Markers: real past decisions that fall inside the visible window,
+  // plotted at the spot they were taken (fall back to strike).
+  const markers = useMemo(() => {
+    if (data.length === 0) return [];
+    const startTs = data[0]!.ts;
+    return decisions
+      .filter((d) => d.ts >= startTs && (d.spot_usd != null || d.strike_usd != null))
+      .map((d) => ({ d, y: (d.spot_usd ?? d.strike_usd)! }))
+      .slice(-12);
+  }, [decisions, data]);
+
   const domain = useMemo<[number, number] | null>(() => {
     const vals = data
       .flatMap((d) => [d.price, d.sma15 ?? d.price, d.sma60 ?? d.price])
-      .concat(strikeUsd && strikeUsd > 0 ? [strikeUsd] : []);
+      .concat(strikeUsd && strikeUsd > 0 ? [strikeUsd] : [])
+      .concat(markers.map((m) => m.y));
     if (vals.length === 0) return null;
     const min = Math.min(...vals);
     const max = Math.max(...vals);
     const pad = Math.max((max - min) * 0.18, max * 0.0004);
     return [min - pad, max + pad];
-  }, [data, strikeUsd]);
+  }, [data, strikeUsd, markers]);
 
   if (data.length < 2) {
     return (
@@ -113,6 +176,14 @@ export function MindPriceChart({
           <span style={{ color: C.sui }}>— sma15</span>
           {"  "}
           <span style={{ color: C.accent }}>— sma60</span>
+          {markers.length > 0 && (
+            <>
+              {"  "}
+              <span style={{ color: C.up }}>▲</span>
+              <span style={{ color: C.down }}>▼</span>
+              <span> decisions</span>
+            </>
+          )}
         </p>
       </div>
       <div className="mt-2 h-[210px] w-full">
@@ -182,6 +253,15 @@ export function MindPriceChart({
               dot={false}
               isAnimationActive={false}
             />
+            {markers.map((m) => (
+              <ReferenceDot
+                key={`${m.d.task_id}-${m.d.ts}`}
+                x={m.d.ts}
+                y={m.y}
+                r={0}
+                shape={<MarkerShape decision={m.d} />}
+              />
+            ))}
           </LineChart>
         </ResponsiveContainer>
       </div>

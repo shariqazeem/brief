@@ -168,3 +168,79 @@ export function useVolSurface(
 
   return state;
 }
+
+// Trade history for one adopted trader — the agent's actual decisions
+// (direction, strike, mode, abstention) from /api/trader/trades. Feeds
+// the chart's decision markers and the memory timeline. Polls every 20s.
+export type TradeDecision = {
+  ts: number;
+  task_id: string;
+  strategy: string;
+  direction: "up" | "down" | null;
+  quantity: number;
+  abstained: boolean;
+  mode: string;
+  mint_tx: string | null;
+  strike_usd: number | null;
+  spot_usd: number | null;
+};
+
+export type TraderTrades = {
+  decisions: TradeDecision[];
+  realizedPnlUsd: number;
+  loaded: boolean;
+};
+
+const TRADES_POLL_MS = 20_000;
+
+export function useTraderTrades(
+  policyId: string | null | undefined,
+): TraderTrades {
+  const [state, setState] = useState<TraderTrades>({
+    decisions: [],
+    realizedPnlUsd: 0,
+    loaded: false,
+  });
+
+  useEffect(() => {
+    if (!policyId || !policyId.startsWith("0x")) {
+      setState({ decisions: [], realizedPnlUsd: 0, loaded: false });
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function tick() {
+      try {
+        const r = await fetch(
+          apiUrl(`/api/trader/trades?policy_id=${encodeURIComponent(policyId as string)}`),
+        );
+        if (r.ok) {
+          const body = (await r.json()) as {
+            decisions?: TradeDecision[];
+            realized_pnl_usd?: number;
+          };
+          if (!cancelled) {
+            setState({
+              decisions: body.decisions ?? [],
+              realizedPnlUsd: body.realized_pnl_usd ?? 0,
+              loaded: true,
+            });
+          }
+        } else if (!cancelled) {
+          setState((prev) => ({ ...prev, loaded: true }));
+        }
+      } catch {
+        if (!cancelled) setState((prev) => ({ ...prev, loaded: true }));
+      }
+      if (!cancelled) timer = setTimeout(tick, TRADES_POLL_MS);
+    }
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [policyId]);
+
+  return state;
+}

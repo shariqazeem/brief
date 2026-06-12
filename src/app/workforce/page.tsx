@@ -57,6 +57,7 @@ import {
   type OperatorPolicyDecoded,
 } from "@/lib/operator-policy-client";
 import { apiUrl } from "@/lib/api-base";
+import { useTraderTrades, type TradeDecision } from "@/lib/use-mind-data";
 import { SystemHealthDot } from "@/components/system-health";
 import { WalletBoundary } from "@/components/wallet-boundary";
 
@@ -3121,6 +3122,7 @@ function TraderDashboard({
       <TraderMemoryJournal
         traderName={traderName}
         tasks={tasks}
+        policyId={policyId}
       />
 
       <TraderTrackRecord traderName={traderName} tasks={tasks} />
@@ -4283,13 +4285,176 @@ function LeaderboardCTA({ traderName }: { traderName: string }) {
   );
 }
 
+// MemoryTimeline — a compact horizontal strip of the trader's decisions
+// over time (from /api/trader/trades). Each node's color reads the
+// outcome at a glance: emerald = live bet, red = failed/refused mint,
+// muted hollow = honest abstention. Click a node to expand its facts
+// inline; the full reasoning lives in the Walrus blob linked below.
+function MemoryTimeline({
+  decisions,
+  journalBlobId,
+}: {
+  decisions: TradeDecision[];
+  journalBlobId: string | null;
+}) {
+  // Oldest → newest left-to-right; cap at the most recent 24.
+  const nodes = useMemo(
+    () => [...decisions].sort((a, b) => a.ts - b.ts).slice(-24),
+    [decisions],
+  );
+  const [selectedTs, setSelectedTs] = useState<number | null>(null);
+  const selected = nodes.find((n) => n.ts === selectedTs) ?? null;
+
+  const liveBets = nodes.filter((n) => !n.abstained && n.mode === "live").length;
+  const abstentions = nodes.filter((n) => n.abstained).length;
+
+  return (
+    <div className="mt-3 border border-line bg-bg-elev px-4 py-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
+          Decision timeline · {nodes.length}{" "}
+          {nodes.length === 1 ? "move" : "moves"}
+        </p>
+        <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-muted">
+          {liveBets} live · {abstentions} sat out
+        </p>
+      </div>
+
+      <div className="relative mt-4 overflow-x-auto pb-1">
+        {/* connector line */}
+        <div className="flex items-center gap-3">
+          {nodes.map((n) => {
+            const tone =
+              n.abstained
+                ? "abstain"
+                : n.mode === "live"
+                  ? "live"
+                  : "sim";
+            const active = n.ts === selectedTs;
+            const title = `${new Date(n.ts).toLocaleString()} · ${n.strategy} · ${
+              n.abstained
+                ? "abstained"
+                : `${n.quantity} ${n.direction?.toUpperCase() ?? ""}`
+            } · ${n.mode}`;
+            return (
+              <button
+                key={`${n.task_id}-${n.ts}`}
+                type="button"
+                title={title}
+                aria-label={title}
+                aria-pressed={active}
+                onClick={() => setSelectedTs(active ? null : n.ts)}
+                className="group flex shrink-0 flex-col items-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+              >
+                <span
+                  className={[
+                    "inline-flex h-3 w-3 items-center justify-center border transition-transform group-hover:scale-125",
+                    active ? "scale-125" : "",
+                    tone === "live"
+                      ? "border-emerald-600 bg-emerald-500"
+                      : tone === "sim"
+                        ? "border-ink bg-ink"
+                        : "border-muted-2 bg-bg-elev",
+                  ].join(" ")}
+                  aria-hidden
+                />
+                <span className="font-mono text-[8px] tabular-nums text-muted">
+                  {new Date(n.ts).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {selected && (
+        <div className="mt-3 border-t border-line pt-3 animate-land-in">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <p className="font-sans text-[14px] tracking-tight text-ink">
+              {selected.abstained ? (
+                <>
+                  <span className="text-muted">{selected.strategy} · </span>
+                  sat this one out
+                </>
+              ) : (
+                <>
+                  <span className="text-muted">{selected.strategy} · bet </span>
+                  <span
+                    className={
+                      selected.direction === "down"
+                        ? "text-red-700"
+                        : "text-emerald-700"
+                    }
+                  >
+                    {selected.direction?.toUpperCase()}
+                  </span>
+                  <span className="text-muted"> · qty {selected.quantity}</span>
+                </>
+              )}
+            </p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+              {new Date(selected.ts).toLocaleString()} · {selected.mode}
+            </p>
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 font-mono text-[10.5px] tabular-nums text-ink-2">
+            {selected.strike_usd != null && (
+              <span>
+                <span className="text-muted">strike </span>$
+                {selected.strike_usd.toLocaleString("en-US", {
+                  maximumFractionDigits: 0,
+                })}
+              </span>
+            )}
+            {selected.spot_usd != null && (
+              <span>
+                <span className="text-muted">spot </span>$
+                {selected.spot_usd.toLocaleString("en-US", {
+                  maximumFractionDigits: 0,
+                })}
+              </span>
+            )}
+            {selected.mint_tx && (
+              <a
+                href={explorerUrl("txblock", selected.mint_tx)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-emerald-800 underline-offset-4 hover:underline"
+              >
+                mint {short(selected.mint_tx, 6, 4)}
+                <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
+              </a>
+            )}
+            {journalBlobId && (
+              <a
+                href={`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${journalBlobId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-emerald-800 underline-offset-4 hover:underline"
+              >
+                full reasoning on Walrus
+                <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} />
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TraderMemoryJournal({
   traderName,
   tasks,
+  policyId,
 }: {
   traderName: string;
   tasks: WorkforceTask[];
+  policyId: string | null;
 }) {
+  const trades = useTraderTrades(policyId);
   // Pull the most-recent task with a deliverable so we always show the
   // freshest journal blob. The journal grows monotonically — each new
   // task re-uploads a superset of all prior decisions, so the latest
@@ -4322,6 +4487,11 @@ function TraderMemoryJournal({
           content-addressed · verifiable
         </p>
       </div>
+
+      {trades.decisions.length > 0 && (
+        <MemoryTimeline decisions={trades.decisions} journalBlobId={journalId} />
+      )}
+
       <article className="mt-3 grid gap-4 sm:grid-cols-2">
         <MemoryBlobCard
           title={`${traderName}'s running memory`}
@@ -5077,15 +5247,34 @@ function PolicyCard({
   const remaining =
     policy ? Number(policy.budgetCap - policy.spent) / 1e9 : null;
   const cap = activation.budgetSui;
+  const spent = remaining !== null ? Math.max(0, cap - remaining) : 0;
   const pct = remaining !== null ? Math.max(0, Math.min(1, remaining / cap)) : 0;
   const isLive = status === "active";
   const isRevoked = status === "revoked";
+
+  // Pulse the card the moment the chain debits the leash — every
+  // record_spend bumps policy.spent, which we watch directly so the
+  // burn-down reflects real on-chain state, not our own bookkeeping.
+  const prevSpentRef = useRef<bigint | null>(null);
+  const [burning, setBurning] = useState(false);
+  useEffect(() => {
+    if (!policy) return;
+    const cur = policy.spent;
+    if (prevSpentRef.current !== null && cur > prevSpentRef.current) {
+      setBurning(true);
+      const t = setTimeout(() => setBurning(false), 760);
+      prevSpentRef.current = cur;
+      return () => clearTimeout(t);
+    }
+    prevSpentRef.current = cur;
+  }, [policy]);
 
   return (
     <div
       className={[
         "mt-6 relative border-2 bg-bg-elev p-6 transition-colors",
         isRevoked ? "border-red-400/70" : "border-ink",
+        burning ? "animate-operator-ripple" : "",
       ].join(" ")}
     >
       {isLive && (
@@ -5104,25 +5293,42 @@ function PolicyCard({
           </div>
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
-              Budget envelope
+              {isRevoked ? "Leash pulled · budget frozen" : "Budget envelope · remaining"}
             </p>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="font-mono text-2xl font-medium tabular-nums text-ink">
+              <span
+                key={remaining !== null ? remaining.toFixed(3) : "na"}
+                className={[
+                  "font-mono text-3xl font-medium tabular-nums",
+                  isRevoked ? "text-red-700" : "text-ink",
+                  burning ? "animate-value-tick" : "",
+                ].join(" ")}
+              >
                 {remaining !== null ? remaining.toFixed(3) : cap.toFixed(2)}
               </span>
-              <span className="font-mono text-[12px] tabular-nums text-muted">
+              <span className="font-mono text-[13px] tabular-nums text-muted">
                 / {cap.toFixed(2)} SUI
               </span>
+              {spent > 0 && (
+                <span className="ml-1 font-mono text-[11px] tabular-nums text-muted">
+                  · {spent.toFixed(3)} spent
+                </span>
+              )}
             </div>
-            <div className="mt-2 h-1 w-full bg-line">
+            <div className="mt-2 h-1.5 w-full overflow-hidden bg-line">
               <div
                 className={[
-                  "h-full transition-all",
+                  "h-full transition-[width] duration-700 ease-out",
                   isRevoked ? "bg-red-400" : "bg-ink",
                 ].join(" ")}
                 style={{ width: `${pct * 100}%` }}
               />
             </div>
+            <p className="mt-2 font-mono text-[9.5px] leading-relaxed tracking-[0.04em] text-muted">
+              Every spend recorded by{" "}
+              <span className="text-ink-2">operator_policy::record_spend</span> —
+              on chain, not in our database.
+            </p>
           </div>
           <div className="flex flex-wrap gap-4 text-[12.5px]">
             <KV label="Capabilities">

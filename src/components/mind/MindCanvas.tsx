@@ -12,7 +12,7 @@
 import { useMemo } from "react";
 
 import { useAgentStream } from "@/lib/use-agent-stream";
-import { usePriceSeries, useVolSurface } from "@/lib/use-mind-data";
+import { usePriceSeries, useVolSurface, useTraderTrades } from "@/lib/use-mind-data";
 import { MindPriceChart } from "./MindPriceChart";
 import { MindRSIGauge } from "./MindRSIGauge";
 import { MindROCTicker } from "./MindROCTicker";
@@ -43,6 +43,7 @@ export default function MindCanvas({
 }) {
   const { state, connected } = useAgentStream(policyId);
   const series = usePriceSeries(asset === "BTC" ? "BTC" : asset);
+  const trades = useTraderTrades(policyId);
 
   // Prefer live-stream context (freshest oracle/strike) over the
   // deliverable-derived props, which lag one decision behind.
@@ -104,14 +105,18 @@ export default function MindCanvas({
         <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
           {traderName}&apos;s trading floor · live
         </p>
-        <p className="flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+        <p
+          className={`flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.22em] ${
+            connected ? "text-muted" : "text-amber-700"
+          }`}
+        >
           <span
             className={`inline-block h-1.5 w-1.5 rounded-full ${
-              connected ? "animate-pulse bg-emerald-500" : "bg-muted-2"
+              connected ? "animate-pulse bg-emerald-500" : "animate-pulse bg-amber-500"
             }`}
             aria-hidden
           />
-          {connected ? "streaming" : "polling"}
+          {connected ? "streaming · live wire" : "reconnecting to the wire…"}
         </p>
       </div>
 
@@ -123,6 +128,7 @@ export default function MindCanvas({
             strikeUsd={effStrikeUsd}
             direction={effDirection}
             asset={state.asset ?? asset}
+            decisions={trades.decisions}
           />
         </div>
         <MindRSIGauge rsi={rsi} />
