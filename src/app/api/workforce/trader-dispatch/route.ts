@@ -24,11 +24,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { SUI_CLOCK_OBJECT_ID } from "@mysten/sui/utils";
 import { bcs } from "@mysten/sui/bcs";
 
-import {
-  getClientIp,
-  rateLimit,
-  rateLimitedResponse,
-} from "@/lib/rate-limit";
+import { rateLimitDual, rateLimitedResponse } from "@/lib/rate-limit";
 
 const HEX_RE = /^0x[0-9a-fA-F]{40,64}$/;
 const ALLOWED_STRATEGIES = new Set([
@@ -56,14 +52,18 @@ function envTrim(k: string): string {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const rl = rateLimit("trader-dispatch", getClientIp(req), {
-    windowMs: 60_000,
-    max: 4,
-  });
+  // Per-session 4/min so co-located users don't share one bucket;
+  // per-IP 20/min cap so cookie-minting can't multiply throughput.
+  const rl = rateLimitDual(
+    "trader-dispatch",
+    req,
+    { windowMs: 60_000, max: 4 },
+    { windowMs: 60_000, max: 20 },
+  );
   if (!rl.ok) {
     return rateLimitedResponse(
       rl.retryAfterSec,
-      `Trader dispatch is limited to 4 per minute per IP. Retry in ${rl.retryAfterSec}s.`,
+      `Trader dispatch is limited to 4 per minute. Retry in ${rl.retryAfterSec}s.`,
     );
   }
 

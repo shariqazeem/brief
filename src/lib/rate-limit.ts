@@ -80,6 +80,37 @@ export function getClientIp(req: Request): string {
 }
 
 /**
+ * Resolve the per-session key: the `brief_sid` cookie middleware.ts
+ * plants on first page load. Null when absent (curl, cookies blocked).
+ */
+export function getSessionId(req: Request): string | null {
+  const cookies = req.headers.get("cookie");
+  if (!cookies) return null;
+  const m = cookies.match(/(?:^|;\s*)brief_sid=([A-Za-z0-9-]{8,64})/);
+  return m ? m[1]! : null;
+}
+
+/**
+ * Two-key limit: a tight per-session bucket so each of 100 users
+ * behind one NAT gets their own allowance, AND a looser per-IP cap so
+ * minting fresh cookies can't multiply throughput. Both must pass.
+ * Without a session cookie the session allowance falls back to the IP
+ * (curl clients keep today's per-IP behavior).
+ */
+export function rateLimitDual(
+  bucketName: string,
+  req: Request,
+  sessionCfg: RateLimitConfig,
+  ipCfg: RateLimitConfig,
+): RateLimitResult {
+  const ip = getClientIp(req);
+  const sid = getSessionId(req);
+  const ipResult = rateLimit(`${bucketName}:ip`, ip, ipCfg);
+  if (!ipResult.ok) return ipResult;
+  return rateLimit(`${bucketName}:session`, sid ? `sid:${sid}` : `ip:${ip}`, sessionCfg);
+}
+
+/**
  * Build a 429 Response with a Retry-After header. Use to short-circuit
  * the route when rateLimit() rejects.
  */

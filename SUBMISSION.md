@@ -399,6 +399,35 @@ All blobs fetchable at
   price; the realized P&L will be whatever the chain pays. (See "What's
   unresolved at submission time" below.)
 
+### Live decision wire + Mind canvas (real-time visibility)
+The dashboard no longer summarizes decisions after the fact — it
+streams them. The trader emits one event per lifecycle beat (observe →
+signals → SVI read → decision → policy-gated mint → Walrus → deliver);
+`/api/agent-events` re-streams them over SSE and the Mind canvas
+animates each step live, next to a recharts price chart (SMA 15/60 +
+strike), an RSI gauge, the live SVI vol smile read off the oracle, and
+the market-vs-agent edge meter. Full pipeline proof, all from one
+dispatch on the "Brief Demo Fleet" policy
+(`0x93b0c86507d586b87855035f3e031f1be2adee89b14320584a116fc86aef3487`):
+- LIVE mint (policy-gated atomic PTB): `7zG5R4duNQbBoPUn7F4wJkQuTC5qsoCByxASUMUkv83i`
+- Reasoning blob: `XGHBVKbw0kl9vJofD_RumGbIWbDKpUW15G93S07KMFQ`
+- Journal blob (entry 1): `7mx440fnqkvuVT-L5AkPj65J39_5Cjhm4o62LNVNL0c`
+- Delivery: `36KtgMHY9E3gGFYU3RxphTDvhnBEn9qSxcpNbEUcLZpE` (`mode: live`)
+
+The previous multi-asset policy (`0x76708793…41a4`, referenced above)
+**expired on Jun 11** — after which every mint attempt against it
+aborted on chain and the trader degraded honestly to `simulated`. We
+left that trail in place deliberately: expiry is the same leash as the
+kill switch, enforced by Move, not by our code.
+
+### Self-healing gas (warden)
+A sixth pm2 process (`brief-warden`) keeps the fleet solvent:
+it rebalances SUI between Planner/Treasury/Research when one drops
+below its floor (real transfers, e.g.
+`DkpRMvdgjo4czPhVa5s7q72qZYTVx9ghKUjQxB8hDeLn`) and reports wallet +
+PredictManager health at `/api/system/health` — the system tells the
+truth about its own readiness.
+
 ### Infrastructure
 - Treasury wallet (trader agent):
   `0xa9f24640b32f33fcfa8582791e84a542251398acfc3b696f382a08a768b6ddbf`

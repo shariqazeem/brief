@@ -75,5 +75,19 @@ module.exports = {
       restart_delay: 5000,
       env: baseEnv,
     },
+    {
+      // Gas warden: keeps Planner/Treasury/Research solvent by
+      // rebalancing SUI between them (faucet fallback w/ cooldown) and
+      // writes .cursors/warden-status.json for /api/system/health.
+      name: "brief-warden",
+      cwd: REPO_ROOT,
+      script: "node_modules/.bin/tsx",
+      args: tsxArgs("agents/workforce/warden/index.ts"),
+      max_memory_restart: "300M",
+      autorestart: true,
+      max_restarts: 30,
+      restart_delay: 5000,
+      env: baseEnv,
+    },
   ],
 };

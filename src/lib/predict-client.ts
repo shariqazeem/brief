@@ -14,6 +14,8 @@ import { useSuiClient } from "@mysten/dapp-kit";
 import { Transaction } from "@mysten/sui/transactions";
 import { bcs } from "@mysten/sui/bcs";
 
+import { apiUrl } from "@/lib/api-base";
+
 const PREDICT_PACKAGE =
   "0xf5ea2b3749c65d6e56507cc35388719aadb28f9cab873696a2f8687f5c785138";
 
@@ -67,21 +69,39 @@ export function useLiveSpot(
     failuresRef.current = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
+    // Shared server cache first (one devInspect per 4s for ALL viewers
+    // — the 100-user fix); direct devInspect only as a fallback so the
+    // panel stays alive even if the API tier is down.
+    async function readSpotRaw(): Promise<bigint> {
+      try {
+        const r = await fetch(
+          apiUrl(`/api/spot?oracle_id=${encodeURIComponent(oracleId as string)}`),
+        );
+        if (r.ok) {
+          const j = (await r.json()) as { ok?: boolean; spot_raw?: string };
+          if (j.ok && j.spot_raw) return BigInt(j.spot_raw);
+        }
+      } catch {
+        /* fall through to direct devInspect */
+      }
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PREDICT_PACKAGE}::oracle::spot_price`,
+        arguments: [tx.object(oracleId as string)],
+      });
+      const r = await sui.devInspectTransactionBlock({
+        sender: READ_SENDER,
+        transactionBlock: tx,
+      });
+      const ret = r.results?.[0]?.returnValues?.[0];
+      if (!ret) throw new Error("no return value");
+      const [bytes] = ret;
+      return BigInt(bcs.U64.parse(Uint8Array.from(bytes)));
+    }
+
     async function tick() {
       try {
-        const tx = new Transaction();
-        tx.moveCall({
-          target: `${PREDICT_PACKAGE}::oracle::spot_price`,
-          arguments: [tx.object(oracleId as string)],
-        });
-        const r = await sui.devInspectTransactionBlock({
-          sender: READ_SENDER,
-          transactionBlock: tx,
-        });
-        const ret = r.results?.[0]?.returnValues?.[0];
-        if (!ret) throw new Error("no return value");
-        const [bytes] = ret;
-        const nextRaw = BigInt(bcs.U64.parse(Uint8Array.from(bytes)));
+        const nextRaw = await readSpotRaw();
         if (!cancelledRef.current) {
           failuresRef.current = 0;
           setState((prev) => {

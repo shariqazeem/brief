@@ -32,7 +32,8 @@ export type AgentEventType =
   | "spot_closed"
   | "walrus_uploaded"
   | "delivered"
-  | "task_failed";
+  | "task_failed"
+  | "warden_topup";
 
 export type AgentEvent = {
   ts: number;

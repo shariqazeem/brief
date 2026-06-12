@@ -12,6 +12,8 @@
 //     --budget-sui 1.0 \
 //     --venues research,audit,treasury \
 //     --duration-hours 2 \
+//     [--agent 0x… (defaults to the signer — pass the Treasury wallet
+//        when gating the trader, whose mints are Treasury-signed)] \
 //     [--max-concentration-bps 5000] \
 //     [--auto-approve-pct 100] \
 //     [--risk low]
@@ -55,12 +57,15 @@ async function main(): Promise<void> {
   const autoApprovePct = Number(args["auto-approve-pct"] ?? 100);
   const risk = args.risk || "low";
 
-  const planner = ctx.address;
+  // record_spend asserts sender == policy.agent — for trader policies
+  // that's the Treasury wallet (it signs the gated mint PTB), so allow
+  // an explicit override; default stays the signer (single-wallet mode).
+  const agent = (args.agent ?? ctx.address).trim();
   const budgetCap = BigInt(Math.floor(budgetSui * 1e9));
   const expiresAtMs = BigInt(Date.now() + durationHours * 3600 * 1000);
 
   console.log(
-    `[create-policy] creating "${name}" budget=${budgetSui} SUI venues=[${venues.join(",")}] expires_in=${durationHours}h agent=${planner.slice(0, 10)}…`,
+    `[create-policy] creating "${name}" budget=${budgetSui} SUI venues=[${venues.join(",")}] expires_in=${durationHours}h agent=${agent.slice(0, 10)}…`,
   );
 
   const res = await signAndExecuteWithRetry(
@@ -68,7 +73,7 @@ async function main(): Promise<void> {
     () =>
       buildCreatePolicyTx({
         packageId: env.packageId,
-        agent: planner,
+        agent,
         name,
         budgetCap,
         allowedVenues: venues,

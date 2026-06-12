@@ -13,6 +13,7 @@
     "agent:planner": "tsx --env-file=.env.local agents/workforce/planner/index.ts",
     "agent:treasury": "tsx --env-file=.env.local agents/workforce/treasury/index.ts",
     "agent:trader": "tsx --env-file=.env.local agents/workforce/trader/index.ts",
+    "agent:warden": "tsx --env-file=.env.local agents/workforce/warden/index.ts",
     "agents:all": "concurrently -n research,treasury,trader -c blue,green,magenta \"npm:agent:research\" \"npm:agent:treasury\" \"npm:agent:trader\"",
     "workforce:setup": "tsx --env-file=.env.local scripts/workforce-setup.ts",
     "workforce:create-policy": "tsx --env-file=.env.local scripts/workforce-create-policy.ts",

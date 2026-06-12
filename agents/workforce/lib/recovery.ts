@@ -73,6 +73,16 @@ export async function recoverStuckTasks(
     ) {
       continue;
     }
+    // A task whose on-chain deadline has passed can never be submitted —
+    // task::submit aborts with EDeadlinePassed (code 4). Without this
+    // guard the scan re-drives it on every boot forever: wasted gas,
+    // log spam, and stale task_started events on the SSE wire.
+    if (t.deadlineMs > 0n && BigInt(Date.now()) > t.deadlineMs) {
+      console.log(
+        `[${tag}] skipping task=${t.id.slice(0, 10)}… "${t.title}" — deadline passed ${new Date(Number(t.deadlineMs)).toISOString()}, submit would abort EDeadlinePassed`,
+      );
+      continue;
+    }
     // Reconstruct enough of the original TaskPosted notice for the
     // handler. txDigest/eventSeq here are from the Accepted event, not
     // the Posted event — they're only used for logging by the handler.
