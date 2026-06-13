@@ -60,6 +60,29 @@ body {
   animation-play-state: paused;
 }
 
+/* Landing v2 — the operator "mind" circle. A radar sweep (rotating arc)
+   while processing + a pulsing core dot. Transform/opacity only; the
+   reduced-motion guard below freezes both. */
+@keyframes operatorSweep {
+  to { transform: rotate(360deg); }
+}
+@keyframes operatorCore {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.55); opacity: 0.5; }
+}
+@keyframes operatorHalo {
+  0% { transform: scale(0.6); opacity: 0.5; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+@keyframes v2FadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.v2-sweep { animation: operatorSweep 2.4s linear infinite; }
+.v2-core { animation: operatorCore 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.v2-halo { animation: operatorHalo 2s ease-out infinite; }
+.v2-fade { animation: v2FadeUp 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
