@@ -13,7 +13,7 @@
 // wallet scenarios come in Wk2 when the Planner agent enters.
 
 import { loadEnv } from "../agents/lib/env.js";
-import { makeAgentContext } from "../agents/lib/sui.js";
+import { makeAgentContext, makeAgentContextFor } from "../agents/lib/sui.js";
 import { signAndExecuteWithRetry } from "../agents/lib/sui-retry.js";
 import { buildPostTaskTx } from "../agents/workforce/lib/task.js";
 
@@ -48,7 +48,13 @@ async function main(): Promise<void> {
   const deadlineMin = Number(args["deadline-min"] ?? 30);
 
   const env = loadEnv();
-  const ctx = makeAgentContext(env);
+  // `--as treasury` posts as the Treasury wallet so the trader product's
+  // verification task has poster == policy.agent == Treasury (needed for
+  // the Treasury-signed approve to clear). Default stays Planner (legacy).
+  const ctx =
+    args.as === "treasury"
+      ? makeAgentContextFor(env, "treasury")
+      : makeAgentContext(env);
 
   const bountySui = Number(args["bounty-sui"]);
   const bountyMist = BigInt(Math.floor(bountySui * 1_000_000_000));

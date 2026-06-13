@@ -11,7 +11,7 @@
 // AgentRegistration by walking AgentRegistered events for task.assigned_to.
 
 import { loadEnv } from "../agents/lib/env.js";
-import { makeAgentContext } from "../agents/lib/sui.js";
+import { makeAgentContext, makeAgentContextFor } from "../agents/lib/sui.js";
 import { signAndExecuteWithRetry } from "../agents/lib/sui-retry.js";
 import {
   buildApproveWithPolicyTx,
@@ -47,7 +47,14 @@ async function main(): Promise<void> {
   }
 
   const env = loadEnv();
-  const ctx = makeAgentContext(env);
+  // Trader-product tasks are posted by Treasury (== policy.agent), so
+  // approve_with_policy must be signed by Treasury too (sender ==
+  // task.poster AND record_spend sender == policy.agent). `--as treasury`
+  // selects that wallet; default stays the Planner for the legacy path.
+  const ctx =
+    args.as === "treasury"
+      ? makeAgentContextFor(env, "treasury")
+      : makeAgentContext(env);
 
   const t = await fetchTask(ctx, args.task);
   console.log(

@@ -130,10 +130,15 @@ export async function POST(req: Request): Promise<Response> {
     network,
     url: getJsonRpcFullnodeUrl(network),
   });
-  const planner = Ed25519Keypair.fromSecretKey(plannerSecret);
-  const treasuryAddress = Ed25519Keypair.fromSecretKey(
-    treasurySecret,
-  ).toSuiAddress();
+  // The whole trader-product task lifecycle is signed by the Treasury
+  // wallet (poster == assignee == policy.agent == approver), with the
+  // user as policy.owner holding the kill switch. record_spend asserts
+  // sender == policy.agent, so the poster/approver MUST be Treasury for
+  // live mints + the revoke abort to clear. (Planner key kept available
+  // for the legacy workforce path.)
+  const treasury = Ed25519Keypair.fromSecretKey(treasurySecret);
+  const treasuryAddress = treasury.toSuiAddress();
+  void plannerSecret;
 
   const deadlineMs = BigInt(Date.now() + 30 * 60 * 1000);
   const specObj: Record<string, unknown> = {
@@ -168,7 +173,7 @@ export async function POST(req: Request): Promise<Response> {
     });
 
     const res = await client.signAndExecuteTransaction({
-      signer: planner,
+      signer: treasury,
       transaction: tx,
       options: { showEffects: true, showObjectChanges: true },
     });

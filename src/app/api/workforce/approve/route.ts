@@ -49,6 +49,12 @@ async function runApprove(args: {
       SCRIPT,
       "--task",
       args.taskId,
+      // Trader-product tasks are Treasury-posted (== policy.agent), so the
+      // approve must be Treasury-signed to clear sender==poster AND
+      // record_spend's sender==agent — and to abort EPolicyRevoked (not
+      // ENotAgent) after a revoke.
+      "--as",
+      "treasury",
     ];
     if (args.policyId) {
       cliArgs.push("--policy", args.policyId);

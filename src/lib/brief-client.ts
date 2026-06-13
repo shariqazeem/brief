@@ -33,6 +33,19 @@ export const BRIEF_NETWORK = (
 ).trim() as "testnet" | "mainnet";
 
 /**
+ * The Treasury wallet — the trader agent that signs the gated mint
+ * (predict::mint + operator_policy::record_spend). `assert_can_spend`
+ * requires `sender == policy.agent`, so an adopted trader's policy MUST
+ * bind its agent to THIS address for live mints to clear (otherwise the
+ * mint aborts ENotAgent → honest simulated). Public address; env-
+ * overridable. Keep in sync with TREASURY_SECRET_KEY on the VM.
+ */
+export const BRIEF_TRADER_ADDRESS = (
+  process.env.NEXT_PUBLIC_BRIEF_TRADER_ADDRESS ??
+  "0xa9f24640b32f33fcfa8582791e84a542251398acfc3b696f382a08a768b6ddbf"
+).trim();
+
+/**
  * Sui Explorer URL. suiexplorer.com was retired in 2025; we use suiscan.xyz
  * which is the Mysten-recommended replacement. The legacy "txblock" name is
  * preserved on this helper's API for back-compat — suiscan calls it "tx".

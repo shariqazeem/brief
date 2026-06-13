@@ -20,7 +20,7 @@ import {
   useSignAndExecuteTransaction,
   useSuiClient,
 } from "@mysten/dapp-kit";
-import { BRIEF_PACKAGE_ID, explorerUrl } from "@/lib/brief-client";
+import { BRIEF_PACKAGE_ID, BRIEF_TRADER_ADDRESS, explorerUrl } from "@/lib/brief-client";
 import {
   BRIEF_OPERATOR_ADDRESS,
   WORKFORCE_TEMPLATES,
@@ -1180,6 +1180,11 @@ function useTraderLauncher({
             allowedVenues,
             expiryHours: TRADER_EXPIRY_HOURS,
             riskTolerance: "low",
+            // Bind the leash's agent to the Treasury trader wallet that
+            // signs the gated mint — otherwise record_spend aborts
+            // ENotAgent and every adopted bet falls back to simulated.
+            // owner stays the connected user (they hold the kill switch).
+            agentAddress: BRIEF_TRADER_ADDRESS,
           });
         } catch (e) {
           setPhase({

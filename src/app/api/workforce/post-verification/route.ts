@@ -74,6 +74,11 @@ async function runPost(args: {
       args.policyId,
       "--deadline-min",
       DEFAULT_DEADLINE_MIN,
+      // Post as Treasury so poster == policy.agent — the Treasury-signed
+      // approve that follows can then abort EPolicyRevoked on a revoked
+      // leash (the kill-switch proof) instead of ENotPoster.
+      "--as",
+      "treasury",
     ];
     const child = spawn("tsx", cliArgs, {
       cwd: REPO_ROOT,
