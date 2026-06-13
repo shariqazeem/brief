@@ -739,7 +739,7 @@ function Disconnected() {
             <span className="text-ink">Heads-up:</span> Google sign-in
             (zkLogin) needs an Enoki API key to verify proofs on Sui
             testnet — for now, please connect a Sui wallet (Slush, Suiet,
-            etc.) to adopt a trader.
+            etc.) to adopt an operator.
           </p>
         )}
         {!zk.available && (

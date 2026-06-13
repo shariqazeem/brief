@@ -227,16 +227,16 @@ function LeaderboardConsole() {
       <section className="mx-auto max-w-5xl px-5 py-10 sm:px-8 sm:py-14">
         <div className="space-y-4">
           <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-            Live · Sui testnet · {data?.rows.length ?? "—"} traders adopted
+            Live · Sui testnet · {data?.rows.length ?? "—"} operators adopted
           </p>
           <h1 className="font-sans text-[34px] font-medium leading-[1.05] tracking-tightest text-ink sm:text-[44px]">
-            Whose AI trader is winning?
+            Whose operator is winning?
           </h1>
           <p className="max-w-2xl text-[14.5px] leading-relaxed text-ink-2 sm:text-[15.5px]">
-            Every row is a real adopted trader on chain. Every trade, every
+            Every row is a real adopted operator on chain. Every trade, every
             policy spend, every realized P&amp;L digest is verifiable on
             Suiscan. Rank by activity, P&amp;L, and multi-asset breadth —
-            the trader that uses its leash most carefully climbs.
+            the operator that uses its leash most carefully climbs.
           </p>
           {yourRowIndex >= 0 && (
             <p className="inline-flex items-center gap-2 border-2 border-emerald-600 bg-emerald-600 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-bg">
@@ -249,7 +249,7 @@ function LeaderboardConsole() {
               href="/workforce"
               className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-4 py-2 font-mono text-[11px] uppercase tracking-[0.3em] text-bg transition-colors hover:bg-ink-2"
             >
-              Adopt a trader →
+              Adopt an operator →
             </Link>
             <button
               type="button"
@@ -271,7 +271,7 @@ function LeaderboardConsole() {
         <article className="mt-10 border-2 border-ink bg-bg-elev">
           <header className="hidden grid-cols-[40px_minmax(0,1.4fr)_minmax(0,0.8fr)_120px_120px_120px] items-center gap-3 border-b border-line bg-bg-elev-2/40 px-5 py-3 font-mono text-[9.5px] uppercase tracking-[0.28em] text-muted sm:grid">
             <span>#</span>
-            <span>Trader</span>
+            <span>Operator</span>
             <span>Markets</span>
             <span className="text-right">Trades</span>
             <span className="text-right">P&amp;L</span>
@@ -285,7 +285,7 @@ function LeaderboardConsole() {
           )}
           {!error && data && visible.length === 0 && (
             <div className="px-5 py-10 text-center text-[13px] leading-relaxed text-muted">
-              No active traders yet — be the first to adopt one.
+              No active operators yet — be the first to adopt one.
             </div>
           )}
           {visible.map((row, i) => {
@@ -356,7 +356,7 @@ function Row({
       <div className="min-w-0 sm:row-span-1">
         <div className="flex items-center gap-2">
           <p className="truncate font-sans text-[15.5px] font-medium tracking-tight text-ink">
-            {row.name || "Untitled trader"}
+            {row.name || "Untitled operator"}
           </p>
           {!row.revoked &&
             Date.now() - row.last_trade_at_ms < LIVE_PULSE_MS && (

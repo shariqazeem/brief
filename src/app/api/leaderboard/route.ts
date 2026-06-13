@@ -177,7 +177,7 @@ async function aggregate(): Promise<LeaderboardResponse> {
       if (!id || policies.has(id)) continue;
       policies.set(id, {
         policy_id: id,
-        name: String(f.name ?? "Untitled trader"),
+        name: String(f.name ?? "Untitled operator"),
         owner: String(f.owner ?? ""),
         agent: String(f.agent ?? ""),
         budget_cap_sui: Number(BigInt(String(f.budget_cap ?? "0"))) / 1e9,
