@@ -236,6 +236,8 @@ export type TraderPersonality = {
   glyph: string;
   /** Two-or-three-word temperament — e.g. "Cool, careful, small". */
   temperament: string;
+  /** One-line operator descriptor for the "Choose Your Operator" cards. */
+  tagline: string;
   /** First-person one-sentence pitch — how the trader thinks about the
    *  market. Becomes the headline on the card AND part of the dashboard
    *  Narrator's opening beat. */
@@ -251,9 +253,10 @@ export type TraderPersonality = {
 export const TRADER_PERSONALITIES: TraderPersonality[] = [
   {
     strategy: "conservative",
-    label: "Conservative",
+    label: "Sentinel",
     glyph: "◇",
     temperament: "Cool, careful, small",
+    tagline: "Protects capital. Waits for certainty.",
     voice:
       "I keep your stake small. I sit out when MAs disagree or RSI is extreme.",
     blurb:
@@ -266,6 +269,7 @@ export const TRADER_PERSONALITIES: TraderPersonality[] = [
     label: "Momentum",
     glyph: "➤",
     temperament: "Trend-following, brave",
+    tagline: "Rides the trend. Acts with conviction.",
     voice:
       "I follow real price action — ROC and the short MA tell me where to lean.",
     blurb:
@@ -278,6 +282,7 @@ export const TRADER_PERSONALITIES: TraderPersonality[] = [
     label: "Contrarian",
     glyph: "⊘",
     temperament: "Mean-reverting, fades extremes",
+    tagline: "Fades the crowd. Buys fear, sells greed.",
     voice:
       "I fade overextended moves. If RSI(60m) is past 70 or under 30, I bet the snap-back.",
     blurb:
@@ -287,9 +292,10 @@ export const TRADER_PERSONALITIES: TraderPersonality[] = [
   },
   {
     strategy: "quant",
-    label: "Quant · Vol",
+    label: "Quant",
     glyph: "Σ",
     temperament: "Vol-surface arbitrage",
+    tagline: "Reads the volatility surface. Seeks edge.",
     voice:
       "I read DeepBook Predict's live SVI surface and bet only when my signal probability diverges from the market's by 5%+.",
     blurb:

@@ -22,9 +22,9 @@ const jetbrains = JetBrains_Mono({
 });
 
 const SITE_URL = "https://brief.xyz";
-const TITLE = "Brief — Adopt an AI trader. The chain holds the leash.";
+const TITLE = "Brief — Adopt an operator. The chain holds the leash.";
 const DESCRIPTION =
-  "Adopt an autonomous AI trader on Sui. It trades BTC binaries on DeepBook Predict and SUI/WAL/DEEP spot, streams every decision live, remembers on Walrus — and every bet is gated by a Move policy you can revoke in one tap.";
+  "Adopt an autonomous financial operator on Sui. It manages capital on DeepBook Predict + DeepBook v3 spot, thinks in public, remembers on Walrus — every action gated by a Move OperatorPolicy you can revoke in one tap.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

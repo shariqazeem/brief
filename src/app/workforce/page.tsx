@@ -526,45 +526,46 @@ function useDisconnectedSignals(): DisconnectedSignals {
   return s;
 }
 
-type SignalChip = { text: string; tone: "up" | "down" | "neutral" | "muted" };
+// What this operator would *likely* do right now, read live from the
+// public BTC signals feed. It's a hint (conditional phrasing in the UI),
+// not a promise — emerald = would act, amber = would preserve capital,
+// gray = still reading the tape. Mirrors each strategy's real gate.
+type OperatorStatus = "act" | "preserve" | "idle";
 
-function chipFor(strategy: StrategyId, s: DisconnectedSignals): SignalChip {
-  if (!s.loaded || s.spot == null) {
-    return { text: "warming up", tone: "muted" };
-  }
+function operatorStatus(
+  strategy: StrategyId,
+  s: DisconnectedSignals,
+): OperatorStatus {
+  if (!s.loaded || s.spot == null) return "idle";
   switch (strategy) {
     case "conservative": {
-      if (s.sma15 == null || s.sma60 == null)
-        return { text: "MAs warming up", tone: "muted" };
-      const up = s.sma15 >= s.sma60;
-      return {
-        text: up ? "SMA15 ≥ SMA60 · aligned up" : "SMA15 < SMA60 · aligned down",
-        tone: up ? "up" : "down",
-      };
+      if (s.sma15 == null || s.sma60 == null) return "idle";
+      const aligned = s.sma15 >= s.sma60;
+      const calm = s.rsi60 == null || (s.rsi60 <= 70 && s.rsi60 >= 30);
+      return aligned && calm ? "act" : "preserve";
     }
     case "momentum": {
-      if (s.roc30 == null) return { text: "ROC30m warming up", tone: "muted" };
-      const pct = s.roc30 * 100;
-      return {
-        text: `ROC30m ${pct >= 0 ? "+" : ""}${pct.toFixed(3)}%`,
-        tone: pct > 0.05 ? "up" : pct < -0.05 ? "down" : "neutral",
-      };
+      if (s.roc30 == null) return "idle";
+      return Math.abs(s.roc30) > 0.0005 ? "act" : "preserve";
     }
     case "contrarian": {
-      if (s.rsi60 == null) return { text: "RSI warming up", tone: "muted" };
-      const z =
-        s.rsi60 > 70 ? "overbought" : s.rsi60 < 30 ? "oversold" : "neutral";
-      return {
-        text: `RSI60 ${s.rsi60.toFixed(0)} · ${z}`,
-        tone: s.rsi60 > 70 ? "down" : s.rsi60 < 30 ? "up" : "neutral",
-      };
+      if (s.rsi60 == null) return "idle";
+      return s.rsi60 > 70 || s.rsi60 < 30 ? "act" : "preserve";
     }
-    case "quant":
-      return { text: "reads the live SVI surface", tone: "neutral" };
+    case "quant": {
+      if (s.roc30 == null && s.rsi60 == null) return "idle";
+      const lean =
+        (s.roc30 != null && Math.abs(s.roc30) > 0.0005) ||
+        (s.rsi60 != null && (s.rsi60 > 70 || s.rsi60 < 30));
+      return lean ? "act" : "preserve";
+    }
   }
 }
 
-function DisconnectedGallery({
+// The "Choose your operator" grid — four operators, 2×2, 24px gutter.
+// Used on the disconnected screen AND (when no preselect survives) right
+// after connect. Pure white cards, sharp corners, breathing glyph.
+function OperatorChoiceGrid({
   picked,
   onPick,
 }: {
@@ -573,12 +574,12 @@ function DisconnectedGallery({
 }) {
   const signals = useDisconnectedSignals();
   return (
-    <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="mt-10 grid gap-6 sm:grid-cols-2">
       {TRADER_PERSONALITIES.map((p, i) => (
-        <DisconnectedCard
+        <OperatorChoiceCard
           key={p.strategy}
           personality={p}
-          chip={chipFor(p.strategy, signals)}
+          status={operatorStatus(p.strategy, signals)}
           active={picked === p.strategy}
           index={i}
           onPick={() => onPick(p.strategy)}
@@ -588,77 +589,79 @@ function DisconnectedGallery({
   );
 }
 
-function DisconnectedCard({
+function OperatorChoiceCard({
   personality,
-  chip,
+  status,
   active,
   index,
   onPick,
 }: {
   personality: TraderPersonality;
-  chip: SignalChip;
+  status: OperatorStatus;
   active: boolean;
   index: number;
   onPick: () => void;
 }) {
-  const chipClass =
-    chip.tone === "up"
-      ? "border-emerald-600/40 bg-emerald-50/70 text-emerald-800"
-      : chip.tone === "down"
-        ? "border-red-600/40 bg-red-50/70 text-red-800"
-        : chip.tone === "neutral"
-          ? "border-line bg-bg-elev text-ink-2"
-          : "border-line bg-bg-elev-2/50 text-muted";
+  const dot =
+    status === "act"
+      ? "bg-emerald-500"
+      : status === "preserve"
+        ? "bg-amber-500"
+        : "bg-[#C7C7CC]";
+  const word =
+    status === "act"
+      ? "would act"
+      : status === "preserve"
+        ? "would hold"
+        : "reading tape";
   return (
     <button
       type="button"
       onClick={onPick}
       aria-pressed={active}
+      style={{
+        borderLeft: active ? "3px solid #10B981" : "3px solid transparent",
+        animationDelay: `${index * 70}ms`,
+      }}
       className={[
-        "group flex flex-col items-start gap-3 border-2 bg-bg-elev px-4 py-5 text-left transition-all duration-200 animate-fade-up",
-        "hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
-        active ? "border-ink" : "border-line hover:border-ink",
+        "group flex min-h-[184px] flex-col bg-bg-elev p-6 text-left shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-all duration-200 animate-fade-up",
+        "hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(0,0,0,0.08)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
       ].join(" ")}
-      style={{ animationDelay: `${index * 70}ms` }}
     >
-      <div className="flex w-full items-start justify-between">
-        <span className="font-sans text-[34px] leading-none text-ink" aria-hidden>
-          {personality.glyph}
-        </span>
-        {active && (
-          <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-emerald-700">
-            selected ✓
-          </span>
-        )}
-      </div>
-      <div>
-        <h3 className="font-sans text-[17px] font-medium tracking-tight text-ink">
-          {personality.label}
-        </h3>
-        <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
-          {personality.temperament}
-        </p>
-      </div>
       <span
-        className={`inline-flex items-center gap-1.5 border px-2 py-1 font-mono text-[9.5px] uppercase tracking-[0.12em] tabular-nums ${chipClass}`}
+        className="op-glyph font-sans text-[48px] leading-none text-ink"
+        aria-hidden
       >
+        {personality.glyph}
+      </span>
+      <h3 className="mt-5 font-sans text-[20px] font-medium tracking-tight text-ink">
+        {personality.label}
+      </h3>
+      <p className="mt-1 text-[13.5px] leading-snug text-ink-2">
+        {personality.tagline}
+      </p>
+      <div className="mt-auto flex items-center justify-between pt-5">
         <span
-          aria-hidden
-          className={`inline-block h-1 w-1 rounded-full ${
-            chip.tone === "up"
-              ? "bg-emerald-600"
-              : chip.tone === "down"
-                ? "bg-red-600"
-                : chip.tone === "neutral"
-                  ? "bg-sui"
-                  : "bg-muted-2"
-          }`}
-        />
-        {chip.text}
-      </span>
-      <span className="mt-auto font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted transition-colors group-hover:text-ink">
-        {active ? "ready — connect to adopt" : "choose →"}
-      </span>
+          className={[
+            "font-mono text-[9.5px] uppercase tracking-[0.22em] transition-colors",
+            active ? "text-emerald-700" : "text-muted group-hover:text-ink",
+          ].join(" ")}
+        >
+          {active ? "selected — adopt below" : "select →"}
+        </span>
+        <span
+          className="inline-flex items-center gap-1.5"
+          title={`live signal read · ${word}`}
+        >
+          <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted">
+            {word}
+          </span>
+          <span
+            aria-hidden
+            className={`inline-block h-1.5 w-1.5 rounded-full ${dot} ${status === "act" ? "v2-core" : ""}`}
+          />
+        </span>
+      </div>
     </button>
   );
 }
@@ -680,27 +683,27 @@ function Disconnected() {
           Brief · live on Sui testnet
         </p>
         <h1 className="mt-4 font-sans text-4xl font-medium tracking-tightest sm:text-5xl">
-          Adopt an AI trader.
+          Choose your operator.
         </h1>
         <p className="mt-4 max-w-prose text-[16px] leading-relaxed text-ink-2 sm:text-lg">
-          Pick a personality. It trades on chain, bounded by a Move policy
-          you can revoke in one tap.{" "}
+          Four temperaments, one leash. Pick one — it trades on chain,
+          bounded by a Move policy you revoke in one tap.{" "}
           <Link
             href="/leaderboard"
             className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
           >
-            See whose trader is winning →
+            See whose operator is winning →
           </Link>
         </p>
 
-        {/* Personality-first hero — pick before you connect; the choice
+        {/* Operator-first hero — choose before you connect; the choice
             carries through the wallet step via sessionStorage. */}
-        <DisconnectedGallery picked={picked} onPick={onPick} />
+        <OperatorChoiceGrid picked={picked} onPick={onPick} />
 
         {pickedLabel && (
-          <p className="mt-5 inline-flex items-center gap-2 border border-emerald-600/40 bg-emerald-50/70 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-800 animate-land-in">
-            <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600" />
-            {pickedLabel} selected — connect a wallet to adopt
+          <p className="mt-6 inline-flex items-center gap-2 border-l-[3px] border-emerald-500 bg-emerald-50/70 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-800 animate-land-in">
+            <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            Connect a wallet to adopt {pickedLabel}
           </p>
         )}
 
@@ -971,6 +974,9 @@ function titleFromCapability(cap: string, kind: "posted" | "approved"): string {
 
 function Connected({ address }: { address: string }) {
   const [activation, setActivation] = useState<ActivationResult | null>(null);
+  // Gate the dashboard behind a brief "your operator is live" ceremony
+  // the first time a leash mints, then hand off to the live dashboard.
+  const [booted, setBooted] = useState(false);
   // Default surface for Phase-3 is the Trader product. The workforce
   // engine + UI are preserved verbatim and accessible via ?legacy=1 —
   // keep the path live so we can re-enable it instantly.
@@ -1005,15 +1011,84 @@ function Connected({ address }: { address: string }) {
     );
   }
   if (activation.traderStrategy) {
+    if (!booted) {
+      return (
+        <BootCeremony activation={activation} onDone={() => setBooted(true)} />
+      );
+    }
     return (
       <TraderDashboard
         activation={activation}
-        onReset={() => setActivation(null)}
+        onReset={() => {
+          setBooted(false);
+          setActivation(null);
+        }}
       />
     );
   }
   return (
     <LiveConsole activation={activation} onReset={() => setActivation(null)} />
+  );
+}
+
+// Boot ceremony — the single beat between "leash minted" and the live
+// dashboard. The operator's card settles (scale 1.02 → 1), its glyph
+// turns emerald, and "your operator is live" fades in. ~1.7s, then the
+// dashboard takes over and runs its own first-decision sequence.
+function BootCeremony({
+  activation,
+  onDone,
+}: {
+  activation: ActivationResult;
+  onDone: () => void;
+}) {
+  const personality = activation.traderStrategy
+    ? personalityById(activation.traderStrategy) ?? null
+    : null;
+  const name = activation.traderName || activation.name;
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    const t1 = setTimeout(() => setLive(true), 80);
+    const t2 = setTimeout(onDone, 1700);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [onDone]);
+  return (
+    <section className="mx-auto flex max-w-page flex-col items-center justify-center px-6 py-32 text-center sm:px-10">
+      <div
+        className="boot-settle flex w-full max-w-sm flex-col items-center bg-bg-elev px-8 py-12 shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
+        style={{ borderTop: "3px solid #10B981" }}
+      >
+        <span
+          className="font-sans text-[64px] leading-none transition-colors duration-700"
+          style={{ color: live ? "#10B981" : "#111111" }}
+          aria-hidden
+        >
+          {personality?.glyph ?? "◇"}
+        </span>
+        <p className="mt-6 font-sans text-[24px] font-medium tracking-tight text-ink">
+          {name}
+        </p>
+        <p
+          className={[
+            "mt-3 font-mono text-[11px] uppercase tracking-[0.32em] text-emerald-700 transition-opacity duration-500",
+            live ? "opacity-100" : "opacity-0",
+          ].join(" ")}
+        >
+          Your operator is live
+        </p>
+        <p
+          className={[
+            "mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-muted transition-opacity duration-700",
+            live ? "opacity-100" : "opacity-0",
+          ].join(" ")}
+        >
+          Listening for its first decision…
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -1027,18 +1102,18 @@ function TraderIntro() {
   return (
     <header className="max-w-3xl">
       <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-        Brief · adopt an AI trader
+        Brief · adopt an operator
       </p>
       <h1 className="mt-3 font-sans text-[28px] font-medium leading-[1.12] tracking-tightest text-ink sm:text-[40px]">
-        Adopt a trader.{" "}
+        Name it, set the budget, release it.{" "}
         <span className="text-ink-2">
-          Pick a personality, give it a name, set how much it can bet on
-          your behalf — and watch it win or lose on chain. You hold the
-          leash, the blockchain enforces it.
+          Three steps to put an autonomous operator on chain — then watch
+          it win or lose. You hold the leash, the blockchain enforces it.
         </span>
       </h1>
       <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-muted">
-        Each trader takes BTC up/down positions on DeepBook Predict
+        Your operator takes BTC up/down positions on DeepBook Predict —
+        and, if you open the floor, directional SUI/WAL/DEEP spot — all
         within a chain-enforced budget. One signature adopts. One tap
         yanks the leash.
       </p>
@@ -1231,121 +1306,58 @@ function TraderGallery({
   onActivated: (a: ActivationResult) => void;
 }) {
   const { phase, adopt } = useTraderLauncher({ address, onActivated });
-  // Pre-open the panel on the personality the user chose on the
-  // disconnected screen (survives the wallet-connect step via
-  // sessionStorage); takePreselectedStrategy() also clears it.
+  // Open straight onto the operator the user chose on the disconnected
+  // screen (survives the wallet-connect step via sessionStorage);
+  // takePreselectedStrategy() also clears it.
   const [pickedId, setPickedId] = useState<StrategyId | null>(() =>
     takePreselectedStrategy(),
   );
   const picked = pickedId ? personalityById(pickedId) ?? null : null;
   const panelRef = useRef<HTMLDivElement | null>(null);
-  // If we arrived with a preselect, ease the adoption panel into view.
+  // If we arrived with a preselect, ease the adoption flow into view.
   useEffect(() => {
     if (pickedId && panelRef.current) {
-      panelRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      panelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     // once, on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <section className="mt-10">
-      <div className="flex items-end justify-between gap-4">
-        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-          Pick a personality
-        </p>
-        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-          {TRADER_PERSONALITIES.length} traders · one signature
-        </p>
-      </div>
-
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
-        {TRADER_PERSONALITIES.map((p) => (
-          <TraderPersonalityCard
-            key={p.strategy}
-            personality={p}
-            active={pickedId === p.strategy}
-            onPick={() => setPickedId(p.strategy)}
-          />
-        ))}
-      </div>
-
-      {picked && (
-        <div ref={panelRef}>
-          <TraderAdoptionPanel
-            personality={picked}
-            phase={phase}
-            onAdopt={(name, budgetSui, markets) =>
-              adopt({ personality: picked, traderName: name, budgetSui, markets })
-            }
-            onCancel={() => setPickedId(null)}
-          />
-        </div>
-      )}
-
-      <ControlReassurance />
-    </section>
-  );
-}
-
-function TraderPersonalityCard({
-  personality,
-  active,
-  onPick,
-}: {
-  personality: TraderPersonality;
-  active: boolean;
-  onPick: () => void;
-}) {
-  return (
-    <article
-      className={[
-        "flex flex-col border-2 bg-bg-elev transition-colors",
-        active ? "border-ink" : "border-line hover:border-line-strong",
-      ].join(" ")}
-    >
-      <div className="flex flex-1 flex-col gap-4 px-5 py-6 sm:px-6">
-        <div className="flex items-start justify-between">
-          <span
-            className="font-sans text-[40px] leading-none text-ink"
-            aria-hidden
-          >
-            {personality.glyph}
-          </span>
-          <span className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
-            {personality.temperament}
-          </span>
-        </div>
-        <div className="space-y-2">
-          <h3 className="font-sans text-[20px] font-medium tracking-tight text-ink">
-            {personality.label}
-          </h3>
-          <p className="text-[14px] italic leading-snug text-ink-2">
-            &ldquo;{personality.voice}&rdquo;
-          </p>
-        </div>
-        <p className="text-[12.5px] leading-relaxed text-muted">
-          {personality.blurb}
-        </p>
-        <p className="mt-auto font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
-          {personality.cadence}
-        </p>
-      </div>
-      <div className="flex items-center justify-end border-t border-line bg-bg-elev-2/40 px-5 py-3 sm:px-6">
+  // Operator already chosen → straight to the 3-step adoption. No
+  // re-picking: the disconnected grid already made the choice.
+  if (picked) {
+    return (
+      <section className="mt-10" ref={panelRef}>
         <button
           type="button"
-          onClick={onPick}
-          className={[
-            "inline-flex items-center gap-2 border-2 px-5 py-2 font-mono text-[10.5px] uppercase tracking-[0.3em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
-            active
-              ? "border-ink bg-ink text-bg"
-              : "border-ink text-ink hover:bg-ink hover:text-bg",
-          ].join(" ")}
+          onClick={() => setPickedId(null)}
+          className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink"
         >
-          {active ? "Selected ✓" : `Adopt ${personality.label} →`}
+          ← Choose a different operator
         </button>
-      </div>
-    </article>
+        <TraderAdoptionPanel
+          personality={picked}
+          phase={phase}
+          onAdopt={(name, budgetSui, markets) =>
+            adopt({ personality: picked, traderName: name, budgetSui, markets })
+          }
+          onCancel={() => setPickedId(null)}
+        />
+        <ControlReassurance />
+      </section>
+    );
+  }
+
+  // Connected without a preselect (rare) → show the same choice grid; a
+  // click drops straight into the 3-step adoption above.
+  return (
+    <section className="mt-10">
+      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+        Choose your operator
+      </p>
+      <OperatorChoiceGrid picked={pickedId} onPick={setPickedId} />
+      <ControlReassurance />
+    </section>
   );
 }
 
@@ -1388,13 +1400,19 @@ function TraderAdoptionPanel({
   onAdopt: (name: string, budgetSui: number, markets: TraderMarketBundleId) => void;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState("");
-  // Floor at 1 SUI so every personality can place at least one live bet
+  // Pre-fill a name in the operator's voice ("Sentinel-3") — editable.
+  // The subtree is client-only (WalletBoundary ssr:false), so a random
+  // seed never causes a hydration mismatch.
+  const [name, setName] = useState(
+    () => `${personality.label}-${Math.floor(Math.random() * 9) + 1}`,
+  );
+  // Floor at 1 SUI so every operator can place at least one live bet
   // (each $1 stake records 1 SUI against the leash).
   const [budgetSui, setBudgetSui] = useState(
     Math.max(1, personality.defaultBudgetSui),
   );
   const [markets, setMarkets] = useState<TraderMarketBundleId>("btc_only");
+  const [step, setStep] = useState(0);
   const selectedBundle =
     MARKET_BUNDLES.find((b) => b.id === markets) ?? MARKET_BUNDLES[0]!;
   const typicalQty = TYPICAL_QTY_BY_STRATEGY[personality.strategy] ?? 1;
@@ -1406,133 +1424,129 @@ function TraderAdoptionPanel({
     phase.kind === "dispatching";
   const errMsg = phase.kind === "error" ? phase.msg : null;
   const nameReady = name.trim().length > 0;
+  const trimmedName = name.trim() || personality.label;
+  const STEPS = ["Name & Budget", "Markets", "Release"];
 
   return (
-    <div className="relative mt-6 animate-fade-up overflow-hidden border-2 border-ink bg-bg-elev">
-      <span
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/70 animate-operator-pulse-line"
-        aria-hidden
-      />
-      {/* Step rail — the single panel reads as a 4-beat flow. Done
-          beats get an emerald check; "Sign" lights once a name exists. */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-line px-6 py-3.5 sm:px-8">
-        {[
-          { n: "01", label: "Name", done: nameReady, ready: false },
-          { n: "02", label: "Leash", done: true, ready: false },
-          { n: "03", label: "Markets", done: true, ready: false },
-          { n: "04", label: "Sign", done: false, ready: nameReady },
-        ].map((s, i) => (
-          <div
-            key={s.n}
-            className="flex items-center gap-2 animate-fade-up"
-            style={{ animationDelay: `${i * 60}ms` }}
-          >
-            <span
-              className={[
-                "inline-flex h-5 w-5 items-center justify-center border font-mono text-[9px] tabular-nums",
-                s.done
-                  ? "border-emerald-600 text-emerald-700"
-                  : s.ready
-                    ? "border-ink text-ink"
-                    : "border-line text-muted",
-              ].join(" ")}
-            >
-              {s.done ? "✓" : s.n}
-            </span>
-            <span
-              className={[
-                "font-mono text-[9.5px] uppercase tracking-[0.22em]",
-                s.done || s.ready ? "text-ink-2" : "text-muted",
-              ].join(" ")}
-            >
-              {s.label}
-            </span>
-          </div>
-        ))}
+    <div className="relative mt-5 animate-fade-up bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+      {/* Step rail — three beats: 01 Name & Budget · 02 Markets · 03 Release.
+          Done beats turn emerald; the current beat is ink. */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line px-6 py-4 sm:px-8">
+        {STEPS.map((label, i) => {
+          const done = i < step;
+          const current = i === step;
+          return (
+            <div key={label} className="flex items-center gap-2">
+              <span
+                className={[
+                  "inline-flex h-5 w-5 items-center justify-center font-mono text-[9px] tabular-nums transition-colors",
+                  done
+                    ? "bg-emerald-500 text-white"
+                    : current
+                      ? "bg-ink text-bg"
+                      : "border border-line text-muted",
+                ].join(" ")}
+              >
+                {done ? "✓" : `0${i + 1}`}
+              </span>
+              <span
+                className={[
+                  "font-mono text-[9.5px] uppercase tracking-[0.22em] transition-colors",
+                  current ? "text-ink" : done ? "text-ink-2" : "text-muted",
+                ].join(" ")}
+              >
+                {label}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
-      <div className="grid gap-6 px-6 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.25fr_0.85fr]">
-        {/* LEFT — the form (name · leash · markets) */}
-        <div className="space-y-7">
-          <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-              Name your trader
-            </p>
-            <label className="mt-2 block">
-              <span className="sr-only">Trader name</span>
+      <div className="px-6 py-7 sm:px-8 sm:py-8">
+        {/* STEP 1 — Name & Budget */}
+        {step === 0 && (
+          <div className="space-y-8 animate-fade-up">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+                Name your operator
+              </p>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={defaultNameSuggestion(personality.strategy)}
+                placeholder={`${personality.label}-1`}
                 maxLength={32}
-                className="w-full border-2 border-line bg-bg-elev px-4 py-3 text-[18px] font-medium tracking-tight outline-none transition-colors focus:border-ink focus-visible:border-ink"
+                className="mt-2 w-full border-b-2 border-line bg-transparent px-0 py-2 text-[26px] font-medium tracking-tight text-ink outline-none transition-colors focus:border-ink"
               />
-            </label>
-            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-              {nameReady
-                ? `That's ${name.trim()}, your ${personality.label.toLowerCase()} trader.`
-                : `Give them a name you'll cheer for. Up to 32 characters.`}
-            </p>
-          </div>
-
-          <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-              Set the leash
-            </p>
-            <div className="mt-2 flex items-baseline gap-3">
-              <span className="font-sans text-[32px] font-medium tabular-nums tracking-tight text-ink">
-                {budgetSui.toFixed(2)}
-              </span>
-              <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
-                SUI to bet with
-              </span>
+              <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+                {personality.tagline}
+              </p>
             </div>
-            <input
-              type="range"
-              min={1}
-              max={5}
-              step={0.1}
-              value={budgetSui}
-              onChange={(e) => setBudgetSui(Number(e.target.value))}
-              className="mt-3 w-full accent-ink"
-            />
-            <p className="mt-1.5 font-mono text-[10px] leading-relaxed tracking-[0.04em] text-muted">
-              Each $1 the trader stakes records 1 SUI against the leash —
-              1 SUI ≈ one bet&apos;s headroom.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {TRADER_BUDGET_PRESETS_SUI.map((b) => (
-                <button
-                  key={b}
-                  type="button"
-                  onClick={() => setBudgetSui(b)}
-                  className={[
-                    "border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink",
-                    budgetSui === b
-                      ? "border-ink text-ink"
-                      : "border-line text-muted hover:text-ink",
-                  ].join(" ")}
-                >
-                  {b} SUI
-                </button>
-              ))}
-            </div>
-            <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
-              <span className="text-ink">When the budget runs out</span>, the
-              chain itself stops the next bet — even if {name.trim() || "the trader"} wants to keep going. You
-              also hold a one-tap kill switch.
-            </p>
-          </div>
 
-          <div>
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+                Set the budget
+              </p>
+              <div className="mt-2 flex items-baseline gap-3">
+                <span className="font-mono text-[34px] font-medium tabular-nums tracking-tight text-ink">
+                  {budgetSui.toFixed(2)}
+                </span>
+                <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
+                  SUI to bet with
+                </span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={5}
+                step={0.1}
+                value={budgetSui}
+                onChange={(e) => setBudgetSui(Number(e.target.value))}
+                className="mt-3 w-full accent-emerald-500"
+              />
+              <div className="mt-3 flex flex-wrap gap-2">
+                {TRADER_BUDGET_PRESETS_SUI.map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => setBudgetSui(b)}
+                    className={[
+                      "px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ink",
+                      budgetSui === b
+                        ? "bg-ink text-bg"
+                        : "border border-line text-muted hover:text-ink",
+                    ].join(" ")}
+                  >
+                    {b} SUI
+                  </button>
+                ))}
+              </div>
+              <p className="mt-3 max-w-prose text-[13px] leading-relaxed text-ink-2">
+                Each $1 {trimmedName} stakes records 1 SUI against the leash —
+                so this is roughly{" "}
+                <span className="text-ink">
+                  {typicalBets >= 1
+                    ? `${typicalBets} full-size bet${typicalBets === 1 ? "" : "s"}`
+                    : "a partial bet"}
+                </span>
+                . When it runs out, the chain itself stops the next bet — even
+                if {trimmedName} wants to keep going.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2 — Markets */}
+        {step === 1 && (
+          <div className="animate-fade-up">
             <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-              Which markets?
+              Which markets can {trimmedName} play?
             </p>
-            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-              One leash governs every asset {name.trim() || personality.label} plays.
+            <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-ink-2">
+              One leash governs every asset. Keep it tight to BTC, or open the
+              whole Sui floor.
             </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
               {MARKET_BUNDLES.map((b) => {
                 const active = markets === b.id;
                 return (
@@ -1540,132 +1554,156 @@ function TraderAdoptionPanel({
                     key={b.id}
                     type="button"
                     onClick={() => setMarkets(b.id)}
-                    className={[
-                      "flex flex-col gap-1.5 border-2 px-3.5 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
-                      active
-                        ? "border-ink bg-bg-elev"
-                        : "border-line hover:border-line-strong",
-                    ].join(" ")}
                     aria-pressed={active}
+                    style={{
+                      borderLeft: active
+                        ? "3px solid #10B981"
+                        : "3px solid transparent",
+                    }}
+                    className="flex flex-col gap-2 bg-bg-elev p-5 text-left shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(0,0,0,0.08)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
                   >
-                    <span className="font-sans text-[14.5px] font-medium tracking-tight text-ink">
+                    <span className="font-sans text-[16px] font-medium tracking-tight text-ink">
                       {b.label}
                     </span>
-                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+                    <span className="font-mono text-[9.5px] uppercase tracking-[0.2em] text-muted">
                       {b.assets.join(" · ")}
                     </span>
-                    <span className="text-[12px] leading-snug text-muted">
+                    <span className="text-[12.5px] leading-snug text-ink-2">
                       {b.blurb}
+                    </span>
+                    <span
+                      className={[
+                        "mt-1 font-mono text-[9px] uppercase tracking-[0.22em]",
+                        active ? "text-emerald-700" : "text-muted",
+                      ].join(" ")}
+                    >
+                      {active ? "selected" : "choose"}
                     </span>
                   </button>
                 );
               })}
             </div>
           </div>
-        </div>
+        )}
 
-        {/* RIGHT — the OperatorPolicy preview. This card IS the product:
-            it's the leash, drawn live from the choices above. Every field
-            is a real policy parameter the mint will set on chain. */}
-        <aside className="relative self-start overflow-hidden border-2 border-ink bg-bg-elev">
-          <span
-            className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/70 animate-operator-pulse-line"
-            aria-hidden
-          />
-          <div className="px-5 py-5">
-            <p className="font-mono text-[9.5px] uppercase tracking-[0.32em] text-muted">
-              Your OperatorPolicy · preview
+        {/* STEP 3 — Release. The summary card IS the OperatorPolicy that
+            mints — every field is a real on-chain parameter. */}
+        {step === 2 && (
+          <div className="animate-fade-up">
+            <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+              Release {trimmedName}
             </p>
-            <div className="mt-3 flex items-center gap-3">
+            <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-ink-2">
+              One signature mints the leash below, sets the budget, and
+              dispatches {trimmedName}&apos;s first decision. This card{" "}
+              <span className="text-ink">is</span> the policy — every field is
+              enforced on chain, not on our server.
+            </p>
+
+            <div className="relative mt-5 overflow-hidden bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
               <span
-                className="font-sans text-[30px] leading-none text-ink"
+                className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500 animate-operator-pulse-line"
                 aria-hidden
-              >
-                {personality.glyph}
-              </span>
-              <div className="min-w-0">
-                <p className="truncate font-sans text-[17px] font-medium tracking-tight text-ink">
-                  {name.trim() || defaultNameSuggestion(personality.strategy)}
-                </p>
-                <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
-                  {personality.label}
+              />
+              <div className="px-6 py-6">
+                <div className="flex items-center gap-3">
+                  <span
+                    className="font-sans text-[34px] leading-none text-ink"
+                    aria-hidden
+                  >
+                    {personality.glyph}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate font-sans text-[19px] font-medium tracking-tight text-ink">
+                      {trimmedName}
+                    </p>
+                    <p className="truncate font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+                      {personality.label} · {personality.tagline}
+                    </p>
+                  </div>
+                </div>
+                <dl className="mt-5 grid gap-x-8 gap-y-3 border-t border-line pt-4 sm:grid-cols-2">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                      Budget cap
+                    </dt>
+                    <dd className="font-mono text-[15px] font-medium tabular-nums tracking-tight text-ink">
+                      {budgetSui.toFixed(2)} SUI
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                      Venues
+                    </dt>
+                    <dd className="flex flex-wrap justify-end gap-1">
+                      {selectedBundle.assets.map((a) => (
+                        <span
+                          key={a}
+                          className="border border-line px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-ink-2"
+                        >
+                          {a}
+                        </span>
+                      ))}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                      Kill switch
+                    </dt>
+                    <dd className="font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-700">
+                      revocable any time
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                      Headroom
+                    </dt>
+                    <dd
+                      className={`font-mono text-[10px] uppercase tracking-[0.18em] ${
+                        typicalBets >= 1 ? "text-ink-2" : "text-amber-700"
+                      }`}
+                    >
+                      {typicalBets >= 1
+                        ? `~${typicalBets} bet${typicalBets === 1 ? "" : "s"} at typical size`
+                        : `raise to ${typicalQty} SUI for full size`}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="mt-4 border-t border-line pt-3 font-mono text-[9px] uppercase leading-relaxed tracking-[0.18em] text-muted">
+                  Expires in {TRADER_EXPIRY_HOURS}h · enforced by Move on chain
                 </p>
               </div>
             </div>
-            <dl className="mt-4 space-y-3 border-t border-line pt-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
-                  Budget cap
-                </dt>
-                <dd className="font-sans text-[18px] font-medium tabular-nums tracking-tight text-ink">
-                  {budgetSui.toFixed(2)} SUI
-                </dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
-                  Venues
-                </dt>
-                <dd className="flex flex-wrap justify-end gap-1">
-                  {selectedBundle.assets.map((a) => (
-                    <span
-                      key={a}
-                      className="border border-line px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-ink-2"
-                    >
-                      {a}
-                    </span>
-                  ))}
-                </dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
-                  Kill switch
-                </dt>
-                <dd className="font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-800">
-                  revocable any time
-                </dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
-                  Headroom
-                </dt>
-                <dd
-                  className={`font-mono text-[10px] uppercase tracking-[0.18em] ${
-                    typicalBets >= 1 ? "text-ink-2" : "text-amber-700"
-                  }`}
-                >
-                  {typicalBets >= 1
-                    ? `~${typicalBets} bet${typicalBets === 1 ? "" : "s"} at typical size`
-                    : `raise to ${typicalQty} SUI for full size`}
-                </dd>
-              </div>
-            </dl>
-            <p className="mt-4 border-t border-line pt-3 font-mono text-[9px] uppercase leading-relaxed tracking-[0.18em] text-muted">
-              Enforced by Move · on chain · not our server
-            </p>
           </div>
-        </aside>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-bg-elev-2/50 px-6 py-5 sm:px-8">
-        <p className="max-w-[26rem] font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
-          {busy
-            ? phaseLabel(phase)
-            : `One signature mints the leash · sets the budget · dispatches ${name.trim() || personality.label}'s first bet`}
-        </p>
-        <div className="flex items-center gap-3">
+      {/* Footer — Back · Continue / Adopt. Adoption is the emerald "go
+          live" moment; navigation stays ink. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-bg px-6 py-5 sm:px-8">
+        <button
+          type="button"
+          onClick={step === 0 ? onCancel : () => setStep((s) => s - 1)}
+          disabled={busy}
+          className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink focus-visible:text-ink disabled:opacity-50"
+        >
+          {step === 0 ? "← Change operator" : "← Back"}
+        </button>
+        {step < 2 ? (
           <button
             type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink focus-visible:text-ink disabled:opacity-50"
+            onClick={() => setStep((s) => Math.min(2, s + 1))}
+            disabled={step === 0 && !nameReady}
+            className="inline-flex items-center gap-2 bg-ink px-6 py-3 font-mono text-[11px] uppercase tracking-[0.3em] text-bg transition-colors hover:bg-ink-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel
+            Continue →
           </button>
+        ) : (
           <button
             type="button"
             onClick={() => onAdopt(name, budgetSui, markets)}
-            disabled={busy}
-            className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-6 py-3 font-mono text-[11px] uppercase tracking-[0.3em] text-bg transition-colors hover:bg-ink-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={busy || !nameReady}
+            className="inline-flex items-center gap-2 bg-emerald-500 px-6 py-3 font-mono text-[11px] uppercase tracking-[0.3em] text-white transition-colors hover:bg-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy ? (
               <>
@@ -1673,12 +1711,10 @@ function TraderAdoptionPanel({
                 {phaseLabel(phase)}
               </>
             ) : (
-              <>
-                Adopt {name.trim() || personality.label} →
-              </>
+              <>Adopt {trimmedName} →</>
             )}
           </button>
-        </div>
+        )}
       </div>
       {errMsg && (
         <p className="border-t border-red-200 bg-red-50 px-6 py-3 font-mono text-[11px] text-red-700 sm:px-8">
@@ -1702,12 +1738,6 @@ function phaseLabel(p: AdoptPhase): string {
     default:
       return "Adopt";
   }
-}
-
-function defaultNameSuggestion(s: StrategyId): string {
-  if (s === "conservative") return "Atlas";
-  if (s === "momentum") return "Bolt";
-  return "Vega";
 }
 
 // =============================================================================
