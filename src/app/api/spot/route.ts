@@ -24,6 +24,33 @@ const READ_SENDER =
 const CACHE_TTL_MS = 4_000;
 
 const cache = new Map<string, { generatedAtMs: number; spotRaw: string }>();
+// Per-oracle single-flight: concurrent cache-miss reads share ONE
+// devInspect to the fullnode instead of each firing their own (which
+// rate-limits the node under 100 VUs). Keyed by oracle id.
+const inflight = new Map<string, Promise<string>>();
+
+function readSpotOnce(oracleId: string): Promise<string> {
+  const existing = inflight.get(oracleId);
+  if (existing) return existing;
+  const p = (async () => {
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${PREDICT_PACKAGE}::oracle::spot_price`,
+      arguments: [tx.object(oracleId)],
+    });
+    const r = await sui().devInspectTransactionBlock({
+      sender: READ_SENDER,
+      transactionBlock: tx,
+    });
+    const ret = r.results?.[0]?.returnValues?.[0];
+    if (!ret) throw new Error("no return value");
+    const spotRaw = BigInt(bcs.U64.parse(Uint8Array.from(ret[0]))).toString();
+    cache.set(oracleId, { generatedAtMs: Date.now(), spotRaw });
+    return spotRaw;
+  })().finally(() => inflight.delete(oracleId));
+  inflight.set(oracleId, p);
+  return p;
+}
 
 let client: SuiJsonRpcClient | null = null;
 function sui(): SuiJsonRpcClient {
@@ -60,40 +87,32 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Stale-while-revalidate: if we have ANY prior value, serve it now and
+  // refresh once in the background — no caller blocks on the fullnode.
+  if (hit) {
+    void readSpotOnce(oracleId).catch(() => {});
+    return NextResponse.json({
+      ok: true,
+      oracle_id: oracleId,
+      spot_raw: hit.spotRaw,
+      generated_at_ms: hit.generatedAtMs,
+      cached: true,
+      stale: true,
+    });
+  }
+
   try {
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${PREDICT_PACKAGE}::oracle::spot_price`,
-      arguments: [tx.object(oracleId)],
-    });
-    const r = await sui().devInspectTransactionBlock({
-      sender: READ_SENDER,
-      transactionBlock: tx,
-    });
-    const ret = r.results?.[0]?.returnValues?.[0];
-    if (!ret) throw new Error("no return value");
-    const spotRaw = BigInt(bcs.U64.parse(Uint8Array.from(ret[0]))).toString();
-    const generatedAtMs = Date.now();
-    cache.set(oracleId, { generatedAtMs, spotRaw });
+    const spotRaw = await readSpotOnce(oracleId);
     return NextResponse.json({
       ok: true,
       oracle_id: oracleId,
       spot_raw: spotRaw,
-      generated_at_ms: generatedAtMs,
+      generated_at_ms: cache.get(oracleId)?.generatedAtMs ?? Date.now(),
       cached: false,
     });
   } catch (e) {
-    // Serve stale over erroring — a 12s-old spot beats a dead panel.
-    if (hit) {
-      return NextResponse.json({
-        ok: true,
-        oracle_id: oracleId,
-        spot_raw: hit.spotRaw,
-        generated_at_ms: hit.generatedAtMs,
-        cached: true,
-        stale: true,
-      });
-    }
+    // Cold-start miss with a dead fullnode (any prior value is served
+    // stale above, so there's nothing to fall back to here).
     return NextResponse.json(
       { ok: false, error: String((e as Error)?.message ?? e).slice(0, 160) },
       { status: 502 },

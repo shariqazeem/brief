@@ -96,6 +96,24 @@ type LeaderboardResponse = {
 };
 
 let CACHE: { at: number; payload: LeaderboardResponse } | null = null;
+// Single-flight guard: one in-flight aggregation shared by all callers,
+// so a cache miss under load can't stampede the fullnode (100 concurrent
+// VUs were each recomputing the on-chain walk → 6s p95). Combined with
+// stale-while-revalidate below, no request ever blocks on aggregation
+// once a first result exists.
+let INFLIGHT: Promise<LeaderboardResponse> | null = null;
+function aggregateOnce(): Promise<LeaderboardResponse> {
+  if (INFLIGHT) return INFLIGHT;
+  INFLIGHT = aggregate()
+    .then((payload) => {
+      CACHE = { at: Date.now(), payload };
+      return payload;
+    })
+    .finally(() => {
+      INFLIGHT = null;
+    });
+  return INFLIGHT;
+}
 const CACHE_TTL_MS = 30_000;
 
 // Local helper: unwrap an Option<String> field which Sui returns as
@@ -397,29 +415,33 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(): Promise<Response> {
+  const headers = {
+    "Cache-Control": `public, max-age=${Math.floor(CACHE_TTL_MS / 1000)}`,
+  };
+  // Fresh cache → serve immediately.
   if (CACHE && Date.now() - CACHE.at < CACHE_TTL_MS) {
     return Response.json(CACHE.payload, {
-      headers: {
-        "Cache-Control": `public, max-age=${Math.floor(CACHE_TTL_MS / 1000)}`,
-        "X-Brief-Leaderboard": "cached",
-      },
+      headers: { ...headers, "X-Brief-Leaderboard": "cached" },
     });
   }
+  // Stale cache → serve it now, refresh once in the background. No
+  // caller waits on the (expensive) on-chain aggregation when we already
+  // have a slightly-old answer — the heart of surviving 100 concurrent.
+  if (CACHE) {
+    void aggregateOnce().catch(() => {});
+    return Response.json(CACHE.payload, {
+      headers: { ...headers, "X-Brief-Leaderboard": "stale-revalidating" },
+    });
+  }
+  // Cold start (no cache yet) → await the single shared aggregation.
   try {
-    const payload = await aggregate();
-    CACHE = { at: Date.now(), payload };
+    const payload = await aggregateOnce();
     return Response.json(payload, {
-      headers: {
-        "Cache-Control": `public, max-age=${Math.floor(CACHE_TTL_MS / 1000)}`,
-        "X-Brief-Leaderboard": "fresh",
-      },
+      headers: { ...headers, "X-Brief-Leaderboard": "fresh" },
     });
   } catch (e) {
     return Response.json(
-      {
-        ok: false,
-        error: e instanceof Error ? e.message : String(e),
-      },
+      { ok: false, error: e instanceof Error ? e.message : String(e) },
       { status: 502 },
     );
   }
