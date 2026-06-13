@@ -76,6 +76,8 @@ import {
   type IndexerOracle,
 } from "../lib/predict.js";
 import {
+  abstentionReason,
+  baselineParams,
   decide,
   STRATEGIES,
   type Direction,
@@ -241,6 +243,115 @@ async function saveJournal(
   const p = journalPath(policyId);
   await fs.mkdir(path.dirname(p), { recursive: true });
   await fs.writeFile(p, JSON.stringify(entries, null, 2));
+}
+
+// === Operator manifesto ===
+// Published once per policy to Walrus: the operator's declared identity,
+// operating parameters, and a pledge of what it will and won't do. It is
+// the operator's verifiable "contract" alongside the on-chain policy —
+// declared intent + code enforcement. Best-effort; never blocks a task.
+
+type ManifestState = {
+  policyId: string | null;
+  published: boolean;
+  blobId: string | null;
+  atMs: number;
+};
+
+function manifestPath(policyId: string | null): string {
+  const slug = policyId ? policyId.slice(2, 14) : "no-policy";
+  return path.join(".cursors", "trader-manifest", `${slug}.json`);
+}
+
+async function loadManifestState(
+  policyId: string | null,
+): Promise<ManifestState | null> {
+  try {
+    return JSON.parse(
+      await fs.readFile(manifestPath(policyId), "utf8"),
+    ) as ManifestState;
+  } catch {
+    return null;
+  }
+}
+
+async function saveManifestState(
+  policyId: string | null,
+  s: ManifestState,
+): Promise<void> {
+  const p = manifestPath(policyId);
+  await fs.mkdir(path.dirname(p), { recursive: true });
+  await fs.writeFile(p, JSON.stringify(s, null, 2));
+}
+
+function buildManifesto(spec: TraderSpec, strategy: StrategyId, asset: string) {
+  const params = baselineParams(strategy);
+  return {
+    schema: "brief.operator-manifesto.v1",
+    operatorId: spec.traderName ?? strategy,
+    personality: strategy,
+    policyId: spec.policyId ?? null,
+    firstAsset: asset,
+    adoptedAtMs: Date.now(),
+    operatingParameters: {
+      minEdgePct: Number((params.minEdge * 100).toFixed(2)),
+      momentumBandPct: Number((params.rocThreshold * 100).toFixed(3)),
+      rsiOverbought: params.rsiHigh,
+      rsiOversold: params.rsiLow,
+      maxQty: params.maxQty,
+    },
+    enforcedOnChain: {
+      policyObject: spec.policyId ?? null,
+      note: "budget cap, allowed venues, expiry and the revoke kill-switch are enforced on the OperatorPolicy object — not by this agent",
+    },
+    pledge:
+      "I act only when a real edge clears my threshold, and I preserve capital otherwise. " +
+      "Every decision and its reasoning is published to Walrus, verifiable by anyone. " +
+      "I never exceed the budget, venues, or expiry of my OperatorPolicy — the chain holds the leash, " +
+      "and my owner can revoke me in a single transaction.",
+  };
+}
+
+/** Publish the operator's manifesto to Walrus exactly once per policy.
+ *  Call ONLY when Walrus is reachable + funded (inside the walFunded
+ *  block). Fully best-effort — never throws, never blocks the task. */
+async function publishManifestoOnce(
+  ctx: AgentContext,
+  spec: TraderSpec,
+  strategy: StrategyId,
+  asset: string,
+  taskId: string,
+): Promise<void> {
+  try {
+    const prior = await loadManifestState(spec.policyId ?? null);
+    if (prior?.published) return;
+    const manifesto = buildManifesto(spec, strategy, asset);
+    const uploaded = await uploadToWalrus(
+      new TextEncoder().encode(JSON.stringify(manifesto, null, 2)),
+      ctx.client,
+      ctx.keypair,
+    );
+    console.log(
+      `[trader] walrus manifesto blob=${uploaded.blobId} (${uploaded.uploadMs}ms)`,
+    );
+    emitAgentEvent("walrus_uploaded", {
+      policyId: spec.policyId ?? null,
+      taskId,
+      asset,
+      data: { kind: "manifesto", blob_id: uploaded.blobId, upload_ms: uploaded.uploadMs },
+    });
+    await saveManifestState(spec.policyId ?? null, {
+      policyId: spec.policyId ?? null,
+      published: true,
+      blobId: uploaded.blobId,
+      atMs: Date.now(),
+    });
+  } catch (e) {
+    console.warn(
+      "[trader] manifesto publish skipped:",
+      String((e as Error)?.message ?? e).slice(0, 120),
+    );
+  }
 }
 
 /** Render the journal as human-readable markdown — what we upload to
@@ -691,6 +802,11 @@ async function handleTask(
   if (decision && spec.quantity && spec.quantity > 0) {
     decision.quantity = spec.quantity;
   }
+  // The honest per-strategy "capital preserved" reason, computed once when
+  // the strategy sat out (feeds both the decision event + simulated mode).
+  const abstainReason = decision
+    ? null
+    : abstentionReason(strategyId, signals, "BTC", spotUsdNow);
   if (decision) {
     console.log(
       `[trader] strategy=${strategyId} direction=${decision.direction} qty=${decision.quantity} conv=${decision.conviction.toFixed(2)} strike=$${strikeUsd.toFixed(2)} spot=$${spotUsdNow.toFixed(2)} expiry=${new Date(market.oracle.expiry).toISOString()}`,
@@ -711,7 +827,7 @@ async function handleTask(
       direction: decision?.direction ?? null,
       quantity: decision?.quantity ?? 0,
       conviction: decision?.conviction ?? 0,
-      reasoning: decision?.reasoning ?? null,
+      reasoning: decision?.reasoning ?? abstainReason,
       strike_usd: strikeUsd,
       spot_usd: spotUsdNow,
       market_p: surface ? impliedProbUp(surface, strikeUsd) : null,
@@ -732,12 +848,8 @@ async function handleTask(
   let mintDigest: string | null = null;
   let simReason: string | null = null;
   if (!decision) {
-    simReason =
-      `${strategyId} saw no edge this cycle: ` +
-      `ROC30m=${signals.roc_30m === null ? "n/a" : (signals.roc_30m * 100).toFixed(3) + "%"}, ` +
-      `RSI60m=${signals.rsi_60m === null ? "n/a" : signals.rsi_60m.toFixed(1)}, ` +
-      `SMA60m=${signals.sma_60m === null ? "n/a" : "$" + signals.sma_60m.toFixed(2)}. ` +
-      `Honest abstention — discipline beats forced bets.`;
+    // Honest, per-strategy "why I preserved capital" — cites live numbers.
+    simReason = abstainReason;
   } else if (!hasFunds) {
     simReason = `Manager dUSDC ${Number(managerDusdcBase) / DUSDC_BASE} < required ${decision.quantity} — top up the PredictManager to flip to live.`;
   } else if (!hasGate) {
@@ -958,6 +1070,10 @@ async function handleTask(
     } catch (e) {
       console.warn("[trader] walrus journal upload failed:", e);
     }
+
+    // First task for this policy → publish the operator's manifesto to
+    // Walrus (idempotent via the per-policy flag; never blocks the task).
+    await publishManifestoOnce(ctx, spec, strategyId, "BTC", notice.taskId);
   } else if (walrusEnabled()) {
     console.log(
       "[trader] walrus enabled but wallet has no WAL — inline only",
@@ -1280,7 +1396,7 @@ async function handleSpotTask(
   const notionalUsd = baseQty * midUsd;
   const reasoning =
     candidateDecision?.reasoning ??
-    `${strategyId} saw no edge this cycle on ${asset} at $${midUsd.toFixed(4)} — honest abstention.`;
+    abstentionReason(strategyId, signals, asset, midUsd);
   console.log(
     `[trader-spot] asset=${asset} strategy=${strategyId} direction=${direction} conv=${conviction.toFixed(2)} qty=${baseQty} mid=$${midUsd.toFixed(4)} notional=$${notionalUsd.toFixed(4)}` +
       (candidateDecision ? "" : " (no-edge abstention)"),
@@ -1491,6 +1607,9 @@ async function handleSpotTask(
     } catch (e) {
       console.warn("[trader-spot] walrus journal upload failed:", e);
     }
+
+    // First task for this policy → publish the operator's manifesto.
+    await publishManifestoOnce(ctx, spec, strategyId, asset, notice.taskId);
   }
 
   // ---- Compose + submit deliverable -----

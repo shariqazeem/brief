@@ -228,7 +228,9 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             {tab === "journal" && (
               <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} />
             )}
-            {tab === "policy" && <PolicyTab {...props} />}
+            {tab === "policy" && (
+              <PolicyTab {...props} manifestoBlobId={stream.walrusManifestoBlobId} />
+            )}
           </div>
         </div>
 
@@ -953,7 +955,8 @@ function PolicyTab({
   status,
   revoked,
   onRequestRevoke,
-}: OperatorDashboardProps) {
+  manifestoBlobId,
+}: OperatorDashboardProps & { manifestoBlobId?: string | null }) {
   if (!policy) {
     return <p className="py-12 text-center font-mono text-[11px] uppercase tracking-[0.28em]" style={{ color: IDLE }}>resolving policy…</p>;
   }
@@ -1003,9 +1006,22 @@ function PolicyTab({
             View on Suiscan ↗
           </a>
         )}
+        {manifestoBlobId && (
+          <a
+            href={walrusBlobUrl(manifestoBlobId)}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono text-[10px] uppercase tracking-[0.2em] underline-offset-2 hover:underline"
+            style={{ color: "#047857" }}
+          >
+            Operator manifesto ↗
+          </a>
+        )}
       </div>
       <p className="mt-4 text-[12px] leading-relaxed" style={{ color: SUB }}>
-        Past wins still auto-redeem after revocation — the kill switch blocks new bets, never your winnings.
+        This operator published a manifesto to Walrus at adoption — its declared
+        parameters + a pledge, verifiable by anyone. Past wins still auto-redeem
+        after revocation; the kill switch blocks new bets, never your winnings.
       </p>
     </div>
   );

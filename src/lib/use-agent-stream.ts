@@ -86,6 +86,9 @@ export type AgentStreamState = {
   mintTx: string | null;
   walrusReasoningBlobId: string | null;
   walrusJournalBlobId: string | null;
+  /** The operator's manifesto blob — published once per policy, out of
+   *  band from the per-decision lifecycle. */
+  walrusManifestoBlobId: string | null;
   journalEntries: number | null;
   deliveredTx: string | null;
   steps: Record<WaterfallStep, { status: StepStatus; ts: number | null }>;
@@ -128,6 +131,7 @@ const INITIAL: AgentStreamState = {
   mintTx: null,
   walrusReasoningBlobId: null,
   walrusJournalBlobId: null,
+  walrusManifestoBlobId: null,
   journalEntries: null,
   deliveredTx: null,
   steps: FRESH_STEPS(),
@@ -255,6 +259,12 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
       next.steps.walrus = { status: "active", ts: null };
       return next;
     case "walrus_uploaded":
+      // The manifesto is published out-of-band (once per policy) — record
+      // the blob but DON'T advance the per-decision waterfall.
+      if (d.kind === "manifesto") {
+        next.walrusManifestoBlobId = str(d.blob_id);
+        return next;
+      }
       if (d.kind === "journal") {
         next.walrusJournalBlobId = str(d.blob_id);
         next.journalEntries = num(d.entries);

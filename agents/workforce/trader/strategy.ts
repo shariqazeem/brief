@@ -343,3 +343,75 @@ function countDeltaVotes(
   }
   return { up, down };
 }
+
+// =============================================================================
+// Operating parameters — the operator's declared thresholds. baselineParams
+// mirrors the hardcoded constants each strategy uses above; the manifesto
+// records these to Walrus so the operator's "contract" is verifiable.
+// (Goal-based calibration layers on top later; with no goal these ARE the
+// live thresholds, so the manifesto stays honest.)
+// =============================================================================
+
+export type StrategyParams = {
+  /** Quant edge threshold (quant only). */
+  minEdge: number;
+  /** Momentum flat-tape band — |ROC| below this = no trend. */
+  rocThreshold: number;
+  /** RSI overbought / oversold guards. */
+  rsiHigh: number;
+  rsiLow: number;
+  /** Conviction-scaled position-size ceiling. */
+  maxQty: number;
+};
+
+export function baselineParams(strategy: StrategyId): StrategyParams {
+  return {
+    minEdge: 0.05,
+    rocThreshold: 0.0005,
+    rsiHigh: 70,
+    rsiLow: 30,
+    maxQty:
+      strategy === "conservative"
+        ? 1
+        : STRATEGY_DEFAULT_QUANTITY[strategy] + 2,
+  };
+}
+
+// =============================================================================
+// Abstention reasoning — when a strategy sits out (returns null) the trader
+// still delivers an honest "capital preserved" decision. This renders the
+// per-strategy reason in plain English, citing the live numbers, so PRESERVE
+// reads as a deliberate, intelligent choice — not a gap. Pure formatting:
+// it does not change any decision.
+// =============================================================================
+
+export function abstentionReason(
+  strategy: StrategyId,
+  signals: SignalBundle,
+  asset: string,
+  spotUsd: number,
+): string {
+  const roc30 = signals.roc_30m;
+  const rsi = signals.rsi_60m;
+  const sma15 = signals.sma_15m;
+  const sma60 = signals.sma_60m;
+  switch (strategy) {
+    case "conservative": {
+      if (sma15 === null || sma60 === null) {
+        return `Sentinel preserved capital on ${asset}: moving averages are still warming up — not enough history to confirm a clean trend. No bet without confirmation.`;
+      }
+      if (spotUsd > sma15 !== spotUsd > sma60) {
+        return `Sentinel preserved capital on ${asset}: 15m SMA $${fmt(sma15)} and 60m SMA $${fmt(sma60)} disagree on direction (spot $${fmt(spotUsd)}). No clean trend to commit to — discipline over a forced bet.`;
+      }
+      return `Sentinel preserved capital on ${asset}: RSI(60m) ${fmt(rsi ?? 50, 1)} is at an extreme against the trend — refusing to chase. Waiting for a calmer entry.`;
+    }
+    case "momentum":
+      return `Momentum preserved capital on ${asset}: 30m ROC ${pct(roc30)} sits inside the ±0.05% flat-tape band — no trend to ride. Capital held until a real move emerges.`;
+    case "contrarian":
+      return `Contrarian preserved capital on ${asset}: RSI(60m) ${fmt(rsi ?? 50, 1)} is in the neutral 30–70 band — no overextension to fade. No crowd to lean against right now.`;
+    case "quant":
+      return `Quant preserved capital on ${asset}: the signal edge is under the ±5% threshold against the live vol surface — not mispriced enough to risk capital. (ROC30m ${pct(roc30)}, RSI ${fmt(rsi ?? 50, 1)}.)`;
+    default:
+      return `${strategy} preserved capital on ${asset}: no signal cleared the threshold.`;
+  }
+}
