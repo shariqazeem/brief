@@ -238,6 +238,31 @@ AMM-shaped surrogate).
 
 ---
 
+## Custody & capital — today and on mainnet
+
+**Today (testnet).** The trader stakes **Brief's house treasury** —
+testnet dUSDC in a shared `PredictManager`
+(`0xb2c2f0484046af942d28fb65c54005ef92f07a59a530d9a839cb152167164f0b`)
+and a DeepBook `BalanceManager`
+(`0x85271a910f5db0a4e71b3f7edb0a67fcac253e6f4b740a51a2459ee28707ab77`).
+Testnet dUSDC is faucet-gated and can't be custodied per-user, so a
+shared house bankroll is the only way to demo real on-chain fills. What
+is **already per-user and on-chain** is the control plane: every bet is
+gated by **your** `OperatorPolicy`
+(`0x93b0c86507d586b87855035f3e031f1be2adee89b14320584a116fc86aef3487`),
+each spend is `record_spend`'d against your cap, and P&L is attributed
+per policy. You hold the leash; the house lends the chips.
+
+**Mainnet ladder.** (1) Each user funds their **own** `PredictManager` +
+`BalanceManager`; the trader gets a **delegated trade capability** gated
+by the same `OperatorPolicy` — your keys, your capital, agent bounded by
+Move. (2) A shared **vault** issues tokenized shares for users who'd
+rather pool capital than self-fund. (3) Today's house-funded flow
+becomes the zero-deposit **free tier**. The policy object is the
+invariant across all three — only custody changes.
+
+---
+
 ## Track prize alignment
 
 | Track / prize | How Brief satisfies it |

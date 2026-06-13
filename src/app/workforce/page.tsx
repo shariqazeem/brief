@@ -4796,6 +4796,10 @@ function PolicyCard({
   const pct = remaining !== null ? Math.max(0, Math.min(1, remaining / cap)) : 0;
   const isLive = status === "active";
   const isRevoked = status === "revoked";
+  // Per-policy realized P&L — the honest "your trader's result" number,
+  // attributed on-chain even though the demo trades house capital.
+  const trades = useTraderTrades(policyId);
+  const realizedPnl = trades.realizedPnlUsd;
 
   // Pulse the card the moment the chain debits the leash — every
   // record_spend bumps policy.spent, which we watch directly so the
@@ -4916,6 +4920,61 @@ function PolicyCard({
             chain, not in our database. The chain refuses the next bet once the
             budget runs out; funds stay locked in escrow, past wins still pay out.
           </p>
+
+          {/* Capital story — who stakes, who's leashed, whose P&L. Honest
+              by design: the demo trades house capital under YOUR policy. */}
+          <div className="border-t border-line pt-3">
+            <p className="font-mono text-[9px] uppercase tracking-[0.28em] text-muted">
+              Capital & custody
+            </p>
+            <dl className="mt-2 space-y-1.5 font-mono text-[10.5px] leading-relaxed">
+              <div className="flex flex-wrap gap-x-2">
+                <dt className="text-muted">Your leash:</dt>
+                <dd className="text-ink-2">
+                  {cap.toFixed(2)} SUI cap · accounting + kill switch, enforced by Move
+                </dd>
+              </div>
+              <div className="flex flex-wrap gap-x-2">
+                <dt className="text-muted">Trading capital:</dt>
+                <dd className="text-ink-2">
+                  Brief&apos;s treasury (testnet dUSDC + DeepBook balance manager)
+                </dd>
+              </div>
+              <div className="flex flex-wrap gap-x-2">
+                <dt className="text-muted">Your trader&apos;s P&amp;L:</dt>
+                <dd className="text-ink-2">
+                  attributed on-chain per policy ·{" "}
+                  <span
+                    className={
+                      realizedPnl > 0
+                        ? "tabular-nums text-emerald-700"
+                        : realizedPnl < 0
+                          ? "tabular-nums text-red-700"
+                          : "tabular-nums text-ink-2"
+                    }
+                  >
+                    {realizedPnl >= 0 ? "+" : "−"}${Math.abs(realizedPnl).toFixed(2)}
+                  </span>{" "}
+                  realized
+                </dd>
+              </div>
+            </dl>
+            <p className="mt-2 text-[10.5px] leading-relaxed text-muted">
+              Testnet demo trades house capital under{" "}
+              <span className="text-ink-2">your</span> policy. Mainnet design: your
+              own PredictManager —{" "}
+              <a
+                href="https://github.com/shariqazeem/brief/blob/main/SUBMISSION.md"
+                target="_blank"
+                rel="noreferrer"
+                className="text-ink underline-offset-4 hover:underline"
+              >
+                see SUBMISSION
+              </a>
+              .
+            </p>
+          </div>
+
           <div className="border-t border-line pt-3">
             <button
               type="button"

@@ -1518,7 +1518,7 @@ const PILLARS: { glyph: string; title: string; body: string }[] = [
     glyph: "03",
     title: "DeepBook Predict",
     body:
-      "Real on-chain BTC up/down markets, settled by Block Scholes oracle. Every position is a verifiable on-chain object — not a synthetic.",
+      "Real on-chain BTC up/down markets, settled by Block Scholes oracle. Every position is a verifiable on-chain object — not a synthetic. Testnet demo: the house stakes the capital, you hold the leash.",
   },
   {
     glyph: "04",
