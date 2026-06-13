@@ -1,19 +1,33 @@
 "use client";
 
-// /proof — the judge surface. Maps Brief to the Agentic Web
-// "Autonomous Agent Wallet" must-haves, each with a LIVE, clickable
-// on-chain artifact. Every digest/blob below was verified success on
-// the fullnode / HTTP-200 on the Walrus aggregator before shipping
-// (see SUBMISSION.md "Verifiable live artifacts"). No recharts; all
-// dynamic data comes from the server-cached API routes.
+// /proof — the judge surface for the Agentic Web "Autonomous Agent
+// Wallet" track. Every must-have maps 1:1 to a LIVE, on-chain artifact:
+// a requirements table up top, then five verification modules. The
+// hero artifacts (tx digests + Walrus blobs) were each verified
+// `success` on the fullnode / HTTP-200 on the Walrus aggregator before
+// shipping; live data comes from the server-cached API routes. No
+// decoration, no screenshots — every number traces to chain.
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
 
 import { apiUrl } from "@/lib/api-base";
+import { SystemHealthDot } from "@/components/system-health";
+import {
+  useOperatorJournal,
+  type SettlementKind,
+} from "@/lib/operator-journal";
 
-// ── Verified artifacts (authoritative: fullnode `success` / Walrus 200) ──
+// ── design tokens ──────────────────────────────────────────────────────
+const INK = "#111111";
+const SUB = "#666666";
+const EMERALD = "#10B981";
+const RED = "#EF4444";
+const AMBER = "#F59E0B";
+const LINE = "#E5E5E5";
+const CARD = "bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]";
+
+// ── verified artifacts (authoritative: fullnode `success` / Walrus 200) ──
 const DEMO_POLICY =
   "0x93b0c86507d586b87855035f3e031f1be2adee89b14320584a116fc86aef3487";
 const REVOKED_POLICY =
@@ -33,17 +47,36 @@ const txUrl = (d: string) => `https://suiscan.xyz/testnet/tx/${d}`;
 const objUrl = (id: string) => `https://suiscan.xyz/testnet/object/${id}`;
 const blobUrl = (b: string) =>
   `https://aggregator.walrus-testnet.walrus.space/v1/blobs/${b}`;
-const short = (s: string, h = 8, t = 6) =>
+const short = (s: string, h = 6, t = 4) =>
   s.length <= h + t + 1 ? s : `${s.slice(0, h)}…${s.slice(-t)}`;
 
-function Mono({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted">
-      {children}
-    </span>
-  );
+function fmtTime(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
+function settlement(k: SettlementKind): { label: string; color: string } {
+  switch (k) {
+    case "won":
+      return { label: "settled · in-the-money", color: EMERALD };
+    case "lost":
+      return { label: "settled · honest loss", color: RED };
+    case "preserved":
+      return { label: "capital preserved", color: AMBER };
+    case "pending":
+      return { label: "awaiting settlement", color: "#4DA2FF" };
+    case "executed":
+      return { label: "executed live", color: EMERALD };
+    default:
+      return { label: "settled · beyond window", color: SUB };
+  }
+}
+
+// ── small shared atoms ──────────────────────────────────────────────────
 function TxLink({
   label,
   href,
@@ -58,53 +91,59 @@ function TxLink({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className={[
-        "inline-flex items-center gap-1.5 border px-2.5 py-1 font-mono text-[10.5px] tracking-tight transition-colors",
-        tone === "emerald"
-          ? "border-emerald-600/50 bg-emerald-50/50 text-emerald-800 hover:bg-emerald-100/60"
-          : "border-line text-ink hover:border-line-strong hover:bg-bg-elev-2/50",
-      ].join(" ")}
+      className="inline-flex items-center gap-1 border px-2 py-1 font-mono text-[10.5px] tracking-tight transition-opacity hover:opacity-70"
+      style={{
+        borderColor: tone === "emerald" ? "rgba(16,185,129,0.4)" : LINE,
+        color: tone === "emerald" ? "#047857" : INK,
+        background: tone === "emerald" ? "rgba(16,185,129,0.06)" : "transparent",
+      }}
     >
-      {label}
-      <ArrowUpRight className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+      {label} ↗
     </a>
   );
 }
 
-// One must-have row.
-function ProofRow({
-  n,
-  requirement,
-  how,
-  children,
-}: {
-  n: string;
-  requirement: string;
-  how: string;
-  children: React.ReactNode;
-}) {
+function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
-    <article className="border-t border-line py-8 sm:py-10">
-      <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
-        <div>
-          <div className="flex items-baseline gap-3">
-            <span className="font-mono text-[12px] tabular-nums text-muted-2">
-              {n}
-            </span>
-            <h2 className="font-sans text-[20px] font-medium leading-tight tracking-tight text-ink sm:text-[24px]">
-              {requirement}
-            </h2>
-          </div>
-          <p className="mt-3 max-w-prose text-[14px] leading-relaxed text-ink-2">
-            {how}
-          </p>
-        </div>
-        <div className="lg:pt-1">{children}</div>
-      </div>
-    </article>
+    <p className="font-mono text-[9.5px] uppercase tracking-[0.3em]" style={{ color: SUB }}>
+      {children}
+    </p>
   );
 }
 
+// ── module shell ────────────────────────────────────────────────────────
+function Module({
+  id,
+  n,
+  title,
+  blurb,
+  children,
+}: {
+  id: string;
+  n: string;
+  title: string;
+  blurb: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section id={id} className={`scroll-mt-24 ${CARD} p-6 sm:p-8`}>
+      <div className="flex items-baseline gap-3">
+        <span className="font-mono text-[12px] tabular-nums" style={{ color: "#CCCCCC" }}>
+          {n}
+        </span>
+        <h2 className="font-sans text-[20px] font-medium tracking-tight sm:text-[23px]" style={{ color: INK }}>
+          {title}
+        </h2>
+      </div>
+      <p className="mt-2 max-w-prose text-[13.5px] leading-relaxed" style={{ color: SUB }}>
+        {blurb}
+      </p>
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
+
+// ── policy read (live burn-down + revoked flag) ─────────────────────────
 type PolicyData = {
   ok?: boolean;
   revoked?: boolean;
@@ -112,188 +151,287 @@ type PolicyData = {
   spent_sui?: number;
   remaining_sui?: number;
   allowed_venues?: string[];
+  agent?: string | null;
+  owner?: string | null;
 };
 
 function usePolicyRead(id: string): PolicyData | null {
   const [data, setData] = useState<PolicyData | null>(null);
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    async function tick() {
       try {
         const r = await fetch(apiUrl(`/api/policy?id=${id}`));
         if (r.ok && !cancelled) setData((await r.json()) as PolicyData);
       } catch {
-        /* leave null — row shows static digests regardless */
+        /* leave last — static artifacts below carry the proof regardless */
       }
-    })();
+      if (!cancelled) timer = setTimeout(tick, 30_000);
+    }
+    void tick();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [id]);
   return data;
 }
 
-// Row 2 — live budget burn-down for the demo policy.
-function BudgetCeiling() {
+// =========================================================================
+// MODULE 1 — Real DeepBook orders
+// =========================================================================
+function RealOrders({ journal }: { journal: ReturnType<typeof useOperatorJournal> }) {
+  const mints = journal.entries
+    .filter((e) => e.mint_tx && !e.abstained)
+    .slice(0, 5);
+  return (
+    <div className="space-y-5">
+      <div>
+        <Eyebrow>Last BTC Predict mints · live from /api/trader/trades</Eyebrow>
+        <ul className="mt-2" style={{ borderTop: `1px solid ${LINE}` }}>
+          {mints.length === 0 ? (
+            <li className="py-3 font-mono text-[11px]" style={{ color: SUB }}>
+              demo policy is between cycles — verified mints below ↓
+            </li>
+          ) : (
+            mints.map((d, i) => {
+              const up = d.direction === "up";
+              return (
+                <li
+                  key={`${d.ts}-${i}`}
+                  className="flex flex-wrap items-baseline justify-between gap-2 py-2.5"
+                  style={{ borderBottom: `1px solid #F0F0F0` }}
+                >
+                  <span className="flex items-baseline gap-2 font-mono text-[12px] tabular-nums">
+                    <span style={{ color: up ? EMERALD : RED }}>
+                      {up ? "UP ▲" : "DOWN ▼"} ×{d.quantity}
+                    </span>
+                    <span style={{ color: SUB }}>· {d.strategy}</span>
+                  </span>
+                  <span className="flex items-baseline gap-3 font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
+                    <span>{fmtTime(d.ts)}</span>
+                    <a
+                      href={txUrl(d.mint_tx as string)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline-offset-2 hover:underline"
+                      style={{ color: "#047857" }}
+                    >
+                      {short(d.mint_tx as string)} ↗
+                    </a>
+                  </span>
+                </li>
+              );
+            })
+          )}
+        </ul>
+      </div>
+
+      <div>
+        <Eyebrow>Verified anchors · success on fullnode</Eyebrow>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <TxLink label="Momentum DOWN ×4 mint" href={txUrl(ART.mintMomentumDown)} tone="emerald" />
+          <TxLink label="Quant UP live-wire mint" href={txUrl(ART.mintLiveWire)} tone="emerald" />
+        </div>
+      </div>
+
+      <div className="p-4" style={{ border: `1px solid ${LINE}` }}>
+        <Eyebrow>SUI spot pair · DeepBook v3 · realized −$0.009</Eyebrow>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <TxLink label="open" href={txUrl(ART.spotOpen)} />
+          <span aria-hidden className="font-mono text-[11px]" style={{ color: SUB }}>→</span>
+          <TxLink label="close" href={txUrl(ART.spotClose)} />
+          <span className="font-mono text-[10.5px]" style={{ color: RED }}>
+            bet DOWN, SUI rose — lost. Not rigged.
+          </span>
+        </div>
+      </div>
+
+      <p className="text-[12px] leading-relaxed" style={{ color: SUB }}>
+        Every order is a real on-chain transaction — a policy-gated atomic PTB
+        (record_spend → DeepBook), with honest P&amp;L including losses.
+      </p>
+    </div>
+  );
+}
+
+// =========================================================================
+// MODULE 2 — Self-enforced budget ceiling
+// =========================================================================
+function BudgetCeiling({ journal }: { journal: ReturnType<typeof useOperatorJournal> }) {
   const p = usePolicyRead(DEMO_POLICY);
   const cap = p?.budget_cap_sui ?? null;
   const spent = p?.spent_sui ?? null;
-  const pct = cap && spent != null ? Math.max(0, Math.min(1, (cap - spent) / cap)) : 1;
+  const pct = cap && spent != null ? Math.max(0, Math.min(100, (spent / cap) * 100)) : 0;
+  const fill = pct >= 95 ? RED : pct >= 80 ? AMBER : EMERALD;
+  // Each live mint debits the leash via record_spend(quantity SUI).
+  const spends = journal.entries.filter((e) => e.mode === "live" && e.mint_tx).slice(0, 3);
   return (
-    <div className="border-2 border-ink bg-bg-elev p-4 sm:p-5">
-      <Mono>Brief Demo Fleet · live</Mono>
-      <div className="mt-2 flex items-baseline gap-2 font-mono tabular-nums">
-        <span className="text-[22px] text-ink">
-          {spent != null ? spent.toFixed(2) : "—"}
-        </span>
-        <span className="text-[12px] text-muted">
-          / {cap != null ? cap.toFixed(2) : "—"} SUI spent
-        </span>
+    <div className="space-y-5">
+      <div>
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="font-mono text-[26px] tabular-nums" style={{ color: INK }}>
+            {spent != null ? spent.toFixed(2) : "—"}
+            <span className="text-[13px]" style={{ color: SUB }}>
+              {" "}/ {cap != null ? cap.toFixed(0) : "—"} SUI
+            </span>
+          </span>
+          <span className="font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
+            {p ? `${pct.toFixed(0)}% used` : "reading chain…"}
+          </span>
+        </div>
+        <div className="mt-2 h-1.5 w-full overflow-hidden" style={{ background: LINE }}>
+          <div className="h-full transition-[width] duration-700 ease-out" style={{ width: `${pct}%`, background: fill }} />
+        </div>
+        <div className="mt-2">
+          <TxLink label={`policy ${short(DEMO_POLICY)} · live`} href={objUrl(DEMO_POLICY)} />
+        </div>
       </div>
-      <div className="mt-2 h-1.5 w-full overflow-hidden bg-line">
-        <div
-          className="h-full bg-ink transition-[width] duration-700 ease-out"
-          style={{ width: `${pct * 100}%` }}
-        />
+
+      <div>
+        <Eyebrow>Recent record_spend · amount · time</Eyebrow>
+        <ul className="mt-2" style={{ borderTop: `1px solid ${LINE}` }}>
+          {spends.length === 0 ? (
+            <li className="py-2.5 font-mono text-[11px]" style={{ color: SUB }}>
+              no live debit yet this cycle — burn-down above is read straight off the object
+            </li>
+          ) : (
+            spends.map((d, i) => (
+              <li
+                key={`${d.ts}-${i}`}
+                className="flex items-baseline justify-between gap-3 py-2.5 font-mono text-[11.5px] tabular-nums"
+                style={{ borderBottom: `1px solid #F0F0F0` }}
+              >
+                <span style={{ color: INK }}>−{d.quantity.toFixed(2)} SUI</span>
+                <span style={{ color: SUB }}>{fmtTime(d.ts)}</span>
+                {d.mint_tx && (
+                  <a href={txUrl(d.mint_tx)} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline" style={{ color: "#047857" }}>
+                    {short(d.mint_tx)} ↗
+                  </a>
+                )}
+              </li>
+            ))
+          )}
+        </ul>
       </div>
-      <p className="mt-2 font-mono text-[9.5px] leading-relaxed tracking-[0.04em] text-muted">
-        {p?.allowed_venues?.length
-          ? `venues [${p.allowed_venues.join(", ")}] · `
-          : ""}
-        every spend = one <span className="text-ink-2">record_spend</span>; the
-        chain reverts the mint when the cap is hit.
+
+      <p className="text-[12px] leading-relaxed" style={{ color: SUB }}>
+        The Move contract stops the operator at the limit. No exception — when
+        spent reaches the cap, the next mint PTB reverts in{" "}
+        <span className="font-mono" style={{ color: INK }}>assert_can_spend</span>.
       </p>
-      <div className="mt-3">
-        <TxLink label={`policy ${short(DEMO_POLICY)}`} href={objUrl(DEMO_POLICY)} />
-      </div>
     </div>
   );
 }
 
-type Decision = {
-  ts: number;
-  strategy: string;
-  direction: string | null;
-  quantity: number;
-  abstained: boolean;
-  mode: string;
-  mint_tx: string | null;
-  strike_usd: number | null;
-};
-
-// Row 3 — on-chain activity log: the demo trader's last decisions.
-function ActivityLog() {
-  const [decisions, setDecisions] = useState<Decision[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(apiUrl(`/api/trader/trades?policy_id=${DEMO_POLICY}`));
-        if (r.ok && !cancelled) {
-          const j = (await r.json()) as { decisions?: Decision[] };
-          setDecisions((j.decisions ?? []).slice(0, 5));
-        }
-      } catch {
-        /* fall back to the static journal link below */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+// =========================================================================
+// MODULE 3 — On-chain activity log
+// =========================================================================
+function ActivityLog({ journal }: { journal: ReturnType<typeof useOperatorJournal> }) {
+  const rows = journal.entries.slice(0, 10);
   return (
-    <div className="border border-line bg-bg-elev p-4 sm:p-5">
-      <Mono>Last decisions · parsed from on-chain deliverables</Mono>
-      <ul className="mt-3 space-y-1.5">
-        {decisions.length === 0 ? (
-          <li className="font-mono text-[11px] text-muted">
-            warming up — open the cumulative journal on Walrus →
+    <div>
+      <div className="flex items-center justify-between">
+        <Eyebrow>Last 10 decisions · auto-refresh</Eyebrow>
+        <span className="inline-flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.2em]" style={{ color: SUB }}>
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full" style={{ background: EMERALD }} aria-hidden />
+          live
+        </span>
+      </div>
+      <ul className="mt-2" style={{ borderTop: `1px solid ${LINE}` }}>
+        {rows.length === 0 ? (
+          <li className="py-3 font-mono text-[11px]" style={{ color: SUB }}>
+            warming up — open the cumulative journal on Walrus ↓
           </li>
         ) : (
-          decisions.map((d) => (
-            <li
-              key={`${d.ts}-${d.mint_tx ?? "sim"}`}
-              className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line/60 pb-1.5 font-mono text-[11px] tabular-nums last:border-0"
-            >
-              <span className="text-ink-2">
-                {d.abstained ? (
-                  <span className="text-muted">sat out</span>
-                ) : (
-                  <span
-                    className={
-                      d.direction === "down" ? "text-red-700" : "text-emerald-700"
-                    }
-                  >
-                    {d.direction?.toUpperCase()} ×{d.quantity}
-                  </span>
-                )}{" "}
-                <span className="text-muted">· {d.strategy} · {d.mode}</span>
-              </span>
-              {d.mint_tx ? (
-                <a
-                  href={txUrl(d.mint_tx)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-emerald-800 underline-offset-4 hover:underline"
-                >
-                  {short(d.mint_tx, 6, 4)} ↗
-                </a>
-              ) : (
-                <span className="text-muted">no mint</span>
-              )}
-            </li>
-          ))
+          rows.map((e, i) => {
+            const s = settlement(e.settlement);
+            const dir = e.abstained ? "PRESERVE" : (e.direction ?? "").toUpperCase();
+            return (
+              <li
+                key={`${e.task_id}-${i}`}
+                className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2.5"
+                style={{ borderBottom: `1px solid #F0F0F0` }}
+              >
+                <span className="flex items-baseline gap-2 font-mono text-[11.5px] tabular-nums">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: s.color }} aria-hidden />
+                  <span style={{ color: SUB }}>{fmtTime(e.ts)}</span>
+                  <span style={{ color: e.abstained ? AMBER : INK }}>BTC {dir}</span>
+                </span>
+                <span className="flex items-baseline gap-3 font-mono text-[11px] tabular-nums">
+                  <span style={{ color: s.color }}>{s.label}</span>
+                  {e.walrus_reasoning_blob_id && (
+                    <a href={blobUrl(e.walrus_reasoning_blob_id)} target="_blank" rel="noreferrer" title="reasoning on Walrus" className="underline-offset-2 hover:underline" style={{ color: SUB }}>
+                      Walrus ↗
+                    </a>
+                  )}
+                </span>
+              </li>
+            );
+          })
         )}
       </ul>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <TxLink
-          label="cumulative memory (Walrus)"
-          href={blobUrl(ART.journalBlob)}
-          tone="emerald"
-        />
-        <TxLink
-          label="abstention reasoning (Walrus)"
-          href={blobUrl(ART.abstentionBlob)}
-          tone="emerald"
-        />
+      <div className="mt-4 flex flex-wrap gap-2">
+        <TxLink label="cumulative memory (Walrus)" href={blobUrl(ART.journalBlob)} tone="emerald" />
+        <TxLink label="abstention reasoning (Walrus)" href={blobUrl(ART.abstentionBlob)} tone="emerald" />
       </div>
+      <p className="mt-3 text-[12px] leading-relaxed" style={{ color: SUB }}>
+        Capital-preserved entries (amber) are first-class — sitting out is a
+        recorded, content-addressed decision, not a gap.
+      </p>
     </div>
   );
 }
 
-// Row 4 — owner revocation, proven on chain.
+// =========================================================================
+// MODULE 4 — Owner revocation
+// =========================================================================
 function Revocation() {
   const p = usePolicyRead(REVOKED_POLICY);
+  const isRevoked = p?.revoked === true;
   return (
-    <div className="border-2 border-red-400/70 bg-red-50/40 p-4 sm:p-5">
-      <div className="flex items-center justify-between gap-2">
-        <Mono>EPolicyRevoked · code 3</Mono>
-        <span className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-red-700">
-          {p?.revoked ? "policy.revoked = true (live)" : "on chain"}
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-2 p-4" style={{ border: `1px solid ${isRevoked ? "rgba(239,68,68,0.4)" : LINE}`, background: "rgba(239,68,68,0.04)" }}>
+        <div>
+          <Eyebrow>Demo policy · live read</Eyebrow>
+          <p className="mt-1 font-mono text-[15px] tabular-nums" style={{ color: isRevoked ? RED : SUB }}>
+            policy.revoked = {p ? String(isRevoked) : "…"}
+          </p>
+        </div>
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: RED }}>
+          {isRevoked ? "grounded" : "reading chain…"}
         </span>
       </div>
-      <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-        Owner revokes → the next mint aborts in{" "}
-        <span className="font-mono text-ink">operator_policy::assert_can_spend</span>{" "}
-        and the whole PTB reverts. The sim-fallback deliverable&apos;s{" "}
-        <span className="font-mono text-ink">reason_if_simulated</span> carries
-        the abort message — the chain refused, not our server.
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <TxLink label="revoke tx" href={txUrl(ART.revokeTx)} />
-        <TxLink label="aborted attempt" href={txUrl(ART.simFallbackDeliver)} />
-        <TxLink label={`revoked policy ${short(REVOKED_POLICY, 6, 4)}`} href={objUrl(REVOKED_POLICY)} />
+
+      <div className="p-4" style={{ border: `1px solid ${LINE}` }}>
+        <Eyebrow>Abort fingerprint</Eyebrow>
+        <p className="mt-1 break-words font-mono text-[11.5px]" style={{ color: INK }}>
+          EPolicyRevoked · code 3 · operator_policy::assert_can_spend
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <TxLink label="revoke tx" href={txUrl(ART.revokeTx)} />
+          <TxLink label="aborted attempt" href={txUrl(ART.simFallbackDeliver)} />
+          <TxLink label={`revoked policy ${short(REVOKED_POLICY)}`} href={objUrl(REVOKED_POLICY)} />
+        </div>
       </div>
-      <div className="mt-4">
-        <Mono>Watch the kill switch · 60s</Mono>
-        <video
-          className="mt-2 aspect-video w-full border border-line bg-bg-elev-2/60"
-          controls
-          poster=""
-        >
+
+      <p className="text-[13px] leading-relaxed" style={{ color: SUB }}>
+        One signature flips <span className="font-mono" style={{ color: INK }}>policy.revoked</span>.
+        The next mint — any asset — aborts and the whole PTB reverts. The chain
+        refused, not our server. Past wins still pay out via permissionless
+        redeem.{" "}
+        <Link href="/workforce" className="underline underline-offset-2" style={{ color: RED }}>
+          Adopt &amp; revoke your own →
+        </Link>
+      </p>
+
+      <div>
+        <Eyebrow>Watch the kill switch · 60s</Eyebrow>
+        <video className="mt-2 aspect-video w-full" style={{ border: `1px solid ${LINE}`, background: "#F5F5F5" }} controls poster="">
           <track kind="captions" />
         </video>
-        <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted">
+        <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
           clip drops here for the demo recording
         </p>
       </div>
@@ -301,9 +439,11 @@ function Revocation() {
   );
 }
 
-type WireEvent = { ts: number; type: string; asset?: string; data?: Record<string, unknown> };
+// =========================================================================
+// MODULE 5 — It thinks in public (read-only SSE terminal)
+// =========================================================================
+type WireEvent = { ts: number; seq?: number; type: string; asset?: string; task_id?: string | null; data?: Record<string, unknown> };
 
-// Row 5 — the wire, live and read-only.
 function LiveWire() {
   const [events, setEvents] = useState<WireEvent[]>([]);
   const [connected, setConnected] = useState(false);
@@ -316,7 +456,7 @@ function LiveWire() {
     es.onmessage = (m) => {
       try {
         const e = JSON.parse(m.data) as WireEvent;
-        setEvents((prev) => [...prev.slice(-9), e]);
+        setEvents((prev) => [...prev.slice(-49), e]);
       } catch {
         /* ignore malformed */
       }
@@ -326,164 +466,193 @@ function LiveWire() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "nearest" });
   }, [events]);
+
+  const summarize = (e: WireEvent): string => {
+    const d = e.data ?? {};
+    if (e.type === "observe" && typeof d.spot_usd === "number") return `spot $${Math.round(d.spot_usd).toLocaleString()}`;
+    if (e.type === "decision") return `${d.decided ? `ACT ${String(d.direction ?? "").toUpperCase()} x${d.quantity ?? ""}` : "PRESERVE"}`;
+    if (e.type === "mint_landed" || e.type === "spot_opened") return `tx ${short(String(d.tx ?? ""))}`;
+    if (e.type === "mode") return `${d.mode ?? ""}`;
+    if (e.type === "walrus_uploaded") return `${d.kind ?? "blob"} ${short(String(d.blob_id ?? ""))}`;
+    if (e.type === "warden_topup") return `+${d.amount_sui ?? ""} SUI gas`;
+    return "";
+  };
+
   return (
-    <div className="border border-line bg-ink p-4 sm:p-5">
+    <div className="p-4 sm:p-5" style={{ background: INK }}>
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.32em] text-muted-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.3em]" style={{ color: "#888888" }}>
           /api/agent-events · read-only
         </span>
-        <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.22em] text-muted-2">
-          <span
-            className={`inline-block h-1.5 w-1.5 rounded-full ${
-              connected ? "animate-pulse bg-emerald-400" : "bg-muted"
-            }`}
-            aria-hidden
-          />
+        <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.2em]" style={{ color: "#888888" }}>
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "animate-pulse" : ""}`} style={{ background: connected ? EMERALD : "#666666" }} aria-hidden />
           {connected ? "live" : "connecting"}
         </span>
       </div>
-      <div className="mt-3 h-[180px] overflow-y-auto font-mono text-[10.5px] leading-relaxed">
+      <div className="mt-3 h-[220px] overflow-y-auto font-mono text-[10.5px] leading-relaxed">
         {events.length === 0 ? (
-          <p className="text-muted-2">
+          <p style={{ color: "#888888" }}>
             the wire is quiet — dispatch from{" "}
-            <Link href="/workforce" className="text-bg underline underline-offset-4">
-              /workforce
-            </Link>{" "}
-            and the agent&apos;s steps stream here in real time.
+            <Link href="/workforce" className="underline underline-offset-4" style={{ color: "#FFFFFF" }}>/workforce</Link>{" "}
+            and the operator&apos;s steps stream here in real time.
           </p>
         ) : (
           events.map((e, i) => (
-            <p key={`${e.ts}-${i}`} className="tabular-nums text-bg-elev-2">
-              <span className="text-muted">
-                {new Date(e.ts).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                })}
+            <p key={`${e.ts}-${e.seq ?? i}`} className="tabular-nums" style={{ color: "#E5E5E5" }}>
+              <span style={{ color: "#666666" }}>
+                {new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </span>{" "}
-              <span className="text-emerald-400">{e.type}</span>
-              {e.asset ? <span className="text-muted-2"> · {e.asset}</span> : null}
+              <span style={{ color: EMERALD }}>{e.type}</span>
+              {e.asset ? <span style={{ color: "#888888" }}> · {e.asset}</span> : null}
+              {summarize(e) ? <span style={{ color: "#AAAAAA" }}> · {summarize(e)}</span> : null}
             </p>
           ))
         )}
         <div ref={endRef} />
       </div>
+      <p className="mt-3 font-mono text-[9px] uppercase tracking-[0.18em]" style={{ color: "#888888" }}>
+        This is what autonomous execution looks like.
+      </p>
     </div>
   );
 }
 
-export default function ProofPage() {
+// =========================================================================
+// requirements table
+// =========================================================================
+const REQUIREMENTS: Array<{ must: string; how: string; proofHref: string; proofLabel: string }> = [
+  {
+    must: "Real DeepBook orders",
+    how: "Policy-gated PTBs: record_spend → DeepBook Predict (BTC) + DeepBook v3 spot.",
+    proofHref: "#m1",
+    proofLabel: "5 live mints + spot pair",
+  },
+  {
+    must: "Self-enforced budget ceiling",
+    how: "Move OperatorPolicy debits spent per bet; reverts at the cap.",
+    proofHref: "#m2",
+    proofLabel: "live burn-down",
+  },
+  {
+    must: "On-chain activity log",
+    how: "Every decision is an on-chain Deliverable; reasoning on Walrus.",
+    proofHref: "#m3",
+    proofLabel: "last 10 + Walrus",
+  },
+  {
+    must: "Owner revocation",
+    how: "One signature flips revoked; the next mint aborts EPolicyRevoked.",
+    proofHref: "#m4",
+    proofLabel: "revoke tx + abort",
+  },
+  {
+    must: "Thinks in public",
+    how: "One SSE event per lifecycle beat — observe → decision → chain.",
+    proofHref: "#m5",
+    proofLabel: "live wire",
+  },
+];
+
+function RequirementsTable() {
   return (
-    <main className="min-h-screen bg-bg text-ink">
-      <header className="border-b border-line">
-        <div className="mx-auto flex max-w-page items-center justify-between gap-3 px-5 py-5 sm:px-8">
-          <Link
-            href="/"
-            className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted hover:text-ink"
-          >
+    <div className={`${CARD} overflow-x-auto`}>
+      <table className="w-full border-collapse text-left">
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${LINE}` }}>
+            {["Must-Have", "How Brief Meets It", "On-Chain Proof"].map((h) => (
+              <th key={h} className="px-4 py-3 font-mono text-[9.5px] uppercase tracking-[0.22em]" style={{ color: SUB }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {REQUIREMENTS.map((r) => (
+            <tr key={r.must} style={{ borderBottom: `1px solid #F0F0F0` }}>
+              <td className="px-4 py-3 align-top font-sans text-[13.5px] font-medium" style={{ color: INK }}>
+                {r.must}
+              </td>
+              <td className="px-4 py-3 align-top text-[12.5px] leading-snug" style={{ color: SUB }}>
+                {r.how}
+              </td>
+              <td className="px-4 py-3 align-top">
+                <a href={r.proofHref} className="inline-flex items-center gap-1 font-mono text-[11px] underline-offset-2 hover:underline" style={{ color: "#047857" }}>
+                  {r.proofLabel} ↓
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// =========================================================================
+// page
+// =========================================================================
+export default function ProofPage() {
+  const j = useOperatorJournal(DEMO_POLICY);
+
+  return (
+    <main className="min-h-screen" style={{ background: "#FAFAFA", color: INK }}>
+      <header style={{ borderBottom: `1px solid ${LINE}`, background: "#FFFFFF" }}>
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-5 py-4 sm:px-8">
+          <Link href="/" className="font-mono text-[10px] uppercase tracking-[0.32em] transition-colors hover:opacity-70" style={{ color: SUB }}>
             ← Brief
           </Link>
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-            Proof · testnet · verifiable
-          </span>
+          <SystemHealthDot />
         </div>
       </header>
 
-      <section className="mx-auto max-w-page px-5 py-12 sm:px-8 sm:py-16">
-        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-          Agentic Web · Autonomous Agent Wallet
-        </p>
-        <h1 className="mt-4 max-w-3xl font-sans text-[34px] font-medium leading-[1.05] tracking-tightest text-ink sm:text-[48px]">
-          Every claim, one click from the chain.
+      <section className="mx-auto max-w-3xl px-5 py-12 sm:px-8 sm:py-16">
+        <Eyebrow>Agentic Web · Autonomous Agent Wallet</Eyebrow>
+        <h1 className="mt-3 font-sans text-[40px] font-medium leading-[1.02] tracking-tight sm:text-[56px]" style={{ color: INK }}>
+          Proof
         </h1>
-        <p className="mt-5 max-w-prose text-[15px] leading-relaxed text-ink-2 sm:text-[16px]">
-          The track&apos;s four must-haves — real DeepBook orders, a
-          self-enforced budget ceiling, an on-chain activity log, and
-          demonstrable owner revocation — each mapped to a live artifact you
-          can open on Suiscan or Walrus right now. Plus the agent thinking in
-          public over SSE. Nothing here is a screenshot.
+        <p className="mt-3 text-[15px] leading-relaxed sm:text-[16px]" style={{ color: SUB }}>
+          Every claim, verified on chain. The track&apos;s must-haves mapped 1:1
+          to live artifacts you can open on Suiscan or Walrus right now — nothing
+          here is a screenshot.
         </p>
 
-        <div className="mt-10">
-          <ProofRow
-            n="01"
-            requirement="Real DeepBook orders"
-            how="The trader places policy-gated atomic PTBs: record_spend → predict::mint on DeepBook Predict for BTC, and market orders on DeepBook v3 spot for SUI/WAL/DEEP. Real fills, honest P&L — including losses."
-          >
-            <div className="space-y-3">
-              <div className="border border-line bg-bg-elev p-4">
-                <Mono>BTC binary mints · DeepBook Predict</Mono>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <TxLink label="Momentum DOWN ×4" href={txUrl(ART.mintMomentumDown)} />
-                  <TxLink label="live-wire mint" href={txUrl(ART.mintLiveWire)} />
-                </div>
-              </div>
-              <div className="border border-line bg-bg-elev p-4">
-                <Mono>SUI spot pair · DeepBook v3 · realized −$0.009</Mono>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <TxLink label="open" href={txUrl(ART.spotOpen)} />
-                  <span aria-hidden className="font-mono text-[11px] text-muted">→</span>
-                  <TxLink label="close" href={txUrl(ART.spotClose)} />
-                  <span className="font-mono text-[10.5px] text-red-700">
-                    bet DOWN, SUI rose — lost. Not rigged.
-                  </span>
-                </div>
-              </div>
-            </div>
-          </ProofRow>
-
-          <ProofRow
-            n="02"
-            requirement="Self-enforced budget ceiling"
-            how="The leash is a Move OperatorPolicy. Every bet debits its spent field via record_spend; when the cap is reached the mint PTB reverts. Live burn-down, read straight off the object."
-          >
-            <BudgetCeiling />
-          </ProofRow>
-
-          <ProofRow
-            n="03"
-            requirement="On-chain activity log"
-            how="Every decision is delivered on chain as a Deliverable with inline JSON, and the agent's cumulative reasoning + memory is content-addressed on Walrus — fetchable by anyone, not stuck in our database."
-          >
-            <ActivityLog />
-          </ProofRow>
-
-          <ProofRow
-            n="04"
-            requirement="Owner revocation demonstrable"
-            how="One signature flips policy.revoked. The very next mint — any asset — aborts EPolicyRevoked and the whole transaction reverts. Past wins still pay out via permissionless redeem."
-          >
-            <Revocation />
-          </ProofRow>
-
-          <ProofRow
-            n="05"
-            requirement="And it thinks in public"
-            how="The trader emits one event per lifecycle beat — observe, signals, SVI read, decision, mint, Walrus, deliver — over SSE. This is the same wire the dashboard animates, read-only here."
-          >
-            <LiveWire />
-          </ProofRow>
+        <div className="mt-8">
+          <p className="mb-2 font-mono text-[9.5px] uppercase tracking-[0.28em]" style={{ color: SUB }}>
+            How Brief maps to Agentic Web requirements
+          </p>
+          <RequirementsTable />
         </div>
 
-        <div className="mt-12 flex flex-wrap items-center gap-3 border-t border-line pt-8">
-          <Link
-            href="/workforce"
-            className="inline-flex items-center gap-2 border-2 border-ink bg-ink px-5 py-3 font-mono text-[11px] uppercase tracking-[0.32em] text-bg transition-colors hover:bg-ink-2"
-          >
-            Adopt a trader →
+        <div className="mt-8 space-y-6">
+          <Module id="m1" n="01" title="Real DeepBook orders" blurb="The operator places policy-gated atomic PTBs on DeepBook Predict (BTC up/down) and DeepBook v3 spot (SUI/WAL/DEEP). Real fills, honest P&L — including losses.">
+            <RealOrders journal={j} />
+          </Module>
+
+          <Module id="m2" n="02" title="Self-enforced budget ceiling" blurb="The leash is a Move OperatorPolicy. Every bet debits spent via record_spend; when the cap is reached the mint PTB reverts. Live burn-down, read straight off the object.">
+            <BudgetCeiling journal={j} />
+          </Module>
+
+          <Module id="m3" n="03" title="On-chain activity log" blurb="Every decision is delivered on chain as a Deliverable with inline JSON; the cumulative reasoning + memory is content-addressed on Walrus — fetchable by anyone, not stuck in a database.">
+            <ActivityLog journal={j} />
+          </Module>
+
+          <Module id="m4" n="04" title="Owner revocation" blurb="One signature flips policy.revoked. The very next mint — any asset — aborts EPolicyRevoked and the whole transaction reverts. Past wins still pay out via permissionless redeem.">
+            <Revocation />
+          </Module>
+
+          <Module id="m5" n="05" title="It thinks in public" blurb="The operator emits one event per lifecycle beat — observe, signals, SVI read, decision, mint, Walrus, deliver — over SSE. The same wire the dashboard animates, raw and read-only here.">
+            <LiveWire />
+          </Module>
+        </div>
+
+        <div className="mt-12 flex flex-wrap items-center gap-4" style={{ borderTop: `1px solid ${LINE}`, paddingTop: 24 }}>
+          <Link href="/workforce" className="inline-flex items-center gap-2 px-5 py-3 font-mono text-[11px] uppercase tracking-[0.28em] text-white transition-opacity hover:opacity-90" style={{ background: INK }}>
+            Adopt an operator →
           </Link>
-          <Link
-            href="/leaderboard"
-            className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink"
-          >
+          <Link href="/leaderboard" className="font-mono text-[10px] uppercase tracking-[0.24em] transition-colors hover:opacity-70" style={{ color: SUB }}>
             Leaderboard
           </Link>
-          <a
-            href="https://github.com/shariqazeem/brief/blob/main/SUBMISSION.md"
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink"
-          >
+          <a href="https://github.com/shariqazeem/brief/blob/main/SUBMISSION.md" target="_blank" rel="noreferrer" className="font-mono text-[10px] uppercase tracking-[0.24em] transition-colors hover:opacity-70" style={{ color: SUB }}>
             Full submission ↗
           </a>
         </div>
