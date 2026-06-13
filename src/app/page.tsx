@@ -1649,6 +1649,12 @@ function Footer() {
         <div className="flex flex-wrap items-baseline gap-5 font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
           <span>Sui Overflow 2026</span>
           <a
+            href="/proof"
+            className="text-ink-2 transition-colors hover:text-ink"
+          >
+            Proof
+          </a>
+          <a
             href="https://x.com/shariqshkt"
             target="_blank"
             rel="noreferrer"

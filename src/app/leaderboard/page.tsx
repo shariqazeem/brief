@@ -210,6 +210,12 @@ function LeaderboardConsole() {
           </Link>
           <span className="inline-flex items-center gap-3">
             <SystemHealthDot />
+            <Link
+              href="/proof"
+              className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted transition-colors hover:text-ink"
+            >
+              Proof
+            </Link>
             <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
               <Trophy className="h-3 w-3" strokeWidth={1.75} aria-hidden />
               Leaderboard · testnet
