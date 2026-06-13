@@ -26,6 +26,11 @@ import {
 } from "@/lib/operator-journal";
 import type { OperatorPolicyDecoded, PolicyStatus } from "@/lib/operator-policy-client";
 import {
+  calibrateParams,
+  goalLabel,
+  type OperatorGoal,
+} from "@/lib/operator-goal";
+import {
   useAgentStream,
   type AgentStreamState,
   type StreamSignals,
@@ -71,6 +76,7 @@ export type OperatorDashboardProps = {
   status: PolicyStatus | null;
   personality: TraderPersonality | null;
   traderName: string;
+  goal?: OperatorGoal | null;
   onReset: () => void;
   dispatchError: string | null;
   onDispatchAgain: () => void;
@@ -954,6 +960,8 @@ function PolicyTab({
   policyId,
   status,
   revoked,
+  personality,
+  goal,
   onRequestRevoke,
   manifestoBlobId,
 }: OperatorDashboardProps & { manifestoBlobId?: string | null }) {
@@ -963,6 +971,8 @@ function PolicyTab({
   const cap = sui(policy.budgetCap);
   const spent = sui(policy.spent);
   const remaining = Math.max(0, cap - spent);
+  const goalCal = goal && personality ? calibrateParams(personality.strategy, goal) : null;
+  const goalBase = personality ? calibrateParams(personality.strategy, { type: "edge" }) : null;
   const rows: Array<[string, React.ReactNode]> = [
     ["Status", <span key="s" style={{ color: revoked ? RED : EMERALD }}>{(status ?? "active").toUpperCase()}</span>],
     ["Budget cap", `${cap.toFixed(2)} SUI`],
@@ -975,6 +985,30 @@ function PolicyTab({
   ];
   return (
     <div>
+      {goal && goalCal && goalBase && (
+        <div className="mb-5 pb-5" style={{ borderBottom: "1px solid #E5E5E5" }}>
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: SUB }}>
+              Goal
+            </span>
+            <span className="font-mono text-[12px]" style={{ color: INK }}>
+              {goalLabel(goal)}
+            </span>
+          </div>
+          <p className="mt-2 font-mono text-[10.5px] leading-relaxed" style={{ color: SUB }}>
+            Calibrated thresholds:{" "}
+            <span style={{ color: INK }}>
+              edge ≥{(goalCal.minEdge * 100).toFixed(1)}% · conviction ≥{goalCal.convictionFloor.toFixed(2)} · max qty {goalCal.maxQty}
+            </span>
+            {goal.type !== "edge" && (
+              <>
+                <br />
+                Baseline: edge ≥{(goalBase.minEdge * 100).toFixed(1)}% · conviction ≥{goalBase.convictionFloor.toFixed(2)} · max qty {goalBase.maxQty}
+              </>
+            )}
+          </p>
+        </div>
+      )}
       <dl className="divide-y" style={{ borderColor: "#F0F0F0" }}>
         {rows.map(([k, v]) => (
           <div key={String(k)} className="flex items-baseline justify-between gap-4 py-3" style={{ borderTop: "1px solid #F0F0F0" }}>

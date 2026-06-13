@@ -43,6 +43,8 @@ type Body = {
   bounty_sui?: number;
   /** Which markets this trader can play. Defaults to "btc_only". */
   markets?: string;
+  /** Goal set at adoption — calibrates the trader's thresholds. */
+  goal?: { type?: string; targetPct?: number; horizonDays?: number };
 };
 
 export const runtime = "nodejs";
@@ -83,6 +85,20 @@ export async function POST(req: Request): Promise<Response> {
       : 0.01;
   const marketsRaw = (body.markets ?? "btc_only").trim();
   const markets = ALLOWED_MARKETS.has(marketsRaw) ? marketsRaw : "btc_only";
+
+  // Sanitize the goal to the known shape; anything off → omit, and the
+  // trader falls back to baseline thresholds.
+  const GOAL_TYPES = new Set(["grow", "preserve", "edge"]);
+  let goal: { type: string; targetPct?: number; horizonDays?: number } | undefined;
+  if (body.goal && GOAL_TYPES.has(String(body.goal.type))) {
+    goal = { type: String(body.goal.type) };
+    if (goal.type === "grow") {
+      const t = Number(body.goal.targetPct);
+      const h = Number(body.goal.horizonDays);
+      if (Number.isFinite(t) && t > 0) goal.targetPct = Math.min(100, t);
+      if (Number.isFinite(h) && h > 0) goal.horizonDays = Math.min(365, h);
+    }
+  }
 
   if (!HEX_RE.test(policyId)) {
     return Response.json(
@@ -148,6 +164,7 @@ export async function POST(req: Request): Promise<Response> {
     markets,
   };
   if (traderName) specObj.traderName = traderName;
+  if (goal) specObj.goal = goal;
   const specBlob = JSON.stringify(specObj);
   const bountyMist = BigInt(Math.floor(bountySui * 1_000_000_000));
   const title = traderName

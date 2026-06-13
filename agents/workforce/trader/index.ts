@@ -78,9 +78,11 @@ import {
 import {
   abstentionReason,
   baselineParams,
+  calibrateParams,
   decide,
   STRATEGIES,
   type Direction,
+  type OperatorGoal,
   type StrategyDecision,
   type StrategyId,
 } from "./strategy.js";
@@ -123,6 +125,9 @@ type TraderSpec = {
    *  allowed_venues already narrows on chain. We rotate within the
    *  bundle here to choose a concrete asset per task. */
   markets?: "btc_only" | "sui_ecosystem" | "all";
+  /** Goal the user set at adoption — deterministically calibrates the
+   *  operating thresholds. Absent → baseline (pre-goal behaviour). */
+  goal?: OperatorGoal;
 };
 
 /** Pick the asset to bet on this task. Explicit `spec.asset` wins;
@@ -284,31 +289,43 @@ async function saveManifestState(
   await fs.writeFile(p, JSON.stringify(s, null, 2));
 }
 
+/** Human label for a goal — used in reasoning + logs. */
+function goalLabel(goal?: OperatorGoal): string {
+  if (!goal || goal.type === "edge") return "edge-seeking goal";
+  if (goal.type === "preserve") return "capital-preservation goal";
+  return `${goal.targetPct ?? "?"}%-in-${goal.horizonDays ?? "?"}d growth goal`;
+}
+
 function buildManifesto(spec: TraderSpec, strategy: StrategyId, asset: string) {
-  const params = baselineParams(strategy);
+  const base = baselineParams(strategy);
+  const calibrated = calibrateParams(strategy, spec.goal);
   return {
-    schema: "brief.operator-manifesto.v1",
+    schema: "brief.operator-manifesto.v2",
     operatorId: spec.traderName ?? strategy,
     personality: strategy,
     policyId: spec.policyId ?? null,
     firstAsset: asset,
     adoptedAtMs: Date.now(),
-    operatingParameters: {
-      minEdgePct: Number((params.minEdge * 100).toFixed(2)),
-      momentumBandPct: Number((params.rocThreshold * 100).toFixed(3)),
-      rsiOverbought: params.rsiHigh,
-      rsiOversold: params.rsiLow,
-      maxQty: params.maxQty,
+    goal: spec.goal ?? null,
+    calibratedParams: {
+      minEdge: calibrated.minEdge,
+      maxQty: calibrated.maxQty,
+      convictionFloor: calibrated.convictionFloor,
+    },
+    baselineParams: {
+      minEdge: base.minEdge,
+      maxQty: base.maxQty,
+      convictionFloor: base.convictionFloor,
     },
     enforcedOnChain: {
       policyObject: spec.policyId ?? null,
       note: "budget cap, allowed venues, expiry and the revoke kill-switch are enforced on the OperatorPolicy object — not by this agent",
     },
     pledge:
-      "I act only when a real edge clears my threshold, and I preserve capital otherwise. " +
-      "Every decision and its reasoning is published to Walrus, verifiable by anyone. " +
-      "I never exceed the budget, venues, or expiry of my OperatorPolicy — the chain holds the leash, " +
-      "and my owner can revoke me in a single transaction.",
+      "I will act only when a genuine edge exists. " +
+      "I will preserve capital when conditions don't meet my threshold. " +
+      "I will never exceed the policy the chain enforces. " +
+      "My owner can revoke me at any time.",
   };
 }
 
@@ -786,7 +803,9 @@ async function handleTask(
   }
 
   const strikeUsd = Number(market.strikeRaw) / PRICE_SCALAR;
-  const decision = decide(strategyId, {
+  // Goal-calibrated thresholds (no goal → baseline, byte-identical).
+  const params = calibrateParams(strategyId, spec.goal);
+  let decision = decide(strategyId, {
     asset: "BTC",
     spotUsd: spotUsdNow,
     signals,
@@ -797,16 +816,34 @@ async function handleTask(
       oracle: market.oracle,
     },
     surface,
+    params,
     nowMs: Date.now(),
   });
   if (decision && spec.quantity && spec.quantity > 0) {
     decision.quantity = spec.quantity;
   }
+  // Goal gates (no-op at baseline): cap size to maxQty, and abstain if the
+  // conviction is below the calibrated floor. Conviction captured before
+  // nulling so the abstention reason can cite it.
+  let floorConv: number | null = null;
+  if (decision) {
+    decision.quantity = Math.min(decision.quantity, params.maxQty);
+    if (decision.conviction < params.convictionFloor) {
+      floorConv = decision.conviction;
+      decision = null;
+    }
+  }
+  // Goal-aware: when acting, say WHY the thresholds are what they are.
+  if (decision && spec.goal && spec.goal.type !== "edge") {
+    decision.reasoning += ` Thresholds calibrated for your ${goalLabel(spec.goal)}.`;
+  }
   // The honest per-strategy "capital preserved" reason, computed once when
   // the strategy sat out (feeds both the decision event + simulated mode).
   const abstainReason = decision
     ? null
-    : abstentionReason(strategyId, signals, "BTC", spotUsdNow);
+    : floorConv !== null
+      ? `${strategyId} preserved capital on BTC: conviction ${floorConv.toFixed(2)} is below the ${params.convictionFloor.toFixed(2)} floor calibrated for your ${goalLabel(spec.goal)} — not strong enough to risk capital.`
+      : abstentionReason(strategyId, signals, "BTC", spotUsdNow, params);
   if (decision) {
     console.log(
       `[trader] strategy=${strategyId} direction=${decision.direction} qty=${decision.quantity} conv=${decision.conviction.toFixed(2)} strike=$${strikeUsd.toFixed(2)} spot=$${spotUsdNow.toFixed(2)} expiry=${new Date(market.oracle.expiry).toISOString()}`,
@@ -1374,6 +1411,11 @@ async function handleSpotTask(
 
   const baseQty = market.minOrderQty ?? 1;
 
+  // Goal-calibrated params threaded for consistency. Spot has no SVI
+  // surface (so minEdge is moot) and uses a fixed min-order size (maxQty
+  // moot), so calibration is effectively a BTC-Predict feature — spot
+  // behaviour is unchanged.
+  const params = calibrateParams(strategyId, spec.goal);
   const candidateDecision = decide(strategyId, {
     asset,
     spotUsd: midUsd,
@@ -1384,6 +1426,7 @@ async function handleSpotTask(
       expiryMs: Date.now() + SPOT_HORIZON_MS,
     },
     surface: null,
+    params,
     nowMs: Date.now(),
   });
 
@@ -1396,7 +1439,7 @@ async function handleSpotTask(
   const notionalUsd = baseQty * midUsd;
   const reasoning =
     candidateDecision?.reasoning ??
-    abstentionReason(strategyId, signals, asset, midUsd);
+    abstentionReason(strategyId, signals, asset, midUsd, params);
   console.log(
     `[trader-spot] asset=${asset} strategy=${strategyId} direction=${direction} conv=${conviction.toFixed(2)} qty=${baseQty} mid=$${midUsd.toFixed(4)} notional=$${notionalUsd.toFixed(4)}` +
       (candidateDecision ? "" : " (no-edge abstention)"),

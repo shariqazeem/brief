@@ -22,6 +22,13 @@ import {
 import { BRIEF_PACKAGE_ID, BRIEF_TRADER_ADDRESS, explorerUrl } from "@/lib/brief-client";
 import { OperatorDashboard } from "@/components/operator/operator-dashboard";
 import {
+  calibrateParams,
+  defaultGoalFor,
+  goalLabel,
+  GOAL_HORIZONS,
+  type OperatorGoal,
+} from "@/lib/operator-goal";
+import {
   BRIEF_OPERATOR_ADDRESS,
   WORKFORCE_TEMPLATES,
   templateById,
@@ -86,6 +93,8 @@ type ActivationResult = {
   /** Which market bundle the user picked at adoption. Drives the spec
    *  the Planner posts to the trader's inbox. */
   traderMarkets?: "btc_only" | "sui_ecosystem" | "all";
+  /** Goal the user set at adoption — calibrates the trader's thresholds. */
+  traderGoal?: OperatorGoal;
 };
 
 /** Map a market bundle to the OperatorPolicy `allowed_venues` list.
@@ -1150,6 +1159,7 @@ function useTraderLauncher({
     traderName: string;
     budgetSui: number;
     markets: TraderMarketBundleId;
+    goal: OperatorGoal;
   }) => void;
 } {
   const client = useSuiClient();
@@ -1162,11 +1172,13 @@ function useTraderLauncher({
       traderName,
       budgetSui,
       markets,
+      goal,
     }: {
       personality: TraderPersonality;
       traderName: string;
       budgetSui: number;
       markets: TraderMarketBundleId;
+      goal: OperatorGoal;
     }) => {
       void (async () => {
         const name = traderName.trim().slice(0, 32) || personality.label;
@@ -1270,6 +1282,7 @@ function useTraderLauncher({
               traderName: name,
               traderStrategy: personality.strategy,
               traderMarkets: markets,
+              traderGoal: goal,
             });
             setPhase({ kind: "dispatching" });
           },
@@ -1327,8 +1340,8 @@ function TraderGallery({
         <TraderAdoptionPanel
           personality={picked}
           phase={phase}
-          onAdopt={(name, budgetSui, markets) =>
-            adopt({ personality: picked, traderName: name, budgetSui, markets })
+          onAdopt={(name, budgetSui, markets, goal) =>
+            adopt({ personality: picked, traderName: name, budgetSui, markets, goal })
           }
           onCancel={() => setPickedId(null)}
         />
@@ -1386,7 +1399,12 @@ function TraderAdoptionPanel({
 }: {
   personality: TraderPersonality;
   phase: AdoptPhase;
-  onAdopt: (name: string, budgetSui: number, markets: TraderMarketBundleId) => void;
+  onAdopt: (
+    name: string,
+    budgetSui: number,
+    markets: TraderMarketBundleId,
+    goal: OperatorGoal,
+  ) => void;
   onCancel: () => void;
 }) {
   // Pre-fill a name in the operator's voice ("Sentinel-3") — editable.
@@ -1401,6 +1419,9 @@ function TraderAdoptionPanel({
     Math.max(1, personality.defaultBudgetSui),
   );
   const [markets, setMarkets] = useState<TraderMarketBundleId>("btc_only");
+  const [goal, setGoal] = useState<OperatorGoal>(() =>
+    defaultGoalFor(personality.strategy),
+  );
   const [step, setStep] = useState(0);
   const selectedBundle =
     MARKET_BUNDLES.find((b) => b.id === markets) ?? MARKET_BUNDLES[0]!;
@@ -1414,7 +1435,9 @@ function TraderAdoptionPanel({
   const errMsg = phase.kind === "error" ? phase.msg : null;
   const nameReady = name.trim().length > 0;
   const trimmedName = name.trim() || personality.label;
-  const STEPS = ["Name & Budget", "Markets", "Release"];
+  const calibrated = calibrateParams(personality.strategy, goal);
+  const baseParams = calibrateParams(personality.strategy, { type: "edge" });
+  const STEPS = ["Name & Budget", "Markets", "Goal", "Release"];
 
   return (
     <div className="relative mt-5 animate-fade-up bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
@@ -1575,9 +1598,119 @@ function TraderAdoptionPanel({
           </div>
         )}
 
-        {/* STEP 3 — Release. The summary card IS the OperatorPolicy that
-            mints — every field is a real on-chain parameter. */}
+        {/* STEP 3 — Goal: deterministically calibrate the thresholds */}
         {step === 2 && (
+          <div className="animate-fade-up">
+            <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+              What should {trimmedName} optimize for?
+            </p>
+            <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-ink-2">
+              Your goal calibrates the operator&apos;s own thresholds —
+              deterministically, no black box. The smart default for a{" "}
+              {personality.label.toLowerCase()} operator is pre-selected; override it freely.
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              {(
+                [
+                  { type: "grow", title: "Grow capital", blurb: "Act more often toward a target. Slightly lower edge bar." },
+                  { type: "preserve", title: "Preserve capital", blurb: "Tighter thresholds, smaller size. Sits out more." },
+                  { type: "edge", title: "Maximize edge", blurb: "Baseline discipline — act only on clear edge." },
+                ] as const
+              ).map((g) => {
+                const active = goal.type === g.type;
+                return (
+                  <button
+                    key={g.type}
+                    type="button"
+                    onClick={() =>
+                      setGoal(
+                        g.type === "grow"
+                          ? { type: "grow", targetPct: goal.targetPct ?? 5, horizonDays: goal.horizonDays ?? 30 }
+                          : { type: g.type },
+                      )
+                    }
+                    aria-pressed={active}
+                    style={{ borderLeft: active ? "3px solid #10B981" : "3px solid transparent" }}
+                    className="flex flex-col gap-2 bg-bg-elev p-5 text-left shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(0,0,0,0.08)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+                  >
+                    <span className="font-sans text-[16px] font-medium tracking-tight text-ink">
+                      {g.title}
+                    </span>
+                    <span className="text-[12.5px] leading-snug text-ink-2">{g.blurb}</span>
+                    <span
+                      className={[
+                        "mt-1 font-mono text-[9px] uppercase tracking-[0.22em]",
+                        active ? "text-emerald-700" : "text-muted",
+                      ].join(" ")}
+                    >
+                      {active ? "selected" : "choose"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {goal.type === "grow" && (
+              <div className="mt-5 flex flex-wrap items-end gap-6 border-t border-line pt-5">
+                <label className="block">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+                    Target growth
+                  </span>
+                  <div className="mt-1 flex items-baseline gap-1">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={goal.targetPct ?? 5}
+                      onChange={(e) =>
+                        setGoal({ ...goal, targetPct: Math.max(1, Math.min(100, Number(e.target.value) || 0)) })
+                      }
+                      className="w-16 border-b-2 border-line bg-transparent py-1 text-[22px] font-medium tabular-nums text-ink outline-none focus:border-ink"
+                    />
+                    <span className="font-mono text-[14px] text-muted">%</span>
+                  </div>
+                </label>
+                <div>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+                    Horizon
+                  </span>
+                  <div className="mt-1 flex gap-2">
+                    {GOAL_HORIZONS.map((h) => (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() => setGoal({ ...goal, horizonDays: h })}
+                        className={[
+                          "px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
+                          (goal.horizonDays ?? 30) === h ? "bg-ink text-bg" : "border border-line text-muted hover:text-ink",
+                        ].join(" ")}
+                      >
+                        {h}d
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <p className="mt-5 max-w-prose font-mono text-[11px] leading-relaxed text-ink-2">
+              {trimmedName} will act when it detects{" "}
+              <span className="text-ink">edge ≥ {(calibrated.minEdge * 100).toFixed(1)}%</span> with{" "}
+              <span className="text-ink">conviction ≥ {calibrated.convictionFloor.toFixed(2)}</span>, sizing up to{" "}
+              <span className="text-ink">{calibrated.maxQty}</span>.
+              {goal.type !== "edge" && (
+                <span className="text-muted">
+                  {" "}
+                  (baseline: edge ≥{(baseParams.minEdge * 100).toFixed(1)}% · conviction ≥{baseParams.convictionFloor.toFixed(2)} · qty {baseParams.maxQty})
+                </span>
+              )}
+            </p>
+          </div>
+        )}
+
+        {/* STEP 4 — Release. The summary card IS the OperatorPolicy that
+            mints — every field is a real on-chain parameter. */}
+        {step === 3 && (
           <div className="animate-fade-up">
             <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
               Release {trimmedName}
@@ -1657,6 +1790,22 @@ function TraderAdoptionPanel({
                         : `raise to ${typicalQty} SUI for full size`}
                     </dd>
                   </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                      Goal
+                    </dt>
+                    <dd className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-2">
+                      {goalLabel(goal)}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted">
+                      Calibrated
+                    </dt>
+                    <dd className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-2">
+                      edge ≥{(calibrated.minEdge * 100).toFixed(1)}% · conv ≥{calibrated.convictionFloor.toFixed(2)}
+                    </dd>
+                  </div>
                 </dl>
                 <p className="mt-4 border-t border-line pt-3 font-mono text-[9px] uppercase leading-relaxed tracking-[0.18em] text-muted">
                   Expires in {TRADER_EXPIRY_HOURS}h · enforced by Move on chain
@@ -1678,10 +1827,10 @@ function TraderAdoptionPanel({
         >
           {step === 0 ? "← Change operator" : "← Back"}
         </button>
-        {step < 2 ? (
+        {step < 3 ? (
           <button
             type="button"
-            onClick={() => setStep((s) => Math.min(2, s + 1))}
+            onClick={() => setStep((s) => Math.min(3, s + 1))}
             disabled={step === 0 && !nameReady}
             className="inline-flex items-center gap-2 bg-ink px-6 py-3 font-mono text-[11px] uppercase tracking-[0.3em] text-bg transition-colors hover:bg-ink-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -1690,7 +1839,7 @@ function TraderAdoptionPanel({
         ) : (
           <button
             type="button"
-            onClick={() => onAdopt(name, budgetSui, markets)}
+            onClick={() => onAdopt(name, budgetSui, markets, goal)}
             disabled={busy || !nameReady}
             className="inline-flex items-center gap-2 bg-emerald-500 px-6 py-3 font-mono text-[11px] uppercase tracking-[0.3em] text-white transition-colors hover:bg-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -2923,13 +3072,14 @@ function TraderDashboard({
           strategy: activation.traderStrategy!,
           traderName,
           markets: activation.traderMarkets,
+          goal: activation.traderGoal,
         });
         if (!r.ok) setDispatchError(r.error ?? "dispatch failed");
       } catch (e) {
         setDispatchError(e instanceof Error ? e.message : String(e));
       }
     })();
-  }, [policyId, activation.traderStrategy, activation.traderMarkets, traderName]);
+  }, [policyId, activation.traderStrategy, activation.traderMarkets, activation.traderGoal, traderName]);
 
   // Manual re-dispatch — wired to the honest "infra hiccup, dispatch
   // again" affordance when a task closes on a dead pool. Same call as
@@ -2945,6 +3095,7 @@ function TraderDashboard({
         strategy: activation.traderStrategy,
         traderName,
         markets: activation.traderMarkets,
+        goal: activation.traderGoal,
       });
       if (!r.ok) setDispatchError(r.error ?? "dispatch failed");
     } catch (e) {
@@ -2952,7 +3103,7 @@ function TraderDashboard({
     } finally {
       setRedispatching(false);
     }
-  }, [policyId, activation.traderStrategy, activation.traderMarkets, traderName, redispatching]);
+  }, [policyId, activation.traderStrategy, activation.traderMarkets, activation.traderGoal, traderName, redispatching]);
 
   // Kill-switch state machine — identical to LiveConsole. The revoke
   // path proves the leash by waiting for an EPolicyRevoked abort on a
@@ -3144,6 +3295,7 @@ function TraderDashboard({
       status={status}
       personality={personality}
       traderName={traderName}
+      goal={activation.traderGoal ?? null}
       onReset={onReset}
       dispatchError={dispatchError}
       onDispatchAgain={redispatch}

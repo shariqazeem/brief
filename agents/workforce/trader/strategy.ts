@@ -39,6 +39,9 @@ export type StrategyInput = {
   /** Live vol surface — only present on BTC Predict bets. The quant
    *  strategy requires it; others ignore it. */
   surface?: SurfaceSnapshot | null;
+  /** Goal-calibrated thresholds. Absent → strategies use their hardcoded
+   *  baseline constants (byte-identical to pre-goal behaviour). */
+  params?: StrategyParams;
   nowMs: number;
 };
 
@@ -273,7 +276,8 @@ function quant(input: StrategyInput): StrategyDecision | null {
   agentP = Math.max(0.05, Math.min(0.95, agentP));
 
   const edge = agentP - marketP;
-  const EDGE_THRESHOLD = 0.05;
+  // Goal-calibrated edge threshold; falls back to the baseline 5%.
+  const EDGE_THRESHOLD = input.params?.minEdge ?? 0.05;
   if (Math.abs(edge) < EDGE_THRESHOLD) return null; // no edge → sit out
 
   const direction: Direction = edge > 0 ? "up" : "down";
@@ -353,28 +357,65 @@ function countDeltaVotes(
 // =============================================================================
 
 export type StrategyParams = {
-  /** Quant edge threshold (quant only). */
+  /** Minimum edge to act — quant's edge gate (baseline 0.05). */
   minEdge: number;
-  /** Momentum flat-tape band — |ROC| below this = no trend. */
-  rocThreshold: number;
-  /** RSI overbought / oversold guards. */
-  rsiHigh: number;
-  rsiLow: number;
   /** Conviction-scaled position-size ceiling. */
   maxQty: number;
+  /** Minimum conviction required to act. At baseline this EQUALS each
+   *  strategy's natural conviction floor, so the gate is a no-op until a
+   *  goal raises it — guaranteeing no-goal behaviour is byte-identical. */
+  convictionFloor: number;
+};
+
+export type OperatorGoal = {
+  type: "grow" | "preserve" | "edge";
+  /** Only meaningful for "grow". */
+  targetPct?: number;
+  horizonDays?: number;
 };
 
 export function baselineParams(strategy: StrategyId): StrategyParams {
   return {
     minEdge: 0.05,
-    rocThreshold: 0.0005,
-    rsiHigh: 70,
-    rsiLow: 30,
     maxQty:
       strategy === "conservative"
         ? 1
         : STRATEGY_DEFAULT_QUANTITY[strategy] + 2,
+    convictionFloor:
+      strategy === "contrarian" || strategy === "quant" ? 0.4 : 0.3,
   };
+}
+
+/** Deterministically calibrate the operating thresholds to the user's
+ *  goal. No goal / "edge" → baseline (behaviour byte-identical to a policy
+ *  with no goal). "preserve" → tighter (more edge, more conviction, less
+ *  size). "grow" → paced to the daily target (slightly looser to act more
+ *  often). Pure arithmetic — no LLM, no adaptation, fully verifiable. */
+export function calibrateParams(
+  strategy: StrategyId,
+  goal: OperatorGoal | null | undefined,
+): StrategyParams {
+  const base = baselineParams(strategy);
+  if (!goal || goal.type === "edge") return base;
+  if (goal.type === "preserve") {
+    return {
+      minEdge: Number((base.minEdge * 1.5).toFixed(3)),
+      maxQty: Math.max(base.maxQty - 1, 1),
+      convictionFloor: Number((base.convictionFloor * 1.3).toFixed(2)),
+    };
+  }
+  if (goal.type === "grow" && goal.targetPct && goal.horizonDays) {
+    const dailyPace = goal.targetPct / goal.horizonDays;
+    const urgency = Math.min(dailyPace / 0.17, 1.4); // 0.17%/day ≈ 5%/30d
+    return {
+      minEdge: Number((base.minEdge * (1.15 - urgency * 0.25)).toFixed(3)),
+      maxQty: base.maxQty,
+      convictionFloor: Number(
+        (base.convictionFloor * (1.05 - urgency * 0.1)).toFixed(2),
+      ),
+    };
+  }
+  return base;
 }
 
 // =============================================================================
@@ -390,6 +431,7 @@ export function abstentionReason(
   signals: SignalBundle,
   asset: string,
   spotUsd: number,
+  params?: StrategyParams,
 ): string {
   const roc30 = signals.roc_30m;
   const rsi = signals.rsi_60m;
@@ -409,8 +451,10 @@ export function abstentionReason(
       return `Momentum preserved capital on ${asset}: 30m ROC ${pct(roc30)} sits inside the ±0.05% flat-tape band — no trend to ride. Capital held until a real move emerges.`;
     case "contrarian":
       return `Contrarian preserved capital on ${asset}: RSI(60m) ${fmt(rsi ?? 50, 1)} is in the neutral 30–70 band — no overextension to fade. No crowd to lean against right now.`;
-    case "quant":
-      return `Quant preserved capital on ${asset}: the signal edge is under the ±5% threshold against the live vol surface — not mispriced enough to risk capital. (ROC30m ${pct(roc30)}, RSI ${fmt(rsi ?? 50, 1)}.)`;
+    case "quant": {
+      const edgePct = ((params?.minEdge ?? 0.05) * 100).toFixed(1);
+      return `Quant preserved capital on ${asset}: the signal edge is under the ±${edgePct}% threshold against the live vol surface — not mispriced enough to risk capital. (ROC30m ${pct(roc30)}, RSI ${fmt(rsi ?? 50, 1)}.)`;
+    }
     default:
       return `${strategy} preserved capital on ${asset}: no signal cleared the threshold.`;
   }

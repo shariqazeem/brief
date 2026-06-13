@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { useSuiClient } from "@mysten/dapp-kit";
+import type { OperatorGoal } from "@/lib/operator-goal";
 import {
   BRIEF_OPERATOR_ADDRESS,
   buildCreatePolicyTx,
@@ -331,6 +332,9 @@ export async function dispatchTraderTask(args: {
   /** Which markets this trader is allowed to play. Defaults to BTC for
    *  backward compatibility with existing adopt flows. */
   markets?: TraderMarketBundle;
+  /** Goal the user set at adoption — travels in the task spec so the
+   *  trader can calibrate its thresholds. Absent → baseline. */
+  goal?: OperatorGoal;
 }): Promise<TraderDispatchResult> {
   const res = await fetch(apiUrl("/api/workforce/trader-dispatch"), {
     method: "POST",
@@ -341,6 +345,7 @@ export async function dispatchTraderTask(args: {
       trader_name: args.traderName,
       bounty_sui: args.bountySui,
       markets: args.markets,
+      goal: args.goal,
     }),
   });
   const j = (await res.json().catch(() => ({}))) as TraderDispatchResult;
