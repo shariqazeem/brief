@@ -21,7 +21,11 @@ published-at = "0xe550ace873c02768dbaca7de3a2d64a28acd3f7c51551c9c97b704703e95fb
 [dependencies]
 # Pinned to testnet framework — Sui Overflow submissions demo on testnet
 # (devnet wipes too often).
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet", override = true }
+MoveStdlib = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "framework/testnet", override = true }
+# DeepBook v3 — for the mainnet non-custodial spot path (brief::gated_spot).
+# Additive: existing testnet Predict modules don't import this.
+deepbook = { git = "https://github.com/MystenLabs/deepbookv3.git", subdir = "packages/deepbook", rev = "testnet-v19.0.0" }
 
 [addresses]
 brief = "0xe550ace873c02768dbaca7de3a2d64a28acd3f7c51551c9c97b704703e95fb9d"
