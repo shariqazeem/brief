@@ -461,6 +461,40 @@ truth about its own readiness.
 
 ---
 
+## How we scale (load-tested, honest numbers)
+
+`deploy/loadtest.js` (k6) hits the **live VM** for 60s with **160
+concurrent VUs**: 100 hammering the cached read routes
+(`/api/leaderboard`, `/api/trader/signals`, `/api/spot`), 50 holding
+`/api/agent-events` SSE connections open, 10 loading the `/workforce`
+and `/leaderboard` pages. (We deliberately do **not** load the
+dispatch route — it signs real Planner txs.)
+
+**Result on a single small VM (1 Next process + the live trader +
+warden sharing one testnet fullnode):**
+- **Zero 5xx** across ~3,500 requests. 100% of checks passed.
+- **SSE: 250 connections opened, 0 failed** — the wire stays up under load.
+- Reads: **median 0.88s, p90 2.1s, p95 4.4s**; failure rate 0.4%
+  (60s-timeout outliers on cold cache misses, not server errors).
+
+The first run exposed a **cache-miss stampede**: when the leaderboard's
+30s cache expired, all ~100 VUs each re-ran the expensive on-chain
+aggregation against the shared fullnode. We added **single-flight +
+stale-while-revalidate** to `/api/leaderboard` and `/api/spot` — one
+in-flight computation shared by all callers, prior value served
+instantly while a single background refresh runs. That dropped p90 from
+3.98s → 2.09s and, crucially, stops a traffic spike from starving the
+live trader/warden of fullnode capacity.
+
+**Honest ceiling:** p95 < 1s isn't reached on one box — it's bound by
+the on-chain aggregation's fullnode round-trips, not by errors. The
+path there is in *What we'd build next*: horizontal `brief-web` workers
+behind Caddy + an indexer/read-replica cache for the leaderboard, plus
+Redis pub/sub for SSE fan-out. The claim this proves today: **100
+concurrent users, zero errors, SSE stable.**
+
+---
+
 ## What we'd build next
 
 1. **Pyth-priced multi-asset markets (ETH, SOL).** DeepBook testnet has
