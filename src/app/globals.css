@@ -91,6 +91,14 @@ body {
 }
 .op-glyph { animation: operatorGlyph 3s ease-in-out infinite; }
 
+/* Idle "awaiting next cycle" breath — opacity only, frozen by the
+   reduced-motion guard below. */
+@keyframes operatorBreathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+.op-breathe { animation: operatorBreathe 2.6s ease-in-out infinite; }
+
 /* Boot ceremony — the adopted operator's card settles (scale 1.02 → 1)
    the instant the leash mints, then the dashboard takes over. One-shot. */
 @keyframes bootSettle {

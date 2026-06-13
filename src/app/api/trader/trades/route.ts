@@ -24,7 +24,7 @@ type JournalEntry = {
   decidedAtMs: number;
   market?: { oracleId?: string; strike?: number; spotAtDecision?: number; expiryMs?: number };
   decision?: { direction?: string; quantity?: number; reasoning?: string };
-  execution?: { mode?: string; mintTxDigest?: string | null };
+  execution?: { mode?: string; mintTxDigest?: string | null; walrusReasoningBlobId?: string | null };
 };
 
 type SpotPosition = {
@@ -87,6 +87,13 @@ export async function GET(req: NextRequest) {
       mint_tx: e.execution?.mintTxDigest ?? null,
       strike_usd: e.market?.strike ? e.market.strike / 1e9 : null,
       spot_usd: e.market?.spotAtDecision ? e.market.spotAtDecision / 1e9 : null,
+      // Additive: the journal already records these — exposing them lets
+      // the dashboard show the past thesis and compute real settlement
+      // (did spot cross the strike in the called direction by expiry).
+      expiry_ms: e.market?.expiryMs ?? null,
+      oracle_id: e.market?.oracleId ?? null,
+      reasoning: e.decision?.reasoning ?? null,
+      walrus_reasoning_blob_id: e.execution?.walrusReasoningBlobId ?? null,
     }))
     .reverse();
 
