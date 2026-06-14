@@ -34,21 +34,43 @@ import { useAccountSigner } from "@/lib/zklogin/signer";
 const TRADER_EXPIRY_HOURS = 24;
 const PRESETS = [5, 10, 20];
 
-// Risk read per personality (conservative → aggressive). Cosmetic — the real
-// limit is the on-chain budget cap the user sets below.
-const RISK: Record<StrategyId, { level: number; label: string }> = {
-  conservative: { level: 1, label: "Conservative" },
-  momentum: { level: 3, label: "Aggressive" },
-  contrarian: { level: 3, label: "Aggressive" },
-  quant: { level: 4, label: "Quant edge" },
+// Character + risk per personality — copy that reads like adopting something
+// with judgment, not picking a risk tier. Dot colour signals the read; the
+// real limit is the on-chain budget cap the user sets below.
+const CARD_COPY: Record<
+  StrategyId,
+  { desc: string; risk: string; dot: string }
+> = {
+  conservative: {
+    desc: "Watches. Waits. Strikes only when the signal is undeniable. Conservative SMA-alignment strategy that preserves capital through discipline.",
+    risk: "Conservative",
+    dot: "#10B981",
+  },
+  momentum: {
+    desc: "Rides the trend. Buys strength, sells weakness. Trend-following strategy that moves when the market moves.",
+    risk: "Moderate",
+    dot: "#F59E0B",
+  },
+  contrarian: {
+    desc: "Fades the crowd. Buys fear, sells greed. RSI-extreme strategy that bets against the consensus.",
+    risk: "Moderate-Aggressive",
+    dot: "#F97316",
+  },
+  quant: {
+    desc: "Reads the volatility surface. Finds edge in mispriced options. SVI vol-surface strategy that trades where others don't look.",
+    risk: "Aggressive",
+    dot: "#EF4444",
+  },
 };
 
-const ADOPT_STEPS = [
-  "Creating your BalanceManager",
-  "Depositing your USDC",
-  "Delegating trade access (TradeCap)",
-  "Delegating fuel access (DepositCap)",
-  "Creating your OperatorPolicy",
+// Each adoption step: the action (while in flight) + the trust it establishes
+// (on ✓). The judge reads WHO owns what and WHAT the chain enforces.
+const ADOPT_STEPS: { doing: string; done: string }[] = [
+  { doing: "Creating your BalanceManager…", done: "BalanceManager created. You own it." },
+  { doing: "Depositing USDC…", done: "USDC in your BalanceManager. Only you can withdraw." },
+  { doing: "Enabling DEEP fuel…", done: "Fees covered — your operator fuels itself, never your USDC." },
+  { doing: "Delegating TradeCap…", done: "Operator can trade. Operator cannot withdraw." },
+  { doing: "Creating Policy…", done: "Budget cap enforced on-chain. The chain holds the leash." },
 ];
 
 type AdoptState =
@@ -74,6 +96,7 @@ function AdoptWizard() {
   const address = signer.address;
   const isMainnet = BRIEF_NETWORK === "mainnet";
   const usdcLabel = isMainnet ? "USDC" : "test USDC";
+  const unitLabel = isMainnet ? "USDC" : "DBUSDC"; // the actual capital coin
 
   const [picked, setPicked] = useState<StrategyId | null>(null);
   const [amount, setAmount] = useState<number>(5);
@@ -265,6 +288,11 @@ function AdoptWizard() {
           <p className="mt-4 font-mono text-[13px] uppercase tracking-[0.28em] text-emerald-600">
             The chain holds the leash.
           </p>
+          <p className="mt-5 max-w-xl text-[14px] leading-relaxed text-ink-2">
+            Your operator&apos;s budget cap isn&apos;t a backend promise — it&apos;s a
+            Move contract. Over-budget trades revert on-chain. The kill switch is a
+            transaction, not a toggle.
+          </p>
 
           <div className="mt-8">
             {!address ? (
@@ -306,17 +334,18 @@ function AdoptWizard() {
         {/* ─── Section 3 · Set the budget (the leash) ───────────────── */}
         {showBudget && personality && (
           <section className="mt-16 animate-fade-up">
-            <SectionLabel n="02" title="Set the leash" />
+            <SectionLabel n="02" title="Set the leash — maximum total spend" />
             <p className="mt-2 max-w-prose text-[14px] leading-relaxed text-ink-2">
-              The most {personality.label} can ever spend. The chain enforces it —
-              the operator physically cannot exceed this.
+              This is a Move contract, not a setting. If {personality.label} tries to
+              spend past this amount, the transaction reverts on-chain. No override.
+              No exception. Not even we can change it.
             </p>
             <div className="mt-5 flex items-baseline gap-3">
               <span className="font-mono text-[40px] font-medium tabular-nums tracking-tight text-ink">
-                ${amount}
+                {amount}
               </span>
               <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
-                {usdcLabel}
+                {unitLabel}
               </span>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -341,8 +370,8 @@ function AdoptWizard() {
               />
             </div>
             <p className="mt-3 font-mono text-[10.5px] leading-relaxed text-ink-2">
-              {personality.label} will never spend more than{" "}
-              <span className="text-ink">${amount} {usdcLabel}</span>. Enforced on-chain.
+              Hard cap: <span className="text-ink">{amount} {unitLabel}</span> total —
+              the chain reverts anything past it.
             </p>
           </section>
         )}
@@ -353,10 +382,11 @@ function AdoptWizard() {
             <SectionLabel n="03" title="Deposit your capital" />
             <div className="mt-4 border-l-[3px] border-emerald-500 bg-emerald-50/40 px-4 py-3">
               <p className="text-[13px] leading-relaxed text-ink-2">
-                Your {usdcLabel} goes into{" "}
-                <span className="text-ink">your own DeepBook BalanceManager</span>.
-                The operator can trade it — but{" "}
-                <span className="text-ink">can never withdraw it</span>. Only you can.
+                Your {unitLabel} goes into{" "}
+                <span className="text-ink">your BalanceManager on DeepBook</span>. The
+                operator can trade it via the <span className="text-ink">TradeCap</span> —
+                it <span className="text-ink">cannot withdraw</span>; only you hold the
+                WithdrawCap. The chain enforces this, not our backend.
               </p>
             </div>
 
@@ -365,7 +395,7 @@ function AdoptWizard() {
                 Depositing
               </span>
               <span className="font-mono text-[15px] tabular-nums text-ink">
-                ${amount} {usdcLabel}
+                {amount} {unitLabel}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between border-t border-line pt-2">
@@ -373,7 +403,7 @@ function AdoptWizard() {
                 In wallet
               </span>
               <span className="font-mono text-[11px] tabular-nums text-ink-2">
-                {usdcLoaded ? `${usdc.toFixed(2)} ${usdcLabel}` : "…"}
+                {usdcLoaded ? `${usdc.toFixed(2)} ${unitLabel}` : "…"}
               </span>
             </div>
 
@@ -491,12 +521,12 @@ function OperatorCard({
   selected: boolean;
   onPick: () => void;
 }) {
-  const risk = RISK[p.strategy];
+  const copy = CARD_COPY[p.strategy];
   return (
     <button
       type="button"
       onClick={onPick}
-      className={`flex min-h-[180px] flex-col border bg-bg-elev p-4 text-left transition-colors ${
+      className={`flex min-h-[210px] flex-col border bg-bg-elev p-4 text-left transition-colors ${
         selected ? "border-emerald-500" : "border-line hover:border-line-strong"
       }`}
       style={{ borderWidth: selected ? 2 : 1 }}
@@ -507,19 +537,15 @@ function OperatorCard({
       <span className="mt-3 font-sans text-[16px] font-medium tracking-tight text-ink">
         {p.label}
       </span>
-      <span className="mt-1 flex-1 text-[12px] leading-snug text-ink-2">{p.tagline}</span>
-      <div className="mt-3">
-        <div className="flex items-center gap-1" aria-hidden>
-          {[0, 1, 2, 3].map((i) => (
-            <span
-              key={i}
-              className="h-1 flex-1"
-              style={{ background: i < risk.level ? "#F59E0B" : "#E5E5EA" }}
-            />
-          ))}
-        </div>
-        <span className="mt-1.5 block font-mono text-[9px] uppercase tracking-[0.18em] text-muted">
-          {risk.label}
+      <span className="mt-1.5 flex-1 text-[12px] leading-snug text-ink-2">{copy.desc}</span>
+      <div className="mt-3 flex items-center gap-1.5">
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ background: copy.dot }}
+          aria-hidden
+        />
+        <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted">
+          {copy.risk}
         </span>
       </div>
     </button>
@@ -528,25 +554,24 @@ function OperatorCard({
 
 function AdoptProgress({ step }: { step: number }) {
   return (
-    <ul className="space-y-2.5">
-      {ADOPT_STEPS.map((label, i) => {
+    <ul className="space-y-3">
+      {ADOPT_STEPS.map((s, i) => {
         const done = step > i;
         const active = step === i;
         return (
-          <li key={label} className="flex items-center gap-3">
+          <li key={s.doing} className="flex items-start gap-3">
             <span
-              className="flex h-4 w-4 items-center justify-center text-[11px]"
+              className="mt-px flex h-4 w-4 shrink-0 items-center justify-center text-[11px]"
               style={{ color: done ? "#10B981" : active ? "#F59E0B" : "#C7C7CC" }}
               aria-hidden
             >
               {done ? "✓" : active ? "•" : "○"}
             </span>
             <span
-              className="font-mono text-[12px]"
+              className="font-mono text-[12px] leading-snug"
               style={{ color: done ? "#0A0A0A" : active ? "#525560" : "#8E8E93" }}
             >
-              {label}
-              {done ? "" : active ? "…" : ""}
+              {done ? s.done : s.doing}
             </span>
           </li>
         );

@@ -231,6 +231,8 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
                 stale={stale}
                 now={now}
                 policy={policy}
+                traderName={traderName}
+                revoked={revoked}
                 dispatchError={props.dispatchError}
                 onDispatchAgain={props.onDispatchAgain}
                 dispatching={props.dispatching}
@@ -474,6 +476,8 @@ function NowTab({
   stale,
   now,
   policy,
+  traderName,
+  revoked,
   dispatchError,
   onDispatchAgain,
   dispatching,
@@ -483,6 +487,8 @@ function NowTab({
   stale: boolean;
   now: number;
   policy: OperatorPolicyDecoded | null;
+  traderName: string;
+  revoked: boolean;
 } & Pick<OperatorDashboardProps, "dispatchError" | "onDispatchAgain" | "dispatching">) {
   const hasObserve = stream.spotUsd != null || stream.steps.observe.status !== "pending";
   const hasSignals = stream.signals != null;
@@ -594,6 +600,8 @@ function NowTab({
           stream={stream}
           journal={journal}
           now={now}
+          traderName={traderName}
+          revoked={revoked}
           dispatchError={dispatchError}
           onDispatchAgain={onDispatchAgain}
           dispatching={dispatching}
@@ -720,6 +728,8 @@ function IdleBlock({
   stream,
   journal,
   now,
+  traderName,
+  revoked,
   dispatchError,
   onDispatchAgain,
   dispatching,
@@ -727,16 +737,44 @@ function IdleBlock({
   stream: AgentStreamState;
   journal: ReturnType<typeof useOperatorJournal>;
   now: number;
+  traderName: string;
+  revoked: boolean;
   dispatchError: string | null;
   onDispatchAgain: () => void;
   dispatching: boolean;
 }) {
   const last = journal.entries[0];
+  // Brand-new operator (no decisions yet) → the "watching" first run. This is
+  // the first thing a judge sees after adopting: it's alive + thinking.
+  const firstRun = journal.loaded && journal.entries.length === 0 && !revoked && !stream.failure;
   return (
     <div className="flex flex-col items-center py-12 text-center">
-      <p className="op-breathe font-mono text-[12px] uppercase tracking-[0.3em]" style={{ color: IDLE }}>
-        Awaiting next cycle
-      </p>
+      {revoked ? (
+        <p className="font-mono text-[12px] uppercase tracking-[0.3em]" style={{ color: "#CCCCCC" }}>
+          Operator grounded
+        </p>
+      ) : firstRun ? (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 animate-pulse rounded-full" style={{ background: EMERALD }} aria-hidden />
+            <span className="font-mono text-[12px] uppercase tracking-[0.3em]" style={{ color: EMERALD }}>
+              Operator active
+            </span>
+          </div>
+          <p className="mt-4 font-sans text-[18px] font-medium tracking-tight" style={{ color: INK }}>
+            {traderName} is watching the market.
+          </p>
+          <p className="mt-2 max-w-sm text-[13px] leading-relaxed" style={{ color: SUB }}>
+            It reads the tape every cycle and acts only on a real edge — first
+            decision usually within a minute. An abstention is a decision too:
+            capital preserved is discipline, not inaction.
+          </p>
+        </>
+      ) : (
+        <p className="op-breathe font-mono text-[12px] uppercase tracking-[0.3em]" style={{ color: IDLE }}>
+          Awaiting next cycle
+        </p>
+      )}
       {last && (
         <div className="mt-5">
           <OutcomeBadge entry={last} />
