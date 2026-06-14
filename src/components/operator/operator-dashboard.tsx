@@ -91,6 +91,9 @@ export type OperatorDashboardProps = {
   onRequestRevoke: () => void;
   onConfirmRevoke: () => void;
   onCancelRevoke: () => void;
+  /** Read-only shared view (e.g. ?policy=…): hide the revoke + adopt
+   *  controls — only the owner drives the leash, from their own session. */
+  readOnly?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -214,6 +217,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         fuel={revoked ? null : stream.fuel}
         onYank={onRequestRevoke}
         onReset={onReset}
+        readOnly={props.readOnly}
       />
 
       <main className="mx-auto max-w-4xl px-5 py-8 sm:px-8">
@@ -282,6 +286,7 @@ function TopBar({
   fuel,
   onYank,
   onReset,
+  readOnly,
 }: {
   glyph: string;
   name: string;
@@ -293,6 +298,7 @@ function TopBar({
   fuel: { deepHuman: number; level: "ok" | "low" | "empty" } | null;
   onYank: () => void;
   onReset: () => void;
+  readOnly?: boolean;
 }) {
   const dotColor =
     dot === "act" ? EMERALD : dot === "preserve" ? AMBER : dot === "grounded" ? "#CCCCCC" : IDLE;
@@ -371,15 +377,25 @@ function TopBar({
 
         {/* controls */}
         <div className="ml-auto flex items-center gap-4 sm:ml-0">
-          {!revoked && (
-            <button
-              type="button"
-              onClick={onYank}
-              className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70"
-              style={{ color: RED }}
+          {readOnly ? (
+            <span
+              className="font-mono text-[9.5px] uppercase tracking-[0.2em]"
+              style={{ color: SUB }}
+              title="Shared view — only the owner can revoke, from their own session."
             >
-              Yank the leash
-            </button>
+              watching · owner holds the leash
+            </span>
+          ) : (
+            !revoked && (
+              <button
+                type="button"
+                onClick={onYank}
+                className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70"
+                style={{ color: RED }}
+              >
+                Yank the leash
+              </button>
+            )
           )}
           <button
             type="button"
@@ -387,7 +403,7 @@ function TopBar({
             className="font-mono text-[10px] uppercase tracking-[0.2em] transition-colors hover:text-ink"
             style={{ color: SUB }}
           >
-            ← Adopt another
+            {readOnly ? "Adopt your own →" : "← Adopt another"}
           </button>
         </div>
       </div>

@@ -973,6 +973,43 @@ function titleFromCapability(cap: string, kind: "posted" | "approved"): string {
 // Connected — single-step hire form OR live console
 // =============================================================================
 
+// Read-only operator view (?policy=<id>) — mounts the live dashboard for
+// ANY operator by id: the decision cascade, fuel gauge, Walrus journal and
+// policy, all driven by the same SSE stream + on-chain reads. No wallet
+// funds touched; only the owner can revoke (from their own session). This
+// is how the house demo operator is watched + how an operator is shared.
+function ViewOperator({ policyId }: { policyId: string }) {
+  const { policy } = usePolicy(policyId);
+  const status = policy ? policyStatus(policy) : null;
+  return (
+    <OperatorDashboard
+      policyId={policyId}
+      policy={policy}
+      status={status}
+      personality={null}
+      traderName={policy?.name || "Operator"}
+      goal={null}
+      onReset={() => {
+        if (typeof window !== "undefined") window.location.href = "/workforce";
+      }}
+      dispatchError={null}
+      onDispatchAgain={() => {}}
+      dispatching={false}
+      revoked={!!policy?.revoked}
+      killSwitchPhase="idle"
+      chainAbort={null}
+      revokeTx={null}
+      revokeSubmitting={false}
+      revokeError={null}
+      confirmRevoke={false}
+      onRequestRevoke={() => {}}
+      onConfirmRevoke={() => {}}
+      onCancelRevoke={() => {}}
+      readOnly
+    />
+  );
+}
+
 function Connected({ address }: { address: string }) {
   const [activation, setActivation] = useState<ActivationResult | null>(null);
   // Gate the dashboard behind a brief "your operator is live" ceremony
@@ -990,6 +1027,19 @@ function Connected({ address }: { address: string }) {
   const predict =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("predict") === "1";
+
+  // ?policy=<id> → read-only live view of any operator (watch / share).
+  const viewPolicy =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("policy")
+      : null;
+  if (viewPolicy && /^0x[0-9a-fA-F]{6,}$/.test(viewPolicy)) {
+    return (
+      <section className="mx-auto max-w-page px-0 pt-0 pb-24">
+        <ViewOperator policyId={viewPolicy} />
+      </section>
+    );
+  }
 
   if (!activation) {
     return (
