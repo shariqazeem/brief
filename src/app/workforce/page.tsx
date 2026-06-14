@@ -21,6 +21,7 @@ import {
 } from "@mysten/dapp-kit";
 import { BRIEF_NETWORK, BRIEF_PACKAGE_ID, BRIEF_TRADER_ADDRESS, explorerUrl } from "@/lib/brief-client";
 import { OperatorDashboard } from "@/components/operator/operator-dashboard";
+import { FloatingKillSwitch } from "@/components/operator/floating-kill-switch";
 import { Transaction } from "@mysten/sui/transactions";
 import { buildAdoptTx, DEEPBOOK_CFG } from "@/lib/deepbook-adopt";
 import { buildGetTestUsdcTx } from "@/lib/deepbook-get-usdc";
@@ -159,6 +160,9 @@ function WorkforceConsole() {
       ) : (
         <Disconnected />
       )}
+      {/* The leash is always in your hand — floating revoke on every
+          operator surface (shows when you have an active operator). */}
+      <FloatingKillSwitch />
     </main>
   );
 }
@@ -1553,6 +1557,12 @@ function DepositIntro() {
         Directional spot on DeepBook v3 (SUI / WAL / DEEP), gated by your
         OperatorPolicy. One signature to adopt.
       </p>
+      <a
+        href="/workforce/adopt"
+        className="mt-6 inline-block bg-emerald-500 px-6 py-3 font-mono text-[11px] uppercase tracking-[0.28em] text-white transition-colors hover:bg-emerald-600"
+      >
+        Adopt an operator →
+      </a>
     </header>
   );
 }

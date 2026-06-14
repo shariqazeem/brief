@@ -369,6 +369,8 @@ export type TraderIdentity = {
   name: string;
   strategy: StrategyId;
   adoptedAtMs: number;
+  /** Set true once the owner revokes — hides the floating kill switch. */
+  revoked?: boolean;
 };
 
 function safeStorage(): Storage | null {
@@ -409,6 +411,42 @@ export function loadTraderIdentity(
     return arr.find((x) => x.policyId === policyId) ?? null;
   } catch {
     return null;
+  }
+}
+
+/** Most-recently-adopted operator that hasn't been revoked — drives the
+ *  floating kill switch (the leash is always in your hand). */
+export function loadLatestTraderIdentity(): TraderIdentity | null {
+  const s = safeStorage();
+  if (!s) return null;
+  const raw = s.getItem(TRADER_IDENTITY_KEY);
+  if (!raw) return null;
+  try {
+    const arr = JSON.parse(raw) as TraderIdentity[];
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (!arr[i].revoked) return arr[i];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Flag an operator revoked locally so the kill switch retires it. */
+export function markIdentityRevoked(policyId: string): void {
+  const s = safeStorage();
+  if (!s) return;
+  const raw = s.getItem(TRADER_IDENTITY_KEY);
+  if (!raw) return;
+  try {
+    const arr = JSON.parse(raw) as TraderIdentity[];
+    const i = arr.findIndex((x) => x.policyId === policyId);
+    if (i >= 0) {
+      arr[i] = { ...arr[i], revoked: true };
+      s.setItem(TRADER_IDENTITY_KEY, JSON.stringify(arr));
+    }
+  } catch {
+    /* ignore */
   }
 }
 
