@@ -68,6 +68,7 @@ export function buildAdoptTx(tx: Transaction, args: AdoptArgs): void {
   const cfg = DEEPBOOK_CFG[args.network];
   const bmType = `${cfg.deepbook}::balance_manager::BalanceManager`;
   const tradeCapType = `${cfg.deepbook}::balance_manager::TradeCap`;
+  const depositCapType = `${cfg.deepbook}::balance_manager::DepositCap`;
 
   // 1) the user's own BalanceManager
   const bm = tx.moveCall({ target: `${cfg.deepbook}::balance_manager::new` });
@@ -77,9 +78,17 @@ export function buildAdoptTx(tx: Transaction, args: AdoptArgs): void {
     typeArguments: [cfg.capitalCoinType],
     arguments: [bm, args.capitalCoin],
   });
-  // 3) mint a TradeCap (owner-only) to delegate
+  // 3) mint a TradeCap (owner-only) to delegate — trade, never withdraw
   const tradeCap = tx.moveCall({
     target: `${cfg.deepbook}::balance_manager::mint_trade_cap`,
+    arguments: [bm],
+  });
+  // 3b) mint a DepositCap (owner-only) to delegate — lets the operator/house
+  //     deposit "fuel" (DEEP for DeepBook fees) into the user's BM, but NEVER
+  //     withdraw. This is what makes "your operator comes with fuel" real
+  //     while staying non-custodial — the DEEP is the user's, withdrawable.
+  const depositCap = tx.moveCall({
+    target: `${cfg.deepbook}::balance_manager::mint_deposit_cap`,
     arguments: [bm],
   });
   // 4) share the BalanceManager — owner field stays = the user (custody kept)
@@ -93,6 +102,12 @@ export function buildAdoptTx(tx: Transaction, args: AdoptArgs): void {
     target: `0x2::transfer::public_transfer`,
     typeArguments: [tradeCapType],
     arguments: [tradeCap, tx.pure.address(args.operator)],
+  });
+  // 5b) delegate the DepositCap to the operator (deposit-fuel-not-withdraw)
+  tx.moveCall({
+    target: `0x2::transfer::public_transfer`,
+    typeArguments: [depositCapType],
+    arguments: [depositCap, tx.pure.address(args.operator)],
   });
   // 6) create the chain-enforced policy (agent = operator); shares it
   tx.moveCall({

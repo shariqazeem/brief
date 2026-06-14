@@ -46,6 +46,7 @@ import { consolidateSuiCoins } from "../../lib/sui-coin-consolidate.js";
 import { getMarket, type MarketSpec } from "../lib/markets.js";
 import { closeSpot, openSpot, readSpotMid } from "./spot-handler.js";
 import {
+  buildFuelDepositTx,
   buildGatedSpotTx,
   gatedCoinTypes,
   readBmAssetBalance,
@@ -1853,10 +1854,30 @@ function startAutoCloseSpotLoop(ctx: AgentContext): void {
 
 const OPERATOR_REGISTRY_PATH = ".cursors/operator-registry.json";
 const GATED_LOOP_POLL_MS = 45_000;
-/** Min DEEP (base units) the user's BM must hold before we attempt a
- *  SUI/USDC order — that pool isn't whitelisted, so the order pays its fee
- *  in DEEP. Below this we skip honestly ("awaiting fee funding"). */
-const GATED_DEEP_FEE_FLOOR = 10_000n;
+// --- Fuel (DEEP for DeepBook fees; scalar = 1e6 on both networks) ---
+// SUI/USDC isn't a whitelisted pool, so every order pays its fee in DEEP.
+// The operator keeps a small DEEP "fuel tank" in the user's BM, topped up
+// by the house via the delegated DepositCap. The user never thinks about
+// DEEP — they deposit USDC, the operator trades USDC, fuel is handled.
+/** Below this the BM can't reliably pay a fee → refuel before trading. */
+const FUEL_FLOOR_BASE = 50_000n; // 0.05 DEEP
+/** Below this we flag the tank amber ("low fuel") on the dashboard. */
+const FUEL_LOW_BASE = 200_000n; // 0.2 DEEP
+/** DEEP deposited per refuel (human units). "~$2 of DEEP" in the UI. */
+const FUEL_TOPUP_DEEP = 2;
+/** When a refuel fails (house DEEP reserve dry), back off this long before
+ *  trying again — the reserve is shared across operators, so this is global. */
+const FUEL_DRY_COOLDOWN_MS = 5 * 60_000;
+/** Epoch ms until which the house DEEP reserve looked dry — skip top-ups. */
+let houseFuelDryUntilMs = 0;
+
+type FuelLevel = "ok" | "low" | "empty";
+function fuelLevelOf(deepBase: bigint): FuelLevel {
+  if (deepBase < FUEL_FLOOR_BASE) return "empty";
+  if (deepBase < FUEL_LOW_BASE) return "low";
+  return "ok";
+}
+
 /** Base order size. Both testnet SUI/DBUSDC and mainnet SUI/USDC have
  *  minSize 1 SUI / lotSize 0.1; we trade exactly one min-lot per edge —
  *  disciplined, with the policy's budget cap as the real ceiling. */
@@ -1875,6 +1896,9 @@ type OperatorRegistryEntry = {
   policyId: string;
   bmId: string;
   tradeCapId: string;
+  /** Delegated DepositCap — lets the operator top up its DEEP fuel tank
+   *  (deposit-not-withdraw). Null for pre-fuel adoptions. */
+  depositCapId?: string | null;
   owner: string;
   personality: StrategyId;
   goal?: OperatorGoal;
@@ -2093,10 +2117,56 @@ async function runGatedOperator(
   const coins = gatedCoinTypes(e.network);
   const isBid = direction === "up";
 
-  // Fee guard: SUI/USDC isn't whitelisted → the order pays its fee in DEEP.
-  const deepBal = await readBmAssetBalance(ctx, e.bmId, coins.deep);
-  if (deepBal < GATED_DEEP_FEE_FLOOR) {
-    const r = `Operator decided ${direction.toUpperCase()} SUI but the BalanceManager holds no DEEP for DeepBook fees (SUI/USDC isn't a whitelisted pool) — awaiting fee funding. No trade; capital untouched.`;
+  // ---- FUEL: the operator's DEEP tank pays DeepBook fees -----------------
+  // SUI/USDC isn't whitelisted, so each order needs DEEP. If the tank is
+  // empty, the house tops it up via the delegated DepositCap (deposit-not-
+  // withdraw). If it can't (no DepositCap, or the house reserve is dry), the
+  // operator idles with an amber "awaiting fuel" — alive, capital untouched.
+  let deepBal = await readBmAssetBalance(ctx, e.bmId, coins.deep);
+  if (deepBal < FUEL_FLOOR_BASE && e.depositCapId && Date.now() >= houseFuelDryUntilMs) {
+    try {
+      const fres = await signAndExecuteWithRetry(
+        ctx,
+        () =>
+          buildFuelDepositTx(ctx, {
+            network: e.network,
+            bmId: e.bmId,
+            tradeCapId: e.tradeCapId,
+            depositCapId: e.depositCapId!,
+            deepHumanQty: FUEL_TOPUP_DEEP,
+          }),
+        { showEffects: true },
+        { label: "trader-gated:fuel", attempts: 2 },
+      );
+      if (fres.effects?.status?.status !== "success") {
+        throw new Error(fres.effects?.status?.error ?? "fuel deposit failed");
+      }
+      deepBal = BigInt(Math.floor(FUEL_TOPUP_DEEP * 1e6)); // topped up
+      console.log(
+        `[trader-gated] fueled ${e.policyId.slice(0, 10)}… +${FUEL_TOPUP_DEEP} DEEP tx=${fres.digest}`,
+      );
+    } catch (err) {
+      // The shared house reserve looks dry — back off for all operators.
+      houseFuelDryUntilMs = Date.now() + FUEL_DRY_COOLDOWN_MS;
+      console.warn(
+        `[trader-gated] fuel top-up failed (house DEEP reserve dry?) for ${e.policyId.slice(0, 10)}…:`,
+        String((err as Error)?.message ?? err).slice(0, 120),
+      );
+    }
+  }
+  // Always surface the current fuel level — drives the dashboard fuel gauge.
+  emitAgentEvent("fuel", {
+    policyId: e.policyId,
+    taskId,
+    asset: "SUI",
+    data: {
+      deep_base: Number(deepBal),
+      deep_human: Number(deepBal) / 1e6,
+      level: fuelLevelOf(deepBal),
+    },
+  });
+  if (deepBal < FUEL_FLOOR_BASE) {
+    const r = `${strategy} decided ${direction.toUpperCase()} SUI but the operator is out of fuel — its DEEP tank (DeepBook fees) is empty${e.depositCapId ? " and the house reserve couldn't top it up" : " and it has no delegated DepositCap to refuel"}. Alive, awaiting fuel; capital untouched.`;
     emitAgentEvent("mode", {
       policyId: e.policyId,
       taskId,
@@ -2104,7 +2174,7 @@ async function runGatedOperator(
       data: { mode: "simulated", sim_reason: r },
     });
     console.log(
-      `[trader-gated] ${e.policyId.slice(0, 10)}… ${direction} but BM has no DEEP for fees — skip`,
+      `[trader-gated] ${e.policyId.slice(0, 10)}… ${direction} but out of fuel — skip`,
     );
     return;
   }
@@ -2356,6 +2426,14 @@ function startPriceHistoryLoop(ctx: AgentContext, managerId: string): void {
 
 // === Auto-redeem service ===
 
+/** A redeem failure is TERMINAL when the chain aborts inside the predict
+ *  module — the position is already redeemed or in a state that can never
+ *  redeem. Such positions must be dropped (not retried forever), or they
+ *  flood the logs every poll. Transient RPC errors don't match this. */
+function isTerminalRedeemAbort(msg: string): boolean {
+  return /MoveAbort/i.test(msg) && /predict_manager|::predict::/i.test(msg);
+}
+
 async function autoRedeemTick(
   ctx: AgentContext,
   managerId: string,
@@ -2397,17 +2475,33 @@ async function autoRedeemTick(
           `[trader-redeem] payout claimed task=${p.taskId.slice(0, 12)}… tx=${res.digest}`,
         );
       } else {
+        const err = res.effects?.status?.error ?? "";
+        if (isTerminalRedeemAbort(err)) {
+          // Permanently un-redeemable (already redeemed / invalid state) —
+          // DROP it so it stops retrying forever and flooding the logs.
+          console.warn(
+            `[trader-redeem] dropping un-redeemable position task=${p.taskId.slice(0, 12)}… (terminal: ${err.slice(0, 80)})`,
+          );
+        } else {
+          console.warn(
+            `[trader-redeem] redeem failed task=${p.taskId.slice(0, 12)}…: ${err}`,
+          );
+          remaining.push(p);
+        }
+      }
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      if (isTerminalRedeemAbort(msg)) {
         console.warn(
-          `[trader-redeem] redeem failed task=${p.taskId.slice(0, 12)}…: ${res.effects?.status?.error}`,
+          `[trader-redeem] dropping un-redeemable position task=${p.taskId.slice(0, 12)}… (terminal: ${msg.slice(0, 80)})`,
+        );
+      } else {
+        console.warn(
+          `[trader-redeem] redeem error task=${p.taskId.slice(0, 12)}…:`,
+          msg.slice(0, 120),
         );
         remaining.push(p);
       }
-    } catch (e) {
-      console.warn(
-        `[trader-redeem] redeem error task=${p.taskId.slice(0, 12)}…:`,
-        (e as Error).message,
-      );
-      remaining.push(p);
     }
   }
   if (remaining.length !== positions.length) {

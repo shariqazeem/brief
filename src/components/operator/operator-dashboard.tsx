@@ -211,6 +211,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         spent={spent}
         cap={cap}
         pct={pct}
+        fuel={revoked ? null : stream.fuel}
         onYank={onRequestRevoke}
         onReset={onReset}
       />
@@ -278,6 +279,7 @@ function TopBar({
   spent,
   cap,
   pct,
+  fuel,
   onYank,
   onReset,
 }: {
@@ -288,6 +290,7 @@ function TopBar({
   spent: number;
   cap: number;
   pct: number;
+  fuel: { deepHuman: number; level: "ok" | "low" | "empty" } | null;
   onYank: () => void;
   onReset: () => void;
 }) {
@@ -333,6 +336,38 @@ function TopBar({
             {spent.toFixed(2)} / {cap.toFixed(0)} SUI
           </span>
         </div>
+
+        {/* fuel gauge — DEEP tank for DeepBook fees. Understated; the user
+            doesn't think about DEEP unless it runs low (amber). */}
+        {fuel && (
+          <div
+            className="hidden shrink-0 items-center gap-1.5 sm:flex"
+            title={`Fuel — DEEP covers DeepBook trading fees. Tank: ${fuel.deepHuman.toFixed(2)} DEEP.`}
+          >
+            <span
+              className="font-sans text-[12px] leading-none"
+              aria-hidden
+              style={{ color: fuel.level === "ok" ? SUB : AMBER }}
+            >
+              ⛽
+            </span>
+            {fuel.level === "empty" ? (
+              <span
+                className="font-mono text-[9.5px] uppercase tracking-[0.16em]"
+                style={{ color: AMBER }}
+              >
+                awaiting fuel
+              </span>
+            ) : (
+              <span
+                className="font-mono text-[10.5px] tabular-nums"
+                style={{ color: fuel.level === "low" ? AMBER : SUB }}
+              >
+                {fuel.deepHuman.toFixed(2)} DEEP
+              </span>
+            )}
+          </div>
+        )}
 
         {/* controls */}
         <div className="ml-auto flex items-center gap-4 sm:ml-0">

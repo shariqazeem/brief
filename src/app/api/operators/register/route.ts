@@ -22,6 +22,9 @@ type Entry = {
   policyId: string;
   bmId: string;
   tradeCapId: string;
+  /** Delegated DepositCap — lets the operator keep its DEEP fuel tank
+   *  topped up (deposit-not-withdraw). Optional: pre-fuel adoptions lack it. */
+  depositCapId: string | null;
   owner: string;
   personality: string;
   goal: Goal;
@@ -53,6 +56,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // DepositCap is optional, but if provided it must be a valid id.
+  const depositCapId = body.deposit_cap_id == null ? null : String(body.deposit_cap_id);
+  if (depositCapId !== null && !HEX.test(depositCapId)) {
+    return NextResponse.json(
+      { ok: false, error: "deposit_cap_id must be a 0x… id" },
+      { status: 400 },
+    );
+  }
+
   const goalRaw = (body.goal ?? {}) as Goal;
   const goal: Goal = { type: typeof goalRaw.type === "string" ? goalRaw.type : "edge" };
   if (goal.type === "grow") {
@@ -64,6 +76,7 @@ export async function POST(req: NextRequest) {
     policyId,
     bmId,
     tradeCapId,
+    depositCapId,
     owner,
     personality: String(body.personality ?? "conservative"),
     goal,

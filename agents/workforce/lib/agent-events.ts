@@ -34,7 +34,8 @@ export type AgentEventType =
   | "delivered"
   | "task_failed"
   | "asset_fallback"
-  | "warden_topup";
+  | "warden_topup"
+  | "fuel";
 
 export type AgentEvent = {
   ts: number;

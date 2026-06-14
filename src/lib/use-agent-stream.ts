@@ -102,6 +102,9 @@ export type AgentStreamState = {
   /** Set when a task closed on an infra failure — drives the honest
    *  "infra hiccup, dispatch again" state. */
   failure: { error: string } | null;
+  /** The operator's DEEP fuel tank (covers DeepBook fees) — drives the
+   *  fuel gauge. level: ok (green) / low (amber) / empty (awaiting fuel). */
+  fuel: { deepHuman: number; level: "ok" | "low" | "empty"; ts: number } | null;
 };
 
 const FRESH_STEPS = (): AgentStreamState["steps"] => ({
@@ -139,6 +142,7 @@ const INITIAL: AgentStreamState = {
   wardenTopup: null,
   fallbackNote: null,
   failure: null,
+  fuel: null,
 };
 
 function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState {
@@ -191,6 +195,13 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         from: str(d.from) ?? "fleet",
         to: str(d.to) ?? "trader",
         amountSui: num(d.amount_sui) ?? 0,
+      };
+      return next;
+    case "fuel":
+      next.fuel = {
+        deepHuman: num(d.deep_human) ?? 0,
+        level: (str(d.level) as "ok" | "low" | "empty") ?? "ok",
+        ts: e.ts,
       };
       return next;
     case "observe":

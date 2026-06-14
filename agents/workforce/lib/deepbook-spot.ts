@@ -101,6 +101,7 @@ function makeGatedDeepBook(
   network: GatedNetwork,
   bmId: string,
   tradeCapId: string,
+  depositCapId?: string,
 ): DeepBookClient {
   const mainnet = network === "mainnet";
   return new DeepBookClient({
@@ -109,9 +110,56 @@ function makeGatedDeepBook(
     network: mainnet ? "mainnet" : "testnet",
     coins: mainnet ? mainnetCoins : testnetCoins,
     pools: mainnet ? mainnetPools : testnetPools,
-    // tradeCap present → SDK builds generate_proof_as_trader (delegated).
-    balanceManagers: { [BM_KEY]: { address: bmId, tradeCap: tradeCapId } },
+    // tradeCap → generate_proof_as_trader (trade, never withdraw).
+    // depositCap → deposit_with_cap (house can fuel, never withdraw).
+    balanceManagers: {
+      [BM_KEY]: {
+        address: bmId,
+        tradeCap: tradeCapId,
+        ...(depositCapId ? { depositCap: depositCapId } : {}),
+      },
+    },
   });
+}
+
+export type FuelDepositArgs = {
+  network: GatedNetwork;
+  bmId: string;
+  tradeCapId: string;
+  /** The DepositCap the user delegated to the operator at adoption. */
+  depositCapId: string;
+  /** DEEP to deposit, in human units (e.g. 2 → 2 DEEP). The SDK scales by
+   *  the coin decimals. Sourced from the SIGNER (the house/treasury). */
+  deepHumanQty: number;
+};
+
+/** Build the "fuel" deposit: the house (signer) deposits DEEP into the
+ *  USER's own BalanceManager via the delegated DepositCap. The DEEP becomes
+ *  the user's (they can withdraw it) — non-custodial; the operator can
+ *  deposit fuel but never withdraw. This is what makes "your operator comes
+ *  with fuel" real: SUI/USDC isn't whitelisted, so trades pay fees in DEEP,
+ *  and the operator keeps a small DEEP tank topped up here. */
+export function buildFuelDepositTx(
+  ctx: AgentContext,
+  args: FuelDepositArgs,
+): Transaction {
+  const db = makeGatedDeepBook(
+    ctx,
+    args.network,
+    args.bmId,
+    args.tradeCapId,
+    args.depositCapId,
+  );
+  const tx = new Transaction();
+  tx.setGasBudget(50_000_000);
+  tx.add(
+    db.balanceManager.depositWithCap(
+      BM_KEY,
+      "DEEP",
+      args.deepHumanQty,
+    ) as unknown as Parameters<Transaction["add"]>[0],
+  );
+  return tx;
 }
 
 export type GatedSpotArgs = {

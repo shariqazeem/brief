@@ -1440,6 +1440,7 @@ function useDepositAdopt({
                     oc.find((o) => o.type === "created" && (o.objectType ?? "").includes(s))?.objectId;
                   const bmId = pick("balance_manager::BalanceManager");
                   const tradeCapId = pick("balance_manager::TradeCap");
+                  const depositCapId = pick("balance_manager::DepositCap");
                   const polId = pick("operator_policy::OperatorPolicy");
                   if (bmId && tradeCapId && polId) {
                     await fetch(apiUrl("/api/operators/register"), {
@@ -1449,6 +1450,9 @@ function useDepositAdopt({
                         policy_id: polId,
                         bm_id: bmId,
                         trade_cap_id: tradeCapId,
+                        // The delegated DepositCap lets the operator keep its
+                        // DEEP fuel tank topped up (deposit-not-withdraw).
+                        deposit_cap_id: depositCapId,
                         owner: address,
                         personality: personality.strategy,
                         goal,
@@ -1680,6 +1684,12 @@ function DepositAdoptPanel({
               {isMainnet ? "Add USDC to your wallet." : "Get test USDC (swap a little testnet SUI for DBUSDC on DeepBook), then retry."}
             </p>
           )}
+          {/* Comes-with-fuel — understated; the user never thinks about DEEP. */}
+          <p className="mt-3 font-mono text-[10.5px] leading-relaxed text-muted">
+            <span className="text-ink-2">⛽ Includes fuel.</span> Your operator
+            comes with ~$2 of DEEP to cover DeepBook trading fees — handled in
+            the adoption, no action needed.
+          </p>
         </div>
 
         {/* Non-custodial explainer */}
