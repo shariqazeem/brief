@@ -1422,6 +1422,44 @@ function useDepositAdopt({
                 traderGoal: goal,
               });
               setPhase({ kind: "dispatching" });
+              // Best-effort: register the operator (policy + BM + delegated
+              // TradeCap) so the trader's continuous gated-spot loop trades
+              // it. Adoption already succeeded regardless of this.
+              void (async () => {
+                try {
+                  const full = await client.getTransactionBlock({
+                    digest: res.digest,
+                    options: { showObjectChanges: true },
+                  });
+                  const oc = (full.objectChanges ?? []) as Array<{
+                    type?: string;
+                    objectType?: string;
+                    objectId?: string;
+                  }>;
+                  const pick = (s: string) =>
+                    oc.find((o) => o.type === "created" && (o.objectType ?? "").includes(s))?.objectId;
+                  const bmId = pick("balance_manager::BalanceManager");
+                  const tradeCapId = pick("balance_manager::TradeCap");
+                  const polId = pick("operator_policy::OperatorPolicy");
+                  if (bmId && tradeCapId && polId) {
+                    await fetch(apiUrl("/api/operators/register"), {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        policy_id: polId,
+                        bm_id: bmId,
+                        trade_cap_id: tradeCapId,
+                        owner: address,
+                        personality: personality.strategy,
+                        goal,
+                        network: BRIEF_NETWORK,
+                      }),
+                    });
+                  }
+                } catch {
+                  /* best-effort */
+                }
+              })();
             },
             onError: (e) =>
               setPhase({ kind: "error", msg: e instanceof Error ? e.message : String(e) }),
