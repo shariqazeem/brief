@@ -23,6 +23,7 @@ import { BRIEF_NETWORK, BRIEF_PACKAGE_ID, BRIEF_TRADER_ADDRESS, explorerUrl } fr
 import { OperatorDashboard } from "@/components/operator/operator-dashboard";
 import { Transaction } from "@mysten/sui/transactions";
 import { buildAdoptTx, DEEPBOOK_CFG } from "@/lib/deepbook-adopt";
+import { buildGetTestUsdcTx } from "@/lib/deepbook-get-usdc";
 import {
   calibrateParams,
   defaultGoalFor,
@@ -1315,9 +1316,14 @@ function useTraderLauncher({
 
 // Live balance of the network's capital coin (USDC on mainnet, DBUSDC on
 // testnet) in the connected wallet — drives the deposit step.
-function useUsdcBalance(address: string): { usdc: number; loaded: boolean } {
+function useUsdcBalance(address: string): {
+  usdc: number;
+  loaded: boolean;
+  refetch: () => void;
+} {
   const client = useSuiClient();
   const [state, setState] = useState({ usdc: 0, loaded: false });
+  const [nonce, setNonce] = useState(0);
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1337,8 +1343,8 @@ function useUsdcBalance(address: string): { usdc: number; loaded: boolean } {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [address, client]);
-  return state;
+  }, [address, client, nonce]);
+  return { ...state, refetch: () => setNonce((n) => n + 1) };
 }
 
 // Non-custodial deposit adoption — the mainnet (+ testnet-DBUSDC) path.
@@ -1571,12 +1577,19 @@ function DepositAdoptPanel({
 }) {
   const isMainnet = BRIEF_NETWORK === "mainnet";
   const usdcLabel = isMainnet ? "USDC" : "test USDC";
-  const { usdc, loaded } = useUsdcBalance(address);
+  const client = useSuiClient();
+  const { signAndExecute } = useAccountSigner();
+  const { usdc, loaded, refetch } = useUsdcBalance(address);
   const [name, setName] = useState(
     () => `${personality.label}-${Math.floor(Math.random() * 9) + 1}`,
   );
-  const [deposit, setDeposit] = useState(5);
+  // Testnet SUI is faucet-scarce, so small deposits keep the demo reachable.
+  const presets = isMainnet ? [5, 10, 20] : [1, 2, 5];
+  const [deposit, setDeposit] = useState(isMainnet ? 5 : 1);
   const [goal, setGoal] = useState<OperatorGoal>(() => defaultGoalFor(personality.strategy));
+  const [swap, setSwap] = useState<{ kind: "idle" | "swapping" | "error"; msg?: string }>({
+    kind: "idle",
+  });
   const cal = calibrateParams(personality.strategy, goal);
   const busy =
     phase.kind === "checking-balance" ||
@@ -1586,6 +1599,40 @@ function DepositAdoptPanel({
   const errMsg = phase.kind === "error" ? phase.msg : null;
   const trimmed = name.trim() || personality.label;
   const insufficient = loaded && usdc < deposit;
+
+  // "Get test USDC" — one-tap SUI → DEEP → DBUSDC (both whitelisted, 0 fee)
+  // so a tester never dead-ends at "I have SUI but no DBUSDC". Caps the swap
+  // at the wallet's SUI minus a gas reserve. Testnet only.
+  const onGetUsdc = useCallback(() => {
+    void (async () => {
+      try {
+        setSwap({ kind: "swapping" });
+        const bal = await client.getBalance({ owner: address });
+        const suiAvail = Number(bal.totalBalance) / 1e9;
+        const GAS_RESERVE = 0.3;
+        const want = (deposit + 0.5) * 1.4; // rough SUI→DBUSDC rate + buffer
+        const suiIn = Math.min(want, Math.max(0, suiAvail - GAS_RESERVE));
+        if (suiIn < 0.05) {
+          setSwap({
+            kind: "error",
+            msg: `Only ${suiAvail.toFixed(2)} SUI in your wallet — top up testnet SUI from the faucet, then retry.`,
+          });
+          return;
+        }
+        const tx = buildGetTestUsdcTx(address, suiIn);
+        signAndExecute(tx, {
+          onSuccess: () => {
+            setSwap({ kind: "idle" });
+            setTimeout(refetch, 1500);
+          },
+          onError: (e) =>
+            setSwap({ kind: "error", msg: e instanceof Error ? e.message : String(e) }),
+        });
+      } catch (e) {
+        setSwap({ kind: "error", msg: e instanceof Error ? e.message : String(e) });
+      }
+    })();
+  }, [address, client, deposit, signAndExecute, refetch]);
 
   return (
     <div className="relative mt-5 animate-fade-up bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
@@ -1657,7 +1704,7 @@ function DepositAdoptPanel({
             <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted">{usdcLabel}</span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            {[5, 10, 20].map((d) => (
+            {presets.map((d) => (
               <button
                 key={d}
                 type="button"
@@ -1679,10 +1726,36 @@ function DepositAdoptPanel({
             />
           </div>
           {insufficient && (
-            <p className="mt-2 font-mono text-[10.5px] text-amber-700">
-              You have {usdc.toFixed(2)} {usdcLabel}.{" "}
-              {isMainnet ? "Add USDC to your wallet." : "Get test USDC (swap a little testnet SUI for DBUSDC on DeepBook), then retry."}
-            </p>
+            <div className="mt-2.5">
+              <p className="font-mono text-[10.5px] text-amber-700">
+                You have {usdc.toFixed(2)} {usdcLabel}
+                {isMainnet ? "." : " — get some to adopt."}
+              </p>
+              {isMainnet ? (
+                <p className="mt-1 font-mono text-[10.5px] text-muted">
+                  Add USDC to your wallet, then retry.
+                </p>
+              ) : (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={onGetUsdc}
+                    disabled={swap.kind === "swapping" || busy}
+                    className="inline-flex items-center gap-2 border border-ink bg-bg px-4 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-ink transition-colors hover:bg-ink hover:text-bg disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {swap.kind === "swapping" ? "Getting test USDC…" : "Get test USDC · one tap"}
+                  </button>
+                  <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-muted">
+                    Swaps a little of your testnet SUI → DBUSDC through DeepBook
+                    (whitelisted route, no fee). One signature, then it lands in
+                    your wallet.
+                  </p>
+                  {swap.kind === "error" && (
+                    <p className="mt-1 font-mono text-[10px] text-amber-700">{swap.msg}</p>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           {/* Comes-with-fuel — understated; the user never thinks about DEEP. */}
           <p className="mt-3 font-mono text-[10.5px] leading-relaxed text-muted">
