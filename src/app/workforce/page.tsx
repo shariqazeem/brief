@@ -19,8 +19,10 @@ import {
   useSignAndExecuteTransaction,
   useSuiClient,
 } from "@mysten/dapp-kit";
-import { BRIEF_PACKAGE_ID, BRIEF_TRADER_ADDRESS, explorerUrl } from "@/lib/brief-client";
+import { BRIEF_NETWORK, BRIEF_PACKAGE_ID, BRIEF_TRADER_ADDRESS, explorerUrl } from "@/lib/brief-client";
 import { OperatorDashboard } from "@/components/operator/operator-dashboard";
+import { Transaction } from "@mysten/sui/transactions";
+import { buildAdoptTx, DEEPBOOK_CFG } from "@/lib/deepbook-adopt";
 import {
   calibrateParams,
   defaultGoalFor,
@@ -981,6 +983,12 @@ function Connected({ address }: { address: string }) {
   const legacy =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("legacy") === "1";
+  // The non-custodial DeepBook deposit flow is the primary product. The
+  // testnet Predict path (house-funded, no deposit) stays as ?predict=1
+  // practice — instant, no test-USDC needed.
+  const predict =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("predict") === "1";
 
   if (!activation) {
     return (
@@ -999,10 +1007,15 @@ function Connected({ address }: { address: string }) {
               </aside>
             </div>
           </>
-        ) : (
+        ) : predict ? (
           <>
             <TraderIntro />
             <TraderGallery address={address} onActivated={setActivation} />
+          </>
+        ) : (
+          <>
+            <DepositIntro />
+            <DepositGallery address={address} onActivated={setActivation} />
           </>
         )}
       </section>
@@ -1298,6 +1311,380 @@ function useTraderLauncher({
   );
 
   return { phase, adopt };
+}
+
+// Live balance of the network's capital coin (USDC on mainnet, DBUSDC on
+// testnet) in the connected wallet — drives the deposit step.
+function useUsdcBalance(address: string): { usdc: number; loaded: boolean } {
+  const client = useSuiClient();
+  const [state, setState] = useState({ usdc: 0, loaded: false });
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const cfg = DEEPBOOK_CFG[BRIEF_NETWORK];
+    async function tick() {
+      try {
+        const coins = await client.getCoins({ owner: address, coinType: cfg.capitalCoinType });
+        const total = coins.data.reduce((a, c) => a + BigInt(c.balance), 0n);
+        if (!cancelled) setState({ usdc: Number(total) / 1e6, loaded: true });
+      } catch {
+        if (!cancelled) setState((p) => ({ ...p, loaded: true }));
+      }
+      if (!cancelled) timer = setTimeout(tick, 15_000);
+    }
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [address, client]);
+  return state;
+}
+
+// Non-custodial deposit adoption — the mainnet (+ testnet-DBUSDC) path.
+// One signature via buildAdoptTx: the user's own BalanceManager is created
+// + funded, a TradeCap is delegated to the operator (trade-not-withdraw),
+// and the chain-enforced policy is created. The user keeps custody.
+function useDepositAdopt({
+  address,
+  onActivated,
+}: {
+  address: string;
+  onActivated: (a: ActivationResult) => void;
+}): {
+  phase: AdoptPhase;
+  adopt: (args: {
+    personality: TraderPersonality;
+    traderName: string;
+    depositUsdc: number;
+    goal: OperatorGoal;
+  }) => void;
+} {
+  const client = useSuiClient();
+  const { signAndExecute } = useAccountSigner();
+  const [phase, setPhase] = useState<AdoptPhase>({ kind: "idle" });
+
+  const adopt = useCallback(
+    ({
+      personality,
+      traderName,
+      depositUsdc,
+      goal,
+    }: {
+      personality: TraderPersonality;
+      traderName: string;
+      depositUsdc: number;
+      goal: OperatorGoal;
+    }) => {
+      void (async () => {
+        const name = traderName.trim().slice(0, 32) || personality.label;
+        const cfg = DEEPBOOK_CFG[BRIEF_NETWORK];
+        const usdcBase = BigInt(Math.round(depositUsdc * 1e6));
+        try {
+          setPhase({ kind: "checking-balance" });
+          const coins = await client.getCoins({ owner: address, coinType: cfg.capitalCoinType });
+          const total = coins.data.reduce((a, c) => a + BigInt(c.balance), 0n);
+          if (total < usdcBase) {
+            const label = BRIEF_NETWORK === "mainnet" ? "USDC" : "test USDC (DBUSDC)";
+            setPhase({
+              kind: "error",
+              msg: `Not enough ${label} — you have ${(Number(total) / 1e6).toFixed(2)}, need ${depositUsdc.toFixed(2)}.${BRIEF_NETWORK === "testnet" ? " Get test USDC, then retry." : ""}`,
+            });
+            return;
+          }
+          setPhase({ kind: "signing" });
+          const tx = new Transaction();
+          const [primary, ...rest] = coins.data.map((c) => tx.object(c.coinObjectId));
+          if (rest.length) tx.mergeCoins(primary, rest);
+          const [capitalCoin] = tx.splitCoins(primary, [tx.pure.u64(usdcBase)]);
+          buildAdoptTx(tx, {
+            network: BRIEF_NETWORK,
+            briefPackageId: BRIEF_PACKAGE_ID,
+            operator: BRIEF_TRADER_ADDRESS,
+            capitalCoin,
+            name,
+            budgetCap: usdcBase,
+            expiresAtMs: BigInt(Date.now() + TRADER_EXPIRY_HOURS * 3600_000),
+          });
+          signAndExecute(tx, {
+            onSuccess: (res) => {
+              onActivated({
+                policyId: null,
+                txDigest: res.digest,
+                templateId: `trader-${personality.strategy}`,
+                name,
+                brief: personality.voice,
+                budgetSui: depositUsdc, // repurposed for display (USDC deposited)
+                allowedVenues: cfg.spotVenues,
+                traderName: name,
+                traderStrategy: personality.strategy,
+                traderMarkets: "sui_ecosystem",
+                traderGoal: goal,
+              });
+              setPhase({ kind: "dispatching" });
+            },
+            onError: (e) =>
+              setPhase({ kind: "error", msg: e instanceof Error ? e.message : String(e) }),
+          });
+        } catch (e) {
+          setPhase({ kind: "error", msg: e instanceof Error ? e.message : String(e) });
+        }
+      })();
+    },
+    [address, client, onActivated, signAndExecute],
+  );
+
+  return { phase, adopt };
+}
+
+function DepositIntro() {
+  const isMainnet = BRIEF_NETWORK === "mainnet";
+  return (
+    <header className="max-w-3xl">
+      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+        Brief · adopt an operator {isMainnet ? "· real USDC on mainnet" : "· testnet practice"}
+      </p>
+      <h1 className="mt-3 font-sans text-[28px] font-medium leading-[1.12] tracking-tightest text-ink sm:text-[40px]">
+        Deposit. Adopt. Watch it trade — non-custodially.{" "}
+        <span className="text-ink-2">
+          Your {isMainnet ? "USDC" : "test USDC"} stays in your own DeepBook
+          account. The operator trades it within a Move policy you control and
+          can revoke in one tap — it never holds your funds.
+        </span>
+      </h1>
+      <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-muted">
+        Directional spot on DeepBook v3 (SUI / WAL / DEEP), gated by your
+        OperatorPolicy. One signature to adopt.
+      </p>
+    </header>
+  );
+}
+
+// Non-custodial deposit adoption surface — choose operator → deposit →
+// adopt (one signature) → dashboard. The product/demo flow.
+function DepositGallery({
+  address,
+  onActivated,
+}: {
+  address: string;
+  onActivated: (a: ActivationResult) => void;
+}) {
+  const { phase, adopt } = useDepositAdopt({ address, onActivated });
+  const [pickedId, setPickedId] = useState<StrategyId | null>(() =>
+    takePreselectedStrategy(),
+  );
+  const picked = pickedId ? personalityById(pickedId) ?? null : null;
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (pickedId && ref.current) ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (picked) {
+    return (
+      <section className="mt-10" ref={ref}>
+        <button
+          type="button"
+          onClick={() => setPickedId(null)}
+          className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink"
+        >
+          ← Choose a different operator
+        </button>
+        <DepositAdoptPanel
+          personality={picked}
+          phase={phase}
+          address={address}
+          onAdopt={(traderName, depositUsdc, goal) =>
+            adopt({ personality: picked, traderName, depositUsdc, goal })
+          }
+          onCancel={() => setPickedId(null)}
+        />
+        <ControlReassurance />
+      </section>
+    );
+  }
+  return (
+    <section className="mt-10">
+      <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+        Choose your operator
+      </p>
+      <OperatorChoiceGrid picked={pickedId} onPick={setPickedId} />
+      <ControlReassurance />
+    </section>
+  );
+}
+
+function DepositAdoptPanel({
+  personality,
+  phase,
+  address,
+  onAdopt,
+  onCancel,
+}: {
+  personality: TraderPersonality;
+  phase: AdoptPhase;
+  address: string;
+  onAdopt: (traderName: string, depositUsdc: number, goal: OperatorGoal) => void;
+  onCancel: () => void;
+}) {
+  const isMainnet = BRIEF_NETWORK === "mainnet";
+  const usdcLabel = isMainnet ? "USDC" : "test USDC";
+  const { usdc, loaded } = useUsdcBalance(address);
+  const [name, setName] = useState(
+    () => `${personality.label}-${Math.floor(Math.random() * 9) + 1}`,
+  );
+  const [deposit, setDeposit] = useState(5);
+  const [goal, setGoal] = useState<OperatorGoal>(() => defaultGoalFor(personality.strategy));
+  const cal = calibrateParams(personality.strategy, goal);
+  const busy =
+    phase.kind === "checking-balance" ||
+    phase.kind === "funding" ||
+    phase.kind === "signing" ||
+    phase.kind === "dispatching";
+  const errMsg = phase.kind === "error" ? phase.msg : null;
+  const trimmed = name.trim() || personality.label;
+  const insufficient = loaded && usdc < deposit;
+
+  return (
+    <div className="relative mt-5 animate-fade-up bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+      {/* Network indicator */}
+      <div
+        className="flex items-center justify-between border-b border-line px-6 py-3 sm:px-8"
+        style={{ background: isMainnet ? "rgba(16,185,129,0.06)" : "#FAFAFA" }}
+      >
+        <span className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: isMainnet ? "#047857" : "#666666" }}>
+          <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: isMainnet ? "#10B981" : "#999999" }} aria-hidden />
+          {isMainnet ? "Mainnet · Real USDC" : "Testnet · Practice Mode"}
+        </span>
+        <span className="font-mono text-[10px] tabular-nums" style={{ color: "#666666" }}>
+          {loaded ? `${usdc.toFixed(2)} ${usdcLabel}` : "…"} in wallet
+        </span>
+      </div>
+
+      <div className="px-6 py-7 sm:px-8 sm:py-8 space-y-7">
+        {/* Operator + name */}
+        <div className="flex items-start gap-3">
+          <span className="font-sans text-[40px] leading-none text-ink" aria-hidden>{personality.glyph}</span>
+          <div className="flex-1">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={32}
+              className="w-full border-b-2 border-line bg-transparent px-0 py-1 text-[22px] font-medium tracking-tight text-ink outline-none transition-colors focus:border-ink"
+            />
+            <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{personality.tagline}</p>
+          </div>
+        </div>
+
+        {/* Goal (calibration) */}
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">Goal</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {([
+              { t: "grow", label: "Grow" },
+              { t: "preserve", label: "Preserve" },
+              { t: "edge", label: "Max edge" },
+            ] as const).map((g) => {
+              const active = goal.type === g.t;
+              return (
+                <button
+                  key={g.t}
+                  type="button"
+                  onClick={() => setGoal(g.t === "grow" ? { type: "grow", targetPct: 5, horizonDays: 30 } : { type: g.t })}
+                  className={[
+                    "px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
+                    active ? "bg-ink text-bg" : "border border-line text-muted hover:text-ink",
+                  ].join(" ")}
+                >
+                  {g.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 font-mono text-[10.5px] leading-relaxed text-ink-2">
+            {trimmed} will act at <span className="text-ink">edge ≥ {(cal.minEdge * 100).toFixed(1)}%</span> · conviction ≥ {cal.convictionFloor.toFixed(2)} · max qty {cal.maxQty}.
+          </p>
+        </div>
+
+        {/* Deposit = budget */}
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">Deposit &amp; budget cap</p>
+          <div className="mt-2 flex items-baseline gap-3">
+            <span className="font-mono text-[34px] font-medium tabular-nums tracking-tight text-ink">${deposit}</span>
+            <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted">{usdcLabel}</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[5, 10, 20].map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDeposit(d)}
+                className={[
+                  "px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
+                  deposit === d ? "bg-ink text-bg" : "border border-line text-muted hover:text-ink",
+                ].join(" ")}
+              >
+                ${d}
+              </button>
+            ))}
+            <input
+              type="number"
+              min={1}
+              value={deposit}
+              onChange={(e) => setDeposit(Math.max(1, Number(e.target.value) || 0))}
+              className="w-20 border border-line bg-bg-elev px-2 py-1 font-mono text-[11px] tabular-nums text-ink outline-none focus:border-ink"
+            />
+          </div>
+          {insufficient && (
+            <p className="mt-2 font-mono text-[10.5px] text-amber-700">
+              You have {usdc.toFixed(2)} {usdcLabel}.{" "}
+              {isMainnet ? "Add USDC to your wallet." : "Get test USDC (swap a little testnet SUI for DBUSDC on DeepBook), then retry."}
+            </p>
+          )}
+        </div>
+
+        {/* Non-custodial explainer */}
+        <div className="border-l-[3px] border-emerald-500 bg-emerald-50/40 px-4 py-3">
+          <p className="text-[13px] leading-relaxed text-ink-2">
+            Your {usdcLabel} goes into <span className="text-ink">your own DeepBook BalanceManager</span>. {trimmed} can trade it — but <span className="text-ink">can never withdraw it</span>. Only you can. The Move policy caps every trade on chain, and you can <span className="text-ink">revoke in one tap</span> anytime.
+          </p>
+        </div>
+      </div>
+
+      {/* Footer — one signature */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-bg px-6 py-5 sm:px-8">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink disabled:opacity-50"
+        >
+          ← Change operator
+        </button>
+        <button
+          type="button"
+          onClick={() => onAdopt(name, deposit, goal)}
+          disabled={busy || insufficient}
+          className="inline-flex items-center gap-2 bg-emerald-500 px-6 py-3 font-mono text-[11px] uppercase tracking-[0.3em] text-white transition-colors hover:bg-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {phaseLabel(phase)}
+            </>
+          ) : (
+            <>Deposit ${deposit} &amp; adopt {trimmed} →</>
+          )}
+        </button>
+      </div>
+      {errMsg && (
+        <p className="border-t border-red-200 bg-red-50 px-6 py-3 font-mono text-[11px] text-red-700 sm:px-8">
+          {errMsg.slice(0, 280)}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function TraderGallery({
