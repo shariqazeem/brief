@@ -72,6 +72,30 @@ export function gatedPoolKey(network: GatedNetwork): string {
   return network === "mainnet" ? "SUI_USDC" : "SUI_DBUSDC";
 }
 
+/** Coin types for the gated pair per network. base = SUI (what an UP bet
+ *  buys / a DOWN bet sells), quote = the deposited capital (USDC mainnet,
+ *  DBUSDC testnet), deep = the fee coin (SUI/USDC is not whitelisted, so
+ *  the BM must hold a little DEEP). Read straight off the SDK constants so
+ *  they can never drift from what placeMarketOrder uses. */
+export function gatedCoinTypes(network: GatedNetwork): {
+  base: string;
+  quote: string;
+  deep: string;
+} {
+  if (network === "mainnet") {
+    return {
+      base: mainnetCoins.SUI.type,
+      quote: mainnetCoins.USDC.type,
+      deep: mainnetCoins.DEEP.type,
+    };
+  }
+  return {
+    base: testnetCoins.SUI.type,
+    quote: testnetCoins.DBUSDC.type,
+    deep: testnetCoins.DEEP.type,
+  };
+}
+
 function makeGatedDeepBook(
   ctx: AgentContext,
   network: GatedNetwork,

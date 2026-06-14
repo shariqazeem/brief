@@ -45,6 +45,12 @@ import {
 import { consolidateSuiCoins } from "../../lib/sui-coin-consolidate.js";
 import { getMarket, type MarketSpec } from "../lib/markets.js";
 import { closeSpot, openSpot, readSpotMid } from "./spot-handler.js";
+import {
+  buildGatedSpotTx,
+  gatedCoinTypes,
+  readBmAssetBalance,
+  type GatedNetwork,
+} from "../lib/deepbook-spot.js";
 import { appendPoint, loadHistory } from "./price-history.js";
 import { computeSignals, type SignalBundle } from "./signals.js";
 import {
@@ -1827,6 +1833,467 @@ function startAutoCloseSpotLoop(ctx: AgentContext): void {
   })();
 }
 
+// === Autonomous gated-spot loop — the operator that is actually ALIVE ===
+//
+// Unlike handleTask (inbox-driven, house BM, owner proof), this loop drives
+// every ADOPTED non-custodial operator on its own. Each registered user has
+// their OWN BalanceManager, a delegated TradeCap, and an OperatorPolicy.
+// Every tick the operator observes SUI, runs its goal-calibrated strategy,
+// and — ONLY on genuine edge — fires a policy-gated DeepBook market order
+// from the user's BM via the delegated TradeCap (record_spend +
+// place_market_order, atomic). It can trade; it can NEVER withdraw. The
+// instant the user revokes, record_spend aborts EPolicyRevoked and this
+// loop retires the operator (in-memory skip + durable registry flag).
+//
+// Honest by construction: most ticks abstain (capital preserved), and a BM
+// that can't cover DeepBook's DEEP fee — or lacks the inventory for the
+// chosen side — is skipped with a clear reason rather than firing a doomed
+// tx. The whole cascade emits the SAME SSE events as handleSpotTask, so the
+// existing operator dashboard renders the autonomous loop unchanged.
+
+const OPERATOR_REGISTRY_PATH = ".cursors/operator-registry.json";
+const GATED_LOOP_POLL_MS = 45_000;
+/** Min DEEP (base units) the user's BM must hold before we attempt a
+ *  SUI/USDC order — that pool isn't whitelisted, so the order pays its fee
+ *  in DEEP. Below this we skip honestly ("awaiting fee funding"). */
+const GATED_DEEP_FEE_FLOOR = 10_000n;
+/** Base order size. Both testnet SUI/DBUSDC and mainnet SUI/USDC have
+ *  minSize 1 SUI / lotSize 0.1; we trade exactly one min-lot per edge —
+ *  disciplined, with the policy's budget cap as the real ceiling. */
+const GATED_BASE_QTY = 1;
+/** Venue label record_spend asserts against — must be in the policy's
+ *  allowed_venues (the adoption PTB grants "spot-sui"). */
+const GATED_VENUE = "spot-sui";
+
+/** Operators retired this process (revoked/expired/budget/venue) — never
+ *  retried until restart (and the registry flag makes it durable). */
+const gatedSkip = new Set<string>();
+/** Mainnet operators we've already logged as "awaiting publish" once. */
+const loggedMainnetSkip = new Set<string>();
+
+type OperatorRegistryEntry = {
+  policyId: string;
+  bmId: string;
+  tradeCapId: string;
+  owner: string;
+  personality: StrategyId;
+  goal?: OperatorGoal;
+  network: GatedNetwork;
+  revoked: boolean;
+  adoptedAtMs: number;
+};
+
+async function loadOperatorRegistry(): Promise<OperatorRegistryEntry[]> {
+  try {
+    const raw = await fs.readFile(OPERATOR_REGISTRY_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as OperatorRegistryEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Flip an operator's `revoked` flag in the registry so a killed/expired
+ *  operator stays retired across trader restarts. Best-effort. */
+async function markOperatorRevokedInRegistry(policyId: string): Promise<void> {
+  try {
+    const list = await loadOperatorRegistry();
+    let changed = false;
+    for (const e of list) {
+      if (e.policyId === policyId && !e.revoked) {
+        e.revoked = true;
+        changed = true;
+      }
+    }
+    if (changed) {
+      await fs.writeFile(OPERATOR_REGISTRY_PATH, JSON.stringify(list, null, 2));
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Normalize a registry goal blob into a strategy OperatorGoal. */
+function registryGoal(g: OperatorRegistryEntry["goal"]): OperatorGoal {
+  if (g && (g.type === "grow" || g.type === "preserve")) return g;
+  return { type: "edge" };
+}
+
+/** Stable per-operator event-stream id so the dashboard groups all of one
+ *  operator's heartbeats under a single evolving "Now" cascade. */
+function gatedTaskId(e: OperatorRegistryEntry): string {
+  return `gated-${e.policyId.slice(2, 14)}`;
+}
+
+/** True iff an error from the gated PTB is a TERMINAL operator_policy abort
+ *  (revoked / expired / budget / venue / not-agent) → retire the operator.
+ *  Transient RPC errors are already retried inside signAndExecuteWithRetry,
+ *  so a Move abort in OUR policy module that surfaces here is terminal. */
+function isTerminalPolicyAbort(err: unknown): boolean {
+  const m = String((err as Error)?.message ?? err);
+  return /MoveAbort/i.test(m) && /operator_policy/i.test(m);
+}
+
+/** Best-effort: append this trade to the operator's Walrus memory journal
+ *  and publish its manifesto once. Never blocks the trade; never throws. */
+async function recordGatedMemory(
+  ctx: AgentContext,
+  e: OperatorRegistryEntry,
+  strategy: StrategyId,
+  goal: OperatorGoal,
+  direction: Direction,
+  midUsd: number,
+  reasoning: string,
+  digest: string,
+  taskId: string,
+): Promise<void> {
+  const walFunded = walrusEnabled()
+    ? await hasWalrusFunding(ctx.client, ctx.address)
+    : false;
+  if (!walFunded) return;
+  const prior = await loadJournal(e.policyId);
+  const entry: JournalEntry = {
+    taskId,
+    traderName: null,
+    strategy,
+    decidedAtMs: Date.now(),
+    market: {
+      oracleId: "",
+      expiryMs: Date.now() + SPOT_HORIZON_MS,
+      strike: Math.floor(midUsd * 1e9),
+      spotAtDecision: Math.floor(midUsd * 1e9),
+    },
+    decision: { direction, quantity: GATED_BASE_QTY, reasoning },
+    execution: { mode: "live", mintTxDigest: digest, walrusReasoningBlobId: null },
+  };
+  const updated = [...prior, entry];
+  await saveJournal(e.policyId, updated);
+  const md = journalMarkdown({
+    traderName: null,
+    strategy,
+    entries: updated,
+    policyId: e.policyId,
+  });
+  try {
+    const up = await uploadToWalrus(
+      new TextEncoder().encode(md),
+      ctx.client,
+      ctx.keypair,
+    );
+    emitAgentEvent("walrus_uploaded", {
+      policyId: e.policyId,
+      taskId,
+      asset: "SUI",
+      data: {
+        kind: "journal",
+        blob_id: up.blobId,
+        entries: updated.length,
+        upload_ms: up.uploadMs,
+      },
+    });
+  } catch {
+    /* journal upload best-effort */
+  }
+  // Manifesto (idempotent per policy). Reuse the same publisher as the
+  // task path via a minimal synthetic spec.
+  await publishManifestoOnce(
+    ctx,
+    { policyId: e.policyId, traderName: undefined, goal, strategy, markets: "sui_ecosystem" },
+    strategy,
+    "SUI",
+    taskId,
+  );
+}
+
+/** Run one autonomous decision cycle for a single adopted operator. May
+ *  place exactly one gated order (on edge + funded) or abstain. Throws on a
+ *  terminal policy abort so the caller can retire the operator. */
+async function runGatedOperator(
+  ctx: AgentContext,
+  e: OperatorRegistryEntry,
+  midUsd: number,
+  signals: SignalBundle,
+): Promise<void> {
+  const strategy: StrategyId = STRATEGIES[e.personality]
+    ? e.personality
+    : DEFAULT_STRATEGY;
+  const goal = registryGoal(e.goal);
+  const params = calibrateParams(strategy, goal);
+  const taskId = gatedTaskId(e);
+
+  emitAgentEvent("observe", {
+    policyId: e.policyId,
+    taskId,
+    asset: "SUI",
+    data: { spot_usd: midUsd, oracle_id: null },
+  });
+  emitAgentEvent("signals", {
+    policyId: e.policyId,
+    taskId,
+    asset: "SUI",
+    data: { signals },
+  });
+
+  let decision = decide(strategy, {
+    asset: "SUI",
+    spotUsd: midUsd,
+    signals,
+    recentSettled: [],
+    market: { strikeUsd: midUsd, expiryMs: Date.now() + SPOT_HORIZON_MS },
+    surface: null,
+    params,
+    nowMs: Date.now(),
+  });
+  // Conviction-floor gate (mirrors the BTC path): abstain below the
+  // calibrated floor (a no-op at baseline).
+  let floorConv: number | null = null;
+  if (decision && decision.conviction < params.convictionFloor) {
+    floorConv = decision.conviction;
+    decision = null;
+  }
+  if (decision) decision.quantity = GATED_BASE_QTY;
+
+  const direction: Direction =
+    decision?.direction ?? (strategy === "contrarian" ? "down" : "up");
+  const conviction = decision?.conviction ?? 0;
+  const reasoning =
+    decision?.reasoning ??
+    (floorConv !== null
+      ? `${strategy} preserved capital on SUI: conviction ${floorConv.toFixed(2)} is below the ${params.convictionFloor.toFixed(2)} floor calibrated for your ${goalLabel(goal)} — not strong enough to risk capital.`
+      : abstentionReason(strategy, signals, "SUI", midUsd, params));
+
+  emitAgentEvent("decision", {
+    policyId: e.policyId,
+    taskId,
+    asset: "SUI",
+    data: {
+      strategy,
+      decided: !!decision,
+      direction,
+      quantity: decision ? GATED_BASE_QTY : 0,
+      conviction,
+      reasoning,
+      spot_usd: midUsd,
+      market_p: null,
+    },
+  });
+
+  // Abstained — capital preserved, no trade. The honest common case.
+  if (!decision) {
+    emitAgentEvent("mode", {
+      policyId: e.policyId,
+      taskId,
+      asset: "SUI",
+      data: { mode: "simulated", sim_reason: reasoning },
+    });
+    return;
+  }
+
+  // Decision to act — verify the BM can actually execute before firing.
+  const coins = gatedCoinTypes(e.network);
+  const isBid = direction === "up";
+
+  // Fee guard: SUI/USDC isn't whitelisted → the order pays its fee in DEEP.
+  const deepBal = await readBmAssetBalance(ctx, e.bmId, coins.deep);
+  if (deepBal < GATED_DEEP_FEE_FLOOR) {
+    const r = `Operator decided ${direction.toUpperCase()} SUI but the BalanceManager holds no DEEP for DeepBook fees (SUI/USDC isn't a whitelisted pool) — awaiting fee funding. No trade; capital untouched.`;
+    emitAgentEvent("mode", {
+      policyId: e.policyId,
+      taskId,
+      asset: "SUI",
+      data: { mode: "simulated", sim_reason: r },
+    });
+    console.log(
+      `[trader-gated] ${e.policyId.slice(0, 10)}… ${direction} but BM has no DEEP for fees — skip`,
+    );
+    return;
+  }
+
+  // Inventory guard: UP buys SUI with quote (USDC/DBUSDC); DOWN sells SUI
+  // base. A freshly-adopted BM holds only quote, so it can buy but not yet
+  // short — skip honestly instead of aborting on chain.
+  const recordSpendAmount = BigInt(
+    Math.max(1, Math.floor(GATED_BASE_QTY * midUsd * 1e6)),
+  );
+  const needType = isBid ? coins.quote : coins.base;
+  const needAmount = isBid
+    ? recordSpendAmount
+    : BigInt(Math.floor(GATED_BASE_QTY * 1e9));
+  const haveBal = await readBmAssetBalance(ctx, e.bmId, needType);
+  if (haveBal < needAmount) {
+    const sideAsset = isBid ? "USDC" : "SUI";
+    const r = `Operator decided ${direction.toUpperCase()} SUI but the BalanceManager's ${sideAsset} inventory is insufficient for a 1-SUI ${isBid ? "buy" : "sell"} — no trade; capital untouched.`;
+    emitAgentEvent("mode", {
+      policyId: e.policyId,
+      taskId,
+      asset: "SUI",
+      data: { mode: "simulated", sim_reason: r },
+    });
+    console.log(
+      `[trader-gated] ${e.policyId.slice(0, 10)}… ${direction} insufficient ${sideAsset} inventory — skip`,
+    );
+    return;
+  }
+
+  // LIVE: the policy-gated DeepBook order from the user's own BM.
+  emitAgentEvent("mode", {
+    policyId: e.policyId,
+    taskId,
+    asset: "SUI",
+    data: { mode: "live", sim_reason: null },
+  });
+  emitAgentEvent("mint_pending", {
+    policyId: e.policyId,
+    taskId,
+    asset: "SUI",
+    data: { direction, quantity: GATED_BASE_QTY },
+  });
+  const res = await signAndExecuteWithRetry(
+    ctx,
+    () =>
+      buildGatedSpotTx(ctx, {
+        network: e.network,
+        briefPackage: ctx.packageId,
+        policyId: e.policyId,
+        bmId: e.bmId,
+        tradeCapId: e.tradeCapId,
+        venue: GATED_VENUE,
+        recordSpendAmount,
+        baseQty: GATED_BASE_QTY,
+        isBid,
+      }),
+    { showEffects: true, showEvents: true },
+    { label: "trader-gated:open", attempts: 2 },
+  );
+  if (res.effects?.status?.status !== "success") {
+    throw new Error(res.effects?.status?.error ?? "gated open failed");
+  }
+  const digest = res.digest;
+  console.log(
+    `[trader-gated] LIVE ${strategy} ${direction} ${GATED_BASE_QTY} SUI op=${e.policyId.slice(0, 10)}… tx=${digest}`,
+  );
+  emitAgentEvent("spot_opened", {
+    policyId: e.policyId,
+    taskId,
+    asset: "SUI",
+    data: { tx: digest, direction, base_qty: GATED_BASE_QTY },
+  });
+  await recordGatedMemory(
+    ctx,
+    e,
+    strategy,
+    goal,
+    direction,
+    midUsd,
+    reasoning,
+    digest,
+    taskId,
+  ).catch(() => {});
+  emitAgentEvent("delivered", {
+    policyId: e.policyId,
+    taskId,
+    asset: "SUI",
+    data: { tx: digest, mode: "live" },
+  });
+}
+
+async function gatedSpotTick(ctx: AgentContext): Promise<void> {
+  const registry = (await loadOperatorRegistry()).filter(
+    (e) => !e.revoked && !gatedSkip.has(e.policyId),
+  );
+  if (registry.length === 0) return;
+
+  // Mainnet operators wait for the mainnet trader context (set up after the
+  // mainnet publish wires a mainnet client + package). Log once each.
+  for (const e of registry.filter((x) => x.network === "mainnet")) {
+    if (!loggedMainnetSkip.has(e.policyId)) {
+      console.log(
+        `[trader-gated] mainnet operator ${e.policyId.slice(0, 10)}… awaiting mainnet publish + context — skipping`,
+      );
+      loggedMainnetSkip.add(e.policyId);
+    }
+  }
+  const testnetOps = registry.filter((e) => e.network === "testnet");
+  if (testnetOps.length === 0) return;
+
+  // Observe the SUI pool ONCE per tick (same mid for every testnet
+  // operator); warm the rolling history; compute the shared signal bundle.
+  let midUsd: number;
+  try {
+    midUsd = await readSpotMid(ctx, getMarket("SUI"));
+  } catch (err) {
+    console.warn(
+      "[trader-gated] SUI mid read failed this tick:",
+      String((err as Error)?.message ?? err).slice(0, 120),
+    );
+    return;
+  }
+  if (!Number.isFinite(midUsd) || midUsd <= 0) return;
+  await appendPoint("SUI", { ts: Date.now(), price: midUsd });
+  const history = await loadHistory("SUI");
+  const signals = computeSignals(history, Date.now());
+
+  // Consolidate the operator wallet's SUI once before signing across BMs —
+  // many gated orders from one wallet fragment gas otherwise.
+  try {
+    const c = await consolidateSuiCoins(ctx.client, ctx.keypair);
+    if (c.merged) {
+      console.log(
+        `[trader-gated] consolidated ${c.coinsBefore} SUI → 1 (${(Number(c.balance) / 1e9).toFixed(4)} SUI) tx=${c.digest}`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[trader-gated] coin consolidation skipped:",
+      String((err as Error)?.message ?? err).slice(0, 120),
+    );
+  }
+
+  for (const e of testnetOps) {
+    try {
+      await runGatedOperator(ctx, e, midUsd, signals);
+    } catch (err) {
+      if (isTerminalPolicyAbort(err)) {
+        gatedSkip.add(e.policyId);
+        await markOperatorRevokedInRegistry(e.policyId);
+        console.log(
+          `[trader-gated] operator ${e.policyId.slice(0, 10)}… RETIRED (policy refused): ${String((err as Error)?.message ?? err).slice(0, 100)}`,
+        );
+        emitAgentEvent("mint_failed", {
+          policyId: e.policyId,
+          taskId: gatedTaskId(e),
+          asset: "SUI",
+          data: {
+            error: "chain refused — operator retired (revoked / expired / budget reached)",
+            terminal: true,
+          },
+        });
+      } else {
+        console.warn(
+          `[trader-gated] operator ${e.policyId.slice(0, 10)}… tick error:`,
+          String((err as Error)?.message ?? err).slice(0, 140),
+        );
+      }
+    }
+  }
+}
+
+function startGatedSpotLoop(ctx: AgentContext): void {
+  console.log(
+    `[trader-gated] open · poll=${GATED_LOOP_POLL_MS}ms (autonomous non-custodial operators via delegated TradeCap)`,
+  );
+  void (async () => {
+    while (true) {
+      try {
+        await gatedSpotTick(ctx);
+      } catch (e) {
+        console.warn("[trader-gated] tick error:", (e as Error).message);
+      }
+      await new Promise((r) => setTimeout(r, GATED_LOOP_POLL_MS));
+    }
+  })();
+}
+
 // === Price history poller ===
 
 /** Cadence for the rolling spot/mid observation loop. 60s keeps signal
@@ -2010,6 +2477,12 @@ async function main(): Promise<void> {
   // Spin up the spot auto-close service (mirrors auto-redeem for spot
   // positions — closes settle at the position's horizon).
   startAutoCloseSpotLoop(ctx);
+  // Autonomous non-custodial operators — the always-on engine that trades
+  // each adopted user's OWN BalanceManager via its delegated TradeCap,
+  // gated by their OperatorPolicy. This is the "alive" loop for the mainnet
+  // product: testnet operators trade now; mainnet operators light up once
+  // the mainnet publish wires a mainnet trader context.
+  startGatedSpotLoop(ctx);
 
   await startTaskInbox({
     ctx,
