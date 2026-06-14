@@ -158,9 +158,21 @@ export default function ProofPage() {
         </header>
 
         {err && (
-          <p className="mt-10 border-l-[3px] border-[#EF4444] bg-red-50/40 px-4 py-3 font-mono text-[12px] text-[#EF4444]">
-            {err}
-          </p>
+          <div className="mt-10 border-l-[3px] border-[#EF4444] bg-red-50/40 px-4 py-3">
+            <p className="font-mono text-[12px] text-[#EF4444]">
+              {err === "policy not found"
+                ? `No operator with id ${short(policyId, 8, 6)} on testnet — the id may be incomplete.`
+                : err}
+            </p>
+            {policyId !== DEFAULT_POLICY && (
+              <a
+                href="/proof"
+                className="mt-2 inline-block font-mono text-[11px] uppercase tracking-[0.18em] text-ink underline decoration-line underline-offset-4 hover:decoration-ink"
+              >
+                View the live house operator →
+              </a>
+            )}
+          </div>
         )}
         {!data && !err && (
           <p className="mt-10 font-mono text-[12px] text-muted">Reading the chain…</p>
