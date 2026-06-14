@@ -27,6 +27,8 @@ import {
   DeepBookClient,
   testnetCoins,
   testnetPools,
+  mainnetCoins,
+  mainnetPools,
 } from "@mysten/deepbook-v3";
 import { SUI_CLOCK_OBJECT_ID } from "@mysten/sui/utils";
 
@@ -51,6 +53,88 @@ export function makeDeepBook(
     pools: testnetPools,
     balanceManagers: { [BM_KEY]: { address: balanceManagerId } },
   });
+}
+
+// ===========================================================================
+// NON-CUSTODIAL gated spot (mainnet product path)
+//
+// Unlike makeDeepBook above (house BM, owner proof, testnet-pinned), this
+// trades a USER's OWN BalanceManager via a DELEGATED TradeCap — the SDK
+// registers `{ address, tradeCap }`, which makes it generate the trade
+// proof AS TRADER (operator can trade, can never withdraw). Network-aware.
+// Additive — the house path above is untouched.
+// ===========================================================================
+
+export type GatedNetwork = "mainnet" | "testnet";
+
+/** SUI/USDC pool key per network (the demo's directional pair). */
+export function gatedPoolKey(network: GatedNetwork): string {
+  return network === "mainnet" ? "SUI_USDC" : "SUI_DBUSDC";
+}
+
+function makeGatedDeepBook(
+  ctx: AgentContext,
+  network: GatedNetwork,
+  bmId: string,
+  tradeCapId: string,
+): DeepBookClient {
+  const mainnet = network === "mainnet";
+  return new DeepBookClient({
+    client: ctx.client as unknown as ConstructorParameters<typeof DeepBookClient>[0]["client"],
+    address: ctx.address,
+    network: mainnet ? "mainnet" : "testnet",
+    coins: mainnet ? mainnetCoins : testnetCoins,
+    pools: mainnet ? mainnetPools : testnetPools,
+    // tradeCap present → SDK builds generate_proof_as_trader (delegated).
+    balanceManagers: { [BM_KEY]: { address: bmId, tradeCap: tradeCapId } },
+  });
+}
+
+export type GatedSpotArgs = {
+  network: GatedNetwork;
+  briefPackage: string;
+  policyId: string;
+  bmId: string;
+  tradeCapId: string;
+  venue: string; // "spot-sui"
+  /** Budget units to debit from the policy (USDC base, 1e6). */
+  recordSpendAmount: bigint;
+  /** Base quantity in human units (e.g. 1.0 SUI), ≥ pool minSize. */
+  baseQty: number;
+  /** up = buy base with quote; down = sell base for quote. */
+  isBid: boolean;
+};
+
+/** Build the gated spot PTB for a user's own BM via the delegated
+ *  TradeCap. record_spend runs first (aborts on revoke/expiry/over-budget/
+ *  venue); the market order only executes if the policy allows it. SUI/USDC
+ *  is not whitelisted → pay_with_deep (the BM must hold a little DEEP). */
+export function buildGatedSpotTx(ctx: AgentContext, args: GatedSpotArgs): Transaction {
+  const db = makeGatedDeepBook(ctx, args.network, args.bmId, args.tradeCapId);
+  const tx = new Transaction();
+  tx.setGasBudget(50_000_000);
+  // [A] policy gate
+  tx.moveCall({
+    target: `${args.briefPackage}::operator_policy::record_spend`,
+    arguments: [
+      tx.object(args.policyId),
+      tx.pure.u64(args.recordSpendAmount),
+      tx.pure.string(args.venue),
+      tx.object(SUI_CLOCK_OBJECT_ID),
+    ],
+  });
+  // [B] the real DeepBook order from the user's BM (delegated trader proof)
+  tx.add(
+    db.deepBook.placeMarketOrder({
+      poolKey: gatedPoolKey(args.network),
+      balanceManagerKey: BM_KEY,
+      clientOrderId: String(Date.now()),
+      quantity: args.baseQty,
+      isBid: args.isBid,
+      payWithDeep: true,
+    }) as unknown as Parameters<Transaction["add"]>[0],
+  );
+  return tx;
 }
 
 /** A directional bet's args. `direction` is the human framing; the
