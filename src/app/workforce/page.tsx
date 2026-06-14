@@ -133,6 +133,14 @@ function WorkforceConsole() {
   const signer = useAccountSigner();
   const zk = useZkLogin();
 
+  // ?policy=<id> → read-only live view of any operator, WALLETLESS (shareable
+  // with judges). ViewOperator only reads (RPC + SSE), so no signer needed.
+  const viewPolicy =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("policy")
+      : null;
+  const sharedView = viewPolicy && /^0x[0-9a-fA-F]{6,}$/.test(viewPolicy);
+
   return (
     <main className="min-h-screen bg-bg text-ink">
       <Header
@@ -140,7 +148,11 @@ function WorkforceConsole() {
         accountLabel={signer.label ?? undefined}
         source={signer.source}
       />
-      {zk.phase.kind === "callback" ? (
+      {sharedView ? (
+        <section className="mx-auto max-w-page px-0 pt-0 pb-24">
+          <ViewOperator policyId={viewPolicy as string} />
+        </section>
+      ) : zk.phase.kind === "callback" ? (
         <ZkLoginCallbackPanel />
       ) : signer.address ? (
         <Connected address={signer.address} />
@@ -1027,19 +1039,6 @@ function Connected({ address }: { address: string }) {
   const predict =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("predict") === "1";
-
-  // ?policy=<id> → read-only live view of any operator (watch / share).
-  const viewPolicy =
-    typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("policy")
-      : null;
-  if (viewPolicy && /^0x[0-9a-fA-F]{6,}$/.test(viewPolicy)) {
-    return (
-      <section className="mx-auto max-w-page px-0 pt-0 pb-24">
-        <ViewOperator policyId={viewPolicy} />
-      </section>
-    );
-  }
 
   if (!activation) {
     return (
