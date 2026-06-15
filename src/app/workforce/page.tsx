@@ -56,6 +56,8 @@ import {
   TRADER_PERSONALITIES,
   dispatchTraderTask,
   loadTraderIdentity,
+  loadLatestTraderIdentity,
+  type TraderIdentity,
   personalityById,
   saveTraderIdentity,
 } from "@/lib/workforce-client";
@@ -1569,6 +1571,31 @@ function DepositIntro() {
 
 // Non-custodial deposit adoption surface — choose operator → deposit →
 // adopt (one signature) → dashboard. The product/demo flow.
+// A returning user with an active operator lands on the gallery — give them
+// one click back to their live operator dashboard (the floating kill switch
+// already knows the operator; this is its "view" counterpart).
+function ActiveOperatorResume() {
+  const [op, setOp] = useState<TraderIdentity | null>(null);
+  useEffect(() => {
+    setOp(loadLatestTraderIdentity());
+  }, []);
+  if (!op) return null;
+  return (
+    <a
+      href={`/workforce?policy=${op.policyId}`}
+      className="mb-6 flex items-center justify-between gap-3 border-l-[3px] border-emerald-500 bg-emerald-50/40 px-4 py-3 transition-colors hover:bg-emerald-50"
+    >
+      <span className="text-[13px] text-ink-2">
+        <span className="font-medium text-ink">{op.name}</span> is live and trading
+        on your behalf.
+      </span>
+      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.24em] text-emerald-700">
+        View operator →
+      </span>
+    </a>
+  );
+}
+
 function DepositGallery({
   address,
   onActivated,
@@ -1612,6 +1639,7 @@ function DepositGallery({
   }
   return (
     <section className="mt-10">
+      <ActiveOperatorResume />
       <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
         Choose your operator
       </p>
@@ -1921,6 +1949,7 @@ function TraderGallery({
   // click drops straight into the 3-step adoption above.
   return (
     <section className="mt-10">
+      <ActiveOperatorResume />
       <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
         Choose your operator
       </p>
