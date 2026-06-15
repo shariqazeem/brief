@@ -18,7 +18,7 @@ import nextDynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-import { explorerUrl } from "@/lib/brief-client";
+import { explorerUrl, BRIEF_NETWORK } from "@/lib/brief-client";
 import {
   useOperatorJournal,
   type JournalDecision,
@@ -125,6 +125,28 @@ function sui(mist: bigint | null | undefined): number {
   return Number(mist) / 1e9;
 }
 
+// A gated-spot operator (the wizard product) trades SUI/USDC, and its policy
+// budget is denominated in the capital coin (DBUSDC testnet / USDC mainnet,
+// 6dp) — NOT SUI (9dp). A Predict operator is BTC + SUI-denominated budget.
+function isSpotPolicy(policy: OperatorPolicyDecoded | null): boolean {
+  return (policy?.allowedVenues ?? []).some((v) => v.startsWith("spot"));
+}
+function budgetView(policy: OperatorPolicyDecoded | null): {
+  cap: number;
+  spent: number;
+  unit: string;
+  asset: string;
+} {
+  const spot = isSpotPolicy(policy);
+  const div = spot ? 1e6 : 1e9;
+  return {
+    cap: Number(policy?.budgetCap ?? 0n) / div,
+    spent: Number(policy?.spent ?? 0n) / div,
+    unit: spot ? (BRIEF_NETWORK === "mainnet" ? "USDC" : "DBUSDC") : "SUI",
+    asset: spot ? "SUI" : "BTC",
+  };
+}
+
 // A short thesis derived from live signals, used before the agent's own
 // reasoning text lands. Honest restatement of the numbers, no spin.
 function deriveThesis(s: StreamSignals | null): string {
@@ -180,7 +202,9 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   } = props;
 
   const { state: stream } = useAgentStream(policyId);
-  const journal = useOperatorJournal(policyId);
+  const spot = isSpotPolicy(policy);
+  const bv = budgetView(policy);
+  const journal = useOperatorJournal(policyId, bv.asset, spot);
   const [tab, setTab] = useState<"now" | "journal" | "policy">("now");
 
   const [now, setNow] = useState(() => Date.now());
@@ -200,8 +224,8 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         : "preserve"
       : "idle";
 
-  const cap = sui(policy?.budgetCap);
-  const spent = sui(policy?.spent);
+  const cap = bv.cap;
+  const spent = bv.spent;
   const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
 
   return (
@@ -214,6 +238,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         spent={spent}
         cap={cap}
         pct={pct}
+        unit={bv.unit}
         fuel={revoked ? null : stream.fuel}
         onYank={onRequestRevoke}
         onReset={onReset}
@@ -233,13 +258,15 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
                 policy={policy}
                 traderName={traderName}
                 revoked={revoked}
+                assetLabel={bv.asset}
+                isSpot={spot}
                 dispatchError={props.dispatchError}
                 onDispatchAgain={props.onDispatchAgain}
                 dispatching={props.dispatching}
               />
             )}
             {tab === "journal" && (
-              <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} />
+              <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} isSpot={spot} />
             )}
             {tab === "policy" && (
               <PolicyTab {...props} manifestoBlobId={stream.walrusManifestoBlobId} />
@@ -285,6 +312,7 @@ function TopBar({
   spent,
   cap,
   pct,
+  unit,
   fuel,
   onYank,
   onReset,
@@ -297,6 +325,7 @@ function TopBar({
   spent: number;
   cap: number;
   pct: number;
+  unit: string;
   fuel: { deepHuman: number; level: "ok" | "low" | "empty" } | null;
   onYank: () => void;
   onReset: () => void;
@@ -341,7 +370,7 @@ function TopBar({
             />
           </div>
           <span className="shrink-0 font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
-            {spent.toFixed(2)} / {cap.toFixed(0)} SUI
+            {spent.toFixed(2)} / {cap.toFixed(2)} {unit}
           </span>
         </div>
 
@@ -478,6 +507,8 @@ function NowTab({
   policy,
   traderName,
   revoked,
+  assetLabel,
+  isSpot,
   dispatchError,
   onDispatchAgain,
   dispatching,
@@ -489,6 +520,8 @@ function NowTab({
   policy: OperatorPolicyDecoded | null;
   traderName: string;
   revoked: boolean;
+  assetLabel: string;
+  isSpot: boolean;
 } & Pick<OperatorDashboardProps, "dispatchError" | "onDispatchAgain" | "dispatching">) {
   const hasObserve = stream.spotUsd != null || stream.steps.observe.status !== "pending";
   const hasSignals = stream.signals != null;
@@ -611,11 +644,11 @@ function NowTab({
       {/* price tape — ~30% of the card */}
       <div className="mt-8" style={{ borderTop: "1px solid #E5E5E5", paddingTop: 16 }}>
         <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.28em]" style={{ color: SUB }}>
-          BTC · 24h · strike dotted
+          {assetLabel} · 24h{isSpot ? "" : " · strike dotted"}
         </p>
         <OperatorChart
           points={journal.pricePoints}
-          strikeUsd={stream.strikeUsd ?? journal.entries[0]?.strike_usd ?? null}
+          strikeUsd={isSpot ? null : stream.strikeUsd ?? journal.entries[0]?.strike_usd ?? null}
           decisions={chartDecisions}
           height={150}
         />
@@ -846,11 +879,13 @@ function JournalTab({
   stream,
   traderName,
   now,
+  isSpot,
 }: {
   journal: ReturnType<typeof useOperatorJournal>;
   stream: AgentStreamState;
   traderName: string;
   now: number;
+  isSpot: boolean;
 }) {
   const { entries, stats } = journal;
   const journalBlob = stream.walrusJournalBlobId ?? entries.find((e) => e.walrus_reasoning_blob_id)?.walrus_reasoning_blob_id ?? null;
@@ -874,7 +909,11 @@ function JournalTab({
         {" · "}
         <span style={{ color: AMBER }}>{stats.preservedPct.toFixed(0)}% capital preserved</span>
         {" · "}
-        {stats.winRate != null ? (
+        {isSpot ? (
+          <span style={{ color: EMERALD }}>
+            {stats.liveOnChain} on-chain trade{stats.liveOnChain === 1 ? "" : "s"}
+          </span>
+        ) : stats.winRate != null ? (
           <span style={{ color: stats.winRate >= 50 ? EMERALD : INK }}>
             {stats.winRate.toFixed(0)}% settled win rate
           </span>
@@ -1057,16 +1096,17 @@ function PolicyTab({
   if (!policy) {
     return <p className="py-12 text-center font-mono text-[11px] uppercase tracking-[0.28em]" style={{ color: IDLE }}>resolving policy…</p>;
   }
-  const cap = sui(policy.budgetCap);
-  const spent = sui(policy.spent);
+  const bvp = budgetView(policy);
+  const cap = bvp.cap;
+  const spent = bvp.spent;
   const remaining = Math.max(0, cap - spent);
   const goalCal = goal && personality ? calibrateParams(personality.strategy, goal) : null;
   const goalBase = personality ? calibrateParams(personality.strategy, { type: "edge" }) : null;
   const rows: Array<[string, React.ReactNode]> = [
     ["Status", <span key="s" style={{ color: revoked ? RED : EMERALD }}>{(status ?? "active").toUpperCase()}</span>],
-    ["Budget cap", `${cap.toFixed(2)} SUI`],
-    ["Spent", `${spent.toFixed(2)} SUI`],
-    ["Remaining", `${remaining.toFixed(2)} SUI`],
+    ["Budget cap", `${cap.toFixed(2)} ${bvp.unit}`],
+    ["Spent", `${spent.toFixed(2)} ${bvp.unit}`],
+    ["Remaining", `${remaining.toFixed(2)} ${bvp.unit}`],
     ["Venues", (policy.allowedVenues ?? []).map(venueLabel).join(" · ") || "—"],
     ["Agent", short(policy.agent, 6)],
     ["Owner (you)", short(policy.owner, 6)],

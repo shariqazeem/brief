@@ -2080,11 +2080,20 @@ async function runGatedOperator(
   const direction: Direction =
     decision?.direction ?? (strategy === "contrarian" ? "down" : "up");
   const conviction = decision?.conviction ?? 0;
-  const reasoning =
+  let reasoning =
     decision?.reasoning ??
     (floorConv !== null
       ? `${strategy} preserved capital on SUI: conviction ${floorConv.toFixed(2)} is below the ${params.convictionFloor.toFixed(2)} floor calibrated for your ${goalLabel(goal)} — not strong enough to risk capital.`
       : abstentionReason(strategy, signals, "SUI", midUsd, params));
+  // The strategy phrases its tail for Predict ("→ qty N (Xm window)"); on
+  // spot the operator trades exactly one min-lot of SUI per edge, so restate
+  // it accurately for the journal + dashboard.
+  if (decision) {
+    reasoning = reasoning.replace(
+      /→ qty \d+(?: \([^)]*\))?\.?$/,
+      `→ ${GATED_BASE_QTY} SUI on DeepBook spot.`,
+    );
+  }
 
   emitAgentEvent("decision", {
     policyId: e.policyId,

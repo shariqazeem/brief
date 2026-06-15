@@ -100,6 +100,7 @@ function settle(
   d: RawDecision,
   points: PricePoint[],
   nowMs: number,
+  isSpot: boolean,
 ): { settlement: SettlementKind; settledSpotUsd: number | null; swingPct: number | null } {
   // Abstention → capital preserved. Surface the swing it sat out.
   if (d.abstained || d.quantity === 0 || !d.direction) {
@@ -115,8 +116,10 @@ function settle(
     return { settlement: "preserved", settledSpotUsd: null, swingPct };
   }
 
-  // Acted but no strike/expiry to settle against (e.g. spot venue).
-  if (d.strike_usd == null || d.expiry_ms == null) {
+  // Spot venue (DeepBook buy/sell) — there is no strike/expiry to settle
+  // against; the trade simply executed. (Spot entries carry a nominal
+  // strike+expiry for the chart, so gate on isSpot, not just their absence.)
+  if (isSpot || d.strike_usd == null || d.expiry_ms == null) {
     return { settlement: "executed", settledSpotUsd: null, swingPct: null };
   }
 
@@ -171,6 +174,8 @@ const EMPTY: OperatorJournal = {
 
 export function useOperatorJournal(
   policyId: string | null | undefined,
+  asset: string = "BTC",
+  isSpot: boolean = false,
 ): OperatorJournal {
   const [state, setState] = useState<OperatorJournal>(EMPTY);
 
@@ -190,7 +195,7 @@ export function useOperatorJournal(
               `/api/trader/trades?policy_id=${encodeURIComponent(policyId as string)}&limit=100`,
             ),
           ),
-          fetch(apiUrl(`/api/trader/signals?asset=BTC&minutes=${PRICE_WINDOW_MIN}`)),
+          fetch(apiUrl(`/api/trader/signals?asset=${encodeURIComponent(asset)}&minutes=${PRICE_WINDOW_MIN}`)),
         ]);
 
         const trades = tradesRes.ok
@@ -213,7 +218,7 @@ export function useOperatorJournal(
         const raw = trades.decisions ?? [];
         const entries: JournalDecision[] = raw.map((d) => ({
           ...d,
-          ...settle(d, points, nowMs || d.ts),
+          ...settle(d, points, nowMs || d.ts, isSpot),
         }));
 
         if (!cancelled) {
@@ -234,7 +239,7 @@ export function useOperatorJournal(
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [policyId]);
+  }, [policyId, asset, isSpot]);
 
   return state;
 }
