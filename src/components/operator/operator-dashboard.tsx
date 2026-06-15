@@ -625,7 +625,7 @@ function NowTab({
             }
             label="Chain"
           >
-            <ChainBlock stream={stream} />
+            <ChainBlock stream={stream} isSpot={isSpot} />
           </CascadeRow>
         </div>
       ) : (
@@ -644,7 +644,7 @@ function NowTab({
       {/* price tape — ~30% of the card */}
       <div className="mt-8" style={{ borderTop: "1px solid #E5E5E5", paddingTop: 16 }}>
         <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.28em]" style={{ color: SUB }}>
-          {assetLabel} · 24h{isSpot ? "" : " · strike dotted"}
+          {assetLabel} · 24h{isSpot ? (BRIEF_NETWORK === "testnet" ? " · live testnet pool" : " · live") : " · strike dotted"}
         </p>
         <OperatorChart
           points={journal.pricePoints}
@@ -728,15 +728,20 @@ function DecisionBlock({ dec }: { dec: AgentStreamState["decision"] }) {
   );
 }
 
-function ChainBlock({ stream }: { stream: AgentStreamState }) {
+function ChainBlock({ stream, isSpot }: { stream: AgentStreamState; isSpot: boolean }) {
   const tx = stream.deliveredTx ?? stream.mintTx;
   const refused = stream.steps.mint.status === "failed";
   const live = stream.mode === "live";
+  // For a spot operator, "not live" means it abstained (no order placed) —
+  // that's discipline, not a fake/off-chain sim. Word it honestly.
   const verdict = refused
     ? { text: "Chain refused", color: RED }
     : live
-      ? { text: "Policy verified", color: EMERALD }
-      : { text: "Simulated · off-chain", color: AMBER };
+      ? { text: isSpot ? "Executed on DeepBook" : "Policy verified", color: EMERALD }
+      : {
+          text: isSpot ? "Stood down — no order placed" : "Simulated · off-chain",
+          color: AMBER,
+        };
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
       <span className="font-mono text-[12px] uppercase tracking-[0.12em]" style={{ color: verdict.color }}>
