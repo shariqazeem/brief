@@ -21,47 +21,64 @@ import {
 } from "@/lib/brief-client";
 import { buildAdoptTx, DEEPBOOK_CFG } from "@/lib/deepbook-adopt";
 import { buildGetTestUsdcTx } from "@/lib/deepbook-get-usdc";
-import { defaultGoalFor } from "@/lib/operator-goal";
 import {
-  personalityById,
   saveTraderIdentity,
-  TRADER_PERSONALITIES,
   type StrategyId,
-  type TraderPersonality,
 } from "@/lib/workforce-client";
 import { useAccountSigner } from "@/lib/zklogin/signer";
 
-const TRADER_EXPIRY_HOURS = 24;
+// Operators live for the demo window, not 12–24h. Long enough that a judge
+// (or the owner) can come back tomorrow and find it still working.
+const TRADER_EXPIRY_HOURS = 24 * 14; // 14 days
 const PRESETS = [5, 10, 20];
 
-// Character + risk per personality — copy that reads like adopting something
-// with judgment, not picking a risk tier. Dot colour signals the read; the
-// real limit is the on-chain budget cap the user sets below.
-const CARD_COPY: Record<
-  StrategyId,
-  { desc: string; risk: string; dot: string }
-> = {
-  conservative: {
-    desc: "Watches. Waits. Strikes only when the signal is undeniable. Conservative SMA-alignment strategy that preserves capital through discipline.",
-    risk: "Conservative",
+// ONE operator, THREE modes. The mode sets the engine's confidence/trend bars
+// (Protect/Grow/Aggressive) — not a different bot. personality/goal are legacy
+// labels kept only so the journal + manifesto keep reading; the decision engine
+// runs off `mode`.
+type OperatorMode = "protect" | "grow" | "aggressive";
+
+const MODES: {
+  id: OperatorMode;
+  label: string;
+  sub: string;
+  desc: string;
+  dot: string;
+  glyph: string;
+  personality: StrategyId;
+  goal: { type: string; targetPct?: number; horizonDays?: number };
+}[] = [
+  {
+    id: "protect",
+    label: "Protect",
+    sub: "Capital preservation",
+    desc: "Acts only on a strong, confirmed trend. Sits out chop. Most cycles end in a green “no trade” — discipline by design.",
     dot: "#10B981",
+    glyph: "◈",
+    personality: "conservative",
+    goal: { type: "preserve" },
   },
-  momentum: {
-    desc: "Rides the trend. Buys strength, sells weakness. Trend-following strategy that moves when the market moves.",
-    risk: "Moderate",
+  {
+    id: "grow",
+    label: "Grow",
+    sub: "Balanced · default",
+    desc: "Trades a real edge, stands down on noise. Measured exposure under the same on-chain leash.",
+    dot: "#4DA2FF",
+    glyph: "◇",
+    personality: "momentum",
+    goal: { type: "grow", targetPct: 5, horizonDays: 30 },
+  },
+  {
+    id: "aggressive",
+    label: "Aggressive",
+    sub: "Higher activity",
+    desc: "A lower bar to act — more trades, more risk. For leaning in. Still hard-capped by the chain.",
     dot: "#F59E0B",
+    glyph: "◆",
+    personality: "contrarian",
+    goal: { type: "edge" },
   },
-  contrarian: {
-    desc: "Fades the crowd. Buys fear, sells greed. RSI-extreme strategy that bets against the consensus.",
-    risk: "Moderate-Aggressive",
-    dot: "#F97316",
-  },
-  quant: {
-    desc: "Reads the volatility surface. Finds edge in mispriced options. SVI vol-surface strategy that trades where others don't look.",
-    risk: "Aggressive",
-    dot: "#EF4444",
-  },
-};
+];
 
 // Each adoption step: the action (while in flight) + the trust it establishes
 // (on ✓). The judge reads WHO owns what and WHAT the chain enforces.
@@ -98,7 +115,7 @@ function AdoptWizard() {
   const usdcLabel = isMainnet ? "USDC" : "test USDC";
   const unitLabel = isMainnet ? "USDC" : "DBUSDC"; // the actual capital coin
 
-  const [picked, setPicked] = useState<StrategyId | null>(null);
+  const [pickedMode, setPickedMode] = useState<OperatorMode | null>(null);
   const [amount, setAmount] = useState<number>(5);
   const [sui, setSui] = useState<number | null>(null);
   const [usdc, setUsdc] = useState<number>(0);
@@ -108,7 +125,7 @@ function AdoptWizard() {
   });
   const [adopt, setAdopt] = useState<AdoptState>({ kind: "idle" });
 
-  const personality = picked ? personalityById(picked) ?? null : null;
+  const modeCfg = pickedMode ? MODES.find((m) => m.id === pickedMode) ?? null : null;
   const cfg = DEEPBOOK_CFG[BRIEF_NETWORK];
 
   // Live balances (SUI for the hero, capital coin for the deposit step).
@@ -136,7 +153,7 @@ function AdoptWizard() {
 
   // Progressive-reveal gates.
   const showChoose = !!address;
-  const showBudget = showChoose && !!picked;
+  const showBudget = showChoose && !!pickedMode;
   const showDeposit = showBudget && amount > 0;
   const showAdopt = showDeposit && amount > 0 && adopt.kind !== "live";
   const insufficient = usdcLoaded && usdc < amount;
@@ -173,7 +190,7 @@ function AdoptWizard() {
 
   // The one signature.
   const onAdopt = useCallback(() => {
-    if (!address || !personality) return;
+    if (!address || !modeCfg) return;
     void (async () => {
       setAdopt({ kind: "checking" });
       const base = BigInt(Math.round(amount * 1e6));
@@ -192,8 +209,8 @@ function AdoptWizard() {
         const [primary, ...rest] = coins.data.map((c) => tx.object(c.coinObjectId));
         if (rest.length) tx.mergeCoins(primary, rest);
         const [capitalCoin] = tx.splitCoins(primary, [tx.pure.u64(base)]);
-        const goal = defaultGoalFor(personality.strategy);
-        const name = `${personality.label}-${Math.floor(Math.random() * 90) + 10}`;
+        const goal = modeCfg.goal;
+        const name = `${modeCfg.label} Operator ${Math.floor(Math.random() * 90) + 10}`;
         buildAdoptTx(tx, {
           network: BRIEF_NETWORK,
           briefPackageId: BRIEF_PACKAGE_ID,
@@ -227,7 +244,7 @@ function AdoptWizard() {
                   saveTraderIdentity({
                     policyId,
                     name,
-                    strategy: personality.strategy,
+                    strategy: modeCfg.personality,
                     adoptedAtMs: Date.now(),
                   });
                   void fetch(apiUrl("/api/operators/register"), {
@@ -239,7 +256,8 @@ function AdoptWizard() {
                       trade_cap_id: tradeCapId,
                       deposit_cap_id: depositCapId,
                       owner: address,
-                      personality: personality.strategy,
+                      personality: modeCfg.personality,
+                      mode: modeCfg.id,
                       goal,
                       network: BRIEF_NETWORK,
                     }),
@@ -268,7 +286,7 @@ function AdoptWizard() {
         setAdopt({ kind: "error", msg: e instanceof Error ? e.message : String(e) });
       }
     })();
-  }, [address, personality, amount, client, cfg.capitalCoinType, signer, usdcLabel]);
+  }, [address, modeCfg, amount, client, cfg.capitalCoinType, signer, usdcLabel]);
 
   const busy = adopt.kind === "checking" || adopt.kind === "signing";
 
@@ -314,17 +332,23 @@ function AdoptWizard() {
           </div>
         </header>
 
-        {/* ─── Section 2 · Choose your operator ─────────────────────── */}
+        {/* ─── Section 2 · Choose a mode ────────────────────────────── */}
         {showChoose && (
           <section className="mt-16 animate-fade-up">
-            <SectionLabel n="01" title="Choose your operator" />
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {TRADER_PERSONALITIES.map((p) => (
-                <OperatorCard
-                  key={p.strategy}
-                  p={p}
-                  selected={picked === p.strategy}
-                  onPick={() => setPicked(p.strategy)}
+            <SectionLabel n="01" title="Choose a mode" />
+            <p className="mt-3 max-w-prose text-[14px] leading-relaxed text-ink-2">
+              One operator, one decision engine. The mode sets how hard it leans
+              in — the confidence and trend bars it needs to clear before it acts.
+              You can change your mind by adopting again; the chain enforces each
+              the same way.
+            </p>
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {MODES.map((m) => (
+                <ModeCard
+                  key={m.id}
+                  m={m}
+                  selected={pickedMode === m.id}
+                  onPick={() => setPickedMode(m.id)}
                 />
               ))}
             </div>
@@ -332,11 +356,11 @@ function AdoptWizard() {
         )}
 
         {/* ─── Section 3 · Set the budget (the leash) ───────────────── */}
-        {showBudget && personality && (
+        {showBudget && modeCfg && (
           <section className="mt-16 animate-fade-up">
             <SectionLabel n="02" title="Set the leash — maximum total spend" />
             <p className="mt-2 max-w-prose text-[14px] leading-relaxed text-ink-2">
-              This is a Move contract, not a setting. If {personality.label} tries to
+              This is a Move contract, not a setting. If your operator tries to
               spend past this amount, the transaction reverts on-chain. No override.
               No exception. Not even we can change it.
             </p>
@@ -377,7 +401,7 @@ function AdoptWizard() {
         )}
 
         {/* ─── Section 4 · Deposit ──────────────────────────────────── */}
-        {showDeposit && personality && (
+        {showDeposit && modeCfg && (
           <section className="mt-16 animate-fade-up">
             <SectionLabel n="03" title="Deposit your capital" />
             <div className="mt-4 border-l-[3px] border-emerald-500 bg-emerald-50/40 px-4 py-3">
@@ -441,7 +465,7 @@ function AdoptWizard() {
         )}
 
         {/* ─── Section 5 · Adopt (one signature) ────────────────────── */}
-        {showAdopt && personality && (
+        {showAdopt && modeCfg && (
           <section className="mt-16 animate-fade-up">
             <SectionLabel n="04" title="Adopt" />
             {adopt.kind === "progress" ? (
@@ -454,7 +478,7 @@ function AdoptWizard() {
                   disabled={busy || insufficient}
                   className="w-full bg-emerald-500 px-6 py-4 font-mono text-[12px] uppercase tracking-[0.3em] text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-10"
                 >
-                  {busy ? "Awaiting signature…" : `Adopt ${personality.label} — One Signature`}
+                  {busy ? "Awaiting signature…" : `Adopt in ${modeCfg.label} mode — One Signature`}
                 </button>
                 <p className="mt-3 max-w-prose font-mono text-[10.5px] leading-relaxed text-muted">
                   This single transaction creates your BalanceManager, deposits your
@@ -512,16 +536,15 @@ function SectionLabel({ n, title }: { n: string; title: string }) {
   );
 }
 
-function OperatorCard({
-  p,
+function ModeCard({
+  m,
   selected,
   onPick,
 }: {
-  p: TraderPersonality;
+  m: (typeof MODES)[number];
   selected: boolean;
   onPick: () => void;
 }) {
-  const copy = CARD_COPY[p.strategy];
   return (
     <button
       type="button"
@@ -532,20 +555,23 @@ function OperatorCard({
       style={{ borderWidth: selected ? 2 : 1 }}
     >
       <span className="font-sans text-[28px] leading-none text-ink" aria-hidden>
-        {p.glyph}
+        {m.glyph}
       </span>
       <span className="mt-3 font-sans text-[16px] font-medium tracking-tight text-ink">
-        {p.label}
+        {m.label}
       </span>
-      <span className="mt-1.5 flex-1 text-[12px] leading-snug text-ink-2">{copy.desc}</span>
+      <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted">
+        {m.sub}
+      </span>
+      <span className="mt-2 flex-1 text-[12px] leading-snug text-ink-2">{m.desc}</span>
       <div className="mt-3 flex items-center gap-1.5">
         <span
           className="h-1.5 w-1.5 shrink-0 rounded-full"
-          style={{ background: copy.dot }}
+          style={{ background: m.dot }}
           aria-hidden
         />
         <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted">
-          {copy.risk}
+          On-chain leash
         </span>
       </div>
     </button>

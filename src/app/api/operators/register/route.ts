@@ -27,11 +27,17 @@ type Entry = {
   depositCapId: string | null;
   owner: string;
   personality: string;
+  /** Operator mode — the engine's calibration (Protect/Grow/Aggressive).
+   *  The decision engine reads this directly; personality/goal are legacy
+   *  labels kept for the journal + manifesto. */
+  mode: string;
   goal: Goal;
   network: "mainnet" | "testnet";
   revoked: boolean;
   adoptedAtMs: number;
 };
+
+const MODES = ["protect", "grow", "aggressive"] as const;
 
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
@@ -79,6 +85,9 @@ export async function POST(req: NextRequest) {
     depositCapId,
     owner,
     personality: String(body.personality ?? "conservative"),
+    mode: (MODES as readonly string[]).includes(String(body.mode))
+      ? String(body.mode)
+      : "grow",
     goal,
     network: body.network === "mainnet" ? "mainnet" : "testnet",
     revoked: false,
