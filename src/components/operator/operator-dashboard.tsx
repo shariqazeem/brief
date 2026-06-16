@@ -40,6 +40,7 @@ import { walrusBlobUrl } from "@/lib/work-object";
 
 const INK = "#111111";
 const SUB = "#666666";
+const NAVY = "#1a2c4e";
 const EMERALD = "#10B981";
 const RED = "#EF4444";
 const AMBER = "#F59E0B";
@@ -239,6 +240,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         pct={pct}
         unit={bv.unit}
         fuel={revoked ? null : stream.fuel}
+        policyId={policyId}
         onYank={onRequestRevoke}
         onReset={onReset}
         readOnly={props.readOnly}
@@ -313,6 +315,7 @@ function TopBar({
   pct,
   unit,
   fuel,
+  policyId,
   onYank,
   onReset,
   readOnly,
@@ -326,6 +329,7 @@ function TopBar({
   pct: number;
   unit: string;
   fuel: { deepHuman: number; level: "ok" | "low" | "empty" } | null;
+  policyId: string | null;
   onYank: () => void;
   onReset: () => void;
   readOnly?: boolean;
@@ -405,8 +409,26 @@ function TopBar({
           </div>
         )}
 
-        {/* controls */}
+        {/* controls — judge path (Brain · Proof) + the leash */}
         <div className="ml-auto flex items-center gap-4 sm:ml-0">
+          {policyId && (
+            <>
+              <Link
+                href={`/brain?policy=${policyId}`}
+                className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
+                style={{ color: NAVY }}
+              >
+                Brain →
+              </Link>
+              <Link
+                href={`/proof?policy=${policyId}`}
+                className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
+                style={{ color: NAVY }}
+              >
+                Proof →
+              </Link>
+            </>
+          )}
           {readOnly ? (
             <span
               className="font-mono text-[9.5px] uppercase tracking-[0.2em]"
@@ -552,6 +574,15 @@ function NowTab({
 
   return (
     <div>
+      {/* Lead with the ONE thing: what is the operator doing right now. */}
+      <OperatorStatusHeader dec={dec} stale={stale} revoked={revoked} />
+
+      {showCascade && (
+        <p className="mx-auto mb-3 max-w-xl font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: SUB }}>
+          How it decided
+        </p>
+      )}
+
       {showCascade ? (
         isSpot ? (
           <SpotPipeline
@@ -668,6 +699,66 @@ function NowTab({
 }
 
 // ---------------------------------------------------------------------------
+// OperatorStatusHeader — the dashboard leads with the ONE thing a judge needs:
+// what is the operator doing right now, in one line + one why. The pipeline
+// below is the supporting "how"; the Brain is the deep dive.
+function OperatorStatusHeader({
+  dec,
+  stale,
+  revoked,
+}: {
+  dec: AgentStreamState["decision"];
+  stale: boolean;
+  revoked: boolean;
+}) {
+  let title: string;
+  let why: string;
+  let color: string;
+  let live: boolean;
+  if (revoked) {
+    title = "Operator grounded";
+    why = "The leash was pulled on chain. Past wins still redeem — no new trades.";
+    color = "#999999";
+    live = false;
+  } else if (!dec || stale) {
+    title = "Watching the market";
+    why = "Reading the tape every cycle — it acts only on a real edge.";
+    color = NAVY;
+    live = true;
+  } else if (dec.decided) {
+    const up = dec.direction === "up";
+    title = up ? "Trade approved — Buy" : "Trade approved — Sell";
+    why = dec.verdict ?? "Edge cleared the bar.";
+    color = up ? EMERALD : RED;
+    live = true;
+  } else {
+    title = "Capital protected";
+    why = dec.verdict ?? "No edge worth the risk this cycle — abstaining is a decision.";
+    color = EMERALD;
+    live = false;
+  }
+  return (
+    <div className="mx-auto mb-7 max-w-xl">
+      <div className="flex items-center gap-2">
+        <span
+          className={`h-2 w-2 rounded-full ${live ? "animate-pulse" : ""}`}
+          style={{ background: color }}
+          aria-hidden
+        />
+        <span className="font-mono text-[10px] uppercase tracking-[0.28em]" style={{ color }}>
+          {live ? "live" : revoked ? "grounded" : "decided"}
+        </span>
+      </div>
+      <p className="mt-2.5 font-sans text-[27px] font-medium leading-tight tracking-tight" style={{ color: INK }}>
+        {title}
+      </p>
+      <p className="mt-1.5 text-[14px] leading-relaxed" style={{ color: SUB }}>
+        {why}
+      </p>
+    </div>
+  );
+}
+
 // SpotPipeline — the Brief Operator's visible decision engine (gated-spot).
 //
 // Seven steps the user can watch execute, on real market data:
