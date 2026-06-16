@@ -492,22 +492,37 @@ function MarketState({
     signals.sma_15m != null && signals.sma_60m != null ? signals.sma_15m >= signals.sma_60m : roc >= 0;
   const a = Math.abs(roc);
   const flat = a < 0.0008;
-  const trend = flat
-    ? "Flat tape"
-    : `${a > 0.008 ? "Strongly " : a > 0.003 ? "" : "Weakly "}${aligned ? "bullish" : "bearish"}`;
-  const trendColor = flat ? SUB : aligned ? EMERALD : RED;
   const mom = momentumLabel(signals.rsi_60m).toLowerCase();
   const conf = dec ? `${Math.round(dec.conviction * 100)}%` : "—";
-  const reason = flat
-    ? `No trend to ride — momentum ${mom}.`
-    : `Trend present, momentum ${mom}.`;
+  // Lead with the operator's REGIME classification (its read of the market);
+  // fall back to a derived trend before the first decision lands.
+  const kind = dec?.regimeKind ?? null;
+  const headline =
+    dec?.regimeLabel ??
+    (flat ? "Flat tape" : `${a > 0.008 ? "Strongly " : a > 0.003 ? "" : "Weakly "}${aligned ? "bullish" : "bearish"}`);
+  const headlineColor =
+    kind === "trending-up" || kind === "breakout"
+      ? EMERALD
+      : kind === "trending-down"
+        ? RED
+        : kind === "mean-reversion"
+          ? AMBER
+          : kind === "range-bound"
+            ? SUB
+            : flat
+              ? SUB
+              : aligned
+                ? EMERALD
+                : RED;
+  const reason =
+    dec?.regimeReview ?? (flat ? `No trend to ride — momentum ${mom}.` : `Trend present, momentum ${mom}.`);
   return (
     <section className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
       <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
-        Market state
+        Market regime
       </p>
-      <p className="mt-2 font-sans text-[24px] font-medium tracking-tight" style={{ color: trendColor }}>
-        {trend}
+      <p className="mt-2 font-sans text-[24px] font-medium tracking-tight" style={{ color: headlineColor }}>
+        {headline}
       </p>
       <p className="mt-1 font-mono text-[13px] tabular-nums" style={{ color: SUB }}>
         {assetLabel} ${signals.spot.toFixed(3)} · momentum {mom}
@@ -910,6 +925,12 @@ function SpotPipeline({
   if (!dec) {
     steps.push({ key: "thinking", label: "Building thesis", body: deriveThesis(signals), pulse: true });
   } else {
+    if (dec.regimeLabel)
+      steps.push({
+        key: "regime",
+        label: "Regime",
+        body: dec.regimeReview || dec.regimeLabel,
+      });
     if (dec.recall) steps.push({ key: "recall", label: "Recalled", body: recallLine(dec.recall) });
     steps.push({ key: "thesis", label: "Thesis", body: dec.thesis ?? "—" });
     steps.push({ key: "counter", label: "Counterargument", body: dec.counterargument ?? "—" });

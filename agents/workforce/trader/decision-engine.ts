@@ -14,6 +14,7 @@
 // Move enforcement model changing at all: the chain still gates every trade.
 
 import type { SignalBundle } from "./signals.js";
+import type { Regime } from "./regime.js";
 
 export type OperatorMode = "protect" | "grow" | "aggressive";
 
@@ -91,6 +92,9 @@ export type OperatorDecision = {
   mode: OperatorMode;
   asset: string;
   spotUsd: number;
+  /** Market regime classification (the "understand first" step). */
+  regimeLabel: string;
+  regimeReview: string;
   /** The visible reasoning steps. */
   thesis: string;
   counterargument: string;
@@ -129,6 +133,9 @@ export function runDecisionEngine(args: {
   /** User-mandate check (drawdown guard). When breached, the operator stands
    *  down to honour the human's objective — a hard, non-negotiable stop. */
   mandate?: { review: string; breached: boolean };
+  /** Market regime — classified before deciding. A non-tradeable regime
+   *  (range-bound, mean-reversion) stands the operator aside. */
+  regime?: Regime;
   opts?: EngineOpts;
 }): OperatorDecision {
   const { asset, signals, spotUsd, mode, budgetUsedPct, opts } = args;
@@ -136,6 +143,10 @@ export function runDecisionEngine(args: {
   const budgetBlocked = !!args.budgetExhausted;
   const mandateBlocked = !!args.mandate?.breached;
   const mandateReview = args.mandate?.review ?? "";
+  const regime = args.regime;
+  const regimeBlocked = regime ? !regime.tradeable : false;
+  const regimeLabel = regime?.label ?? "—";
+  const regimeReview = regime ? `${regime.label} — ${regime.note}` : "";
 
   const roc30 = signals.roc_30m ?? 0;
   const roc5 = signals.roc_5m ?? 0;
@@ -211,26 +222,35 @@ export function runDecisionEngine(args: {
   // ── Decision ────────────────────────────────────────────────────────────
   const execOk = opts?.exec ? opts.exec.approved : true;
   const act =
-    confidence >= cfg.minConfidence && trending && execOk && !budgetBlocked && !mandateBlocked;
+    confidence >= cfg.minConfidence &&
+    trending &&
+    execOk &&
+    !budgetBlocked &&
+    !mandateBlocked &&
+    !regimeBlocked;
 
   const verdict = act
-    ? `Act ${direction.toUpperCase()} — ${(confidence * 100).toFixed(0)}% confidence clears the ${cfg.label} bar.`
+    ? `Act ${direction.toUpperCase()} — ${(confidence * 100).toFixed(0)}% confidence clears the ${cfg.label} bar in a ${regimeLabel.toLowerCase()} regime.`
     : mandateBlocked
       ? `Stand down — mandate drawdown guard tripped; honouring your risk limit.`
       : budgetBlocked
-      ? `Stand down — budget fully deployed; capital working, none at new risk.`
-      : !trending
-        ? `Stand down — flat tape, capital protected.`
-        : !execOk
-          ? `Stand down — execution conditions not met.`
-          : `Stand down — ${(confidence * 100).toFixed(0)}% confidence below the ${(
-              cfg.minConfidence * 100
-            ).toFixed(0)}% ${cfg.label} bar.`;
+        ? `Stand down — budget fully deployed; capital working, none at new risk.`
+        : regimeBlocked
+          ? `Stand down — ${regimeLabel.toLowerCase()} regime offers no directional edge; capital protected.`
+          : !trending
+            ? `Stand down — flat tape, capital protected.`
+            : !execOk
+              ? `Stand down — execution conditions not met.`
+              : `Stand down — ${(confidence * 100).toFixed(0)}% confidence below the ${(
+                  cfg.minConfidence * 100
+                ).toFixed(0)}% ${cfg.label} bar.`;
 
   return {
     mode,
     asset,
     spotUsd,
+    regimeLabel,
+    regimeReview,
     thesis,
     counterargument,
     riskReview,

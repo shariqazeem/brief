@@ -18,6 +18,8 @@ import { INK, SUB, MUTED, NAVY, EMERALD, RED, AMBER, BLUE, LINE } from "@/lib/ui
 import { loadLatestTraderIdentity } from "@/lib/workforce-client";
 
 type Detail = {
+  regimeLabel?: string;
+  regimeReview?: string;
   thesis?: string;
   counterargument?: string;
   riskReview?: string;
@@ -217,6 +219,13 @@ function FocusedDecision({
             {reg.vol < 0.008 ? "low" : reg.vol < 0.02 ? "moderate" : "high"} volatility
           </Sub>
         </Section>
+
+        {detail.regimeReview && (
+          <Section label="Regime read">
+            <Big>{detail.regimeLabel ?? "—"}</Big>
+            <Sub>{detail.regimeReview}</Sub>
+          </Section>
+        )}
 
         <Section label="What I remembered">
           {detail.recallFound && detail.recallFound > 0 ? (

@@ -117,6 +117,7 @@ import {
   type Mandate,
   type MandateEval,
 } from "./mandate.js";
+import { classifyRegime } from "./regime.js";
 
 const POLL_MS = 3000;
 const REDEEM_POLL_MS = 30_000;
@@ -2214,7 +2215,11 @@ async function runGatedOperator(
     ? { review: mandateEval.review, breached: mandateEval.breached }
     : undefined;
 
-  // Pass 1 — reason over signals + memory + mandate (no execution analysis yet).
+  // Understand the market FIRST: classify the regime, then decide. A
+  // non-tradeable regime (range-bound / mean-reversion) stands the op aside.
+  const marketRegime = classifyRegime(signals);
+
+  // Pass 1 — reason over regime + signals + memory + mandate (no exec yet).
   let eng = runDecisionEngine({
     asset: "SUI",
     signals,
@@ -2223,6 +2228,7 @@ async function runGatedOperator(
     budgetUsedPct: budget.pct,
     budgetExhausted,
     mandate: mandateArg,
+    regime: marketRegime,
     opts: { memory: { note: recall.note, confidenceMult: recall.confidenceMult } },
   });
 
@@ -2245,6 +2251,7 @@ async function runGatedOperator(
       budgetUsedPct: budget.pct,
       budgetExhausted,
       mandate: mandateArg,
+      regime: marketRegime,
       opts: {
         memory: { note: recall.note, confidenceMult: recall.confidenceMult },
         exec: { note: execA.note, approved: execA.approved },
@@ -2269,6 +2276,10 @@ async function runGatedOperator(
       market_p: null,
       // the visible decision-engine pipeline
       mode,
+      regime: marketRegime.kind,
+      regime_label: eng.regimeLabel,
+      regime_review: eng.regimeReview,
+      regime_tradeable: marketRegime.tradeable,
       thesis: eng.thesis,
       counterargument: eng.counterargument,
       risk_review: eng.riskReview,
@@ -2324,6 +2335,8 @@ async function runGatedOperator(
     outcome: eng.act ? "pending" : "abstained",
     // Full replayable story (Brain / Decision Replay page).
     detail: {
+      regimeLabel: eng.regimeLabel,
+      regimeReview: eng.regimeReview,
       thesis: eng.thesis,
       counterargument: eng.counterargument,
       riskReview: eng.riskReview,

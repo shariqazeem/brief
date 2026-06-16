@@ -64,6 +64,11 @@ export type StreamDecision = {
   executionReview: string | null;
   verdict: string | null;
   aiReasoned: boolean;
+  // Market regime — classified before deciding.
+  regimeKind: string | null;
+  regimeLabel: string | null;
+  regimeReview: string | null;
+  regimeTradeable: boolean;
   // Live portfolio mark — what the capital is worth right now.
   portfolio: {
     value: number;
@@ -285,6 +290,10 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         executionReview: str(d.execution_review),
         verdict: str(d.verdict),
         aiReasoned: d.ai_reasoned === true,
+        regimeKind: str(d.regime),
+        regimeLabel: str(d.regime_label),
+        regimeReview: str(d.regime_review),
+        regimeTradeable: d.regime_tradeable !== false,
         portfolio: (() => {
           const p = d.portfolio as Record<string, unknown> | undefined;
           if (!p || typeof p !== "object") return null;

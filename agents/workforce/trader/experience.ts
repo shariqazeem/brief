@@ -35,6 +35,8 @@ export type DecisionOutcome = "win" | "loss" | "abstained" | "pending";
 /** The full, replayable story of one decision — what the operator saw,
  *  remembered, feared, and concluded. Drives the Brain / Decision Replay page. */
 export type ExperienceDetail = {
+  regimeLabel?: string;
+  regimeReview?: string;
   thesis: string;
   counterargument: string;
   riskReview: string;
