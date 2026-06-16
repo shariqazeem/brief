@@ -481,10 +481,9 @@ function takePreselectedStrategy(): StrategyId | null {
   }
 }
 
-// Live signal chip per personality — the real number each strategy acts
-// on, from /api/trader/signals. Cold feed → honest "warming up". Quant
-// reads the on-chain SVI surface (no scalar in this feed) so it shows a
-// descriptive chip rather than a fabricated number.
+// Live signal read per mode — the real SUI market the operator trades,
+// from /api/trader/signals?asset=SUI. Cold feed → honest "warming up".
+// Shown as a qualitative "would act / would hold" hint, never a raw number.
 type DisconnectedSignals = {
   spot: number | null;
   roc30: number | null;
@@ -508,7 +507,7 @@ function useDisconnectedSignals(): DisconnectedSignals {
     let timer: ReturnType<typeof setTimeout> | null = null;
     async function tick() {
       try {
-        const r = await fetch(apiUrl("/api/trader/signals?asset=BTC&minutes=60"));
+        const r = await fetch(apiUrl("/api/trader/signals?asset=SUI&minutes=60"));
         if (r.ok) {
           const j = (await r.json()) as {
             latest?: {
@@ -545,7 +544,7 @@ function useDisconnectedSignals(): DisconnectedSignals {
 }
 
 // What this operator would *likely* do right now, read live from the
-// public BTC signals feed. It's a hint (conditional phrasing in the UI),
+// public SUI signals feed. It's a hint (conditional phrasing in the UI),
 // not a promise — emerald = would act, amber = would preserve capital,
 // gray = still reading the tape. Mirrors each strategy's real gate.
 type OperatorStatus = "act" | "preserve" | "idle";

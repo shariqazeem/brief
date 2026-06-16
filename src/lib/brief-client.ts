@@ -46,6 +46,22 @@ export const BRIEF_TRADER_ADDRESS = (
 ).trim();
 
 /**
+ * Map a raw RSI (0–100) to a qualitative momentum word for primary UI.
+ * Apple-rule: never show ugly internals first. The exact RSI lives only in
+ * expanded "raw signals" details; everywhere else the operator speaks in words.
+ */
+export function momentumLabel(rsi: number | null | undefined): string {
+  if (rsi == null || !Number.isFinite(rsi)) return "—";
+  if (rsi >= 85) return "Extreme";
+  if (rsi >= 70) return "Overextended";
+  if (rsi >= 58) return "Firm";
+  if (rsi >= 42) return "Neutral";
+  if (rsi >= 30) return "Soft";
+  if (rsi >= 15) return "Oversold";
+  return "Washed out";
+}
+
+/**
  * Sui Explorer URL. suiexplorer.com was retired in 2025; we use suiscan.xyz
  * which is the Mysten-recommended replacement. The legacy "txblock" name is
  * preserved on this helper's API for back-compat — suiscan calls it "tx".

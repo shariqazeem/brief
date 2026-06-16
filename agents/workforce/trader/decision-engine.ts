@@ -168,11 +168,9 @@ export function runDecisionEngine(args: {
       roc30,
     )} sits inside the ±${pct(cfg.rocFloor)} band. No trend to ride.`;
   } else if (direction === "up" && rsi > cfg.rsiCeiling) {
-    counterargument = `RSI ${rsi.toFixed(0)} is elevated (> ${cfg.rsiCeiling}) — exhaustion risk on a long.`;
+    counterargument = `Momentum is overextended — exhaustion risk on a long.`;
   } else if (direction === "down" && rsi < 100 - cfg.rsiCeiling) {
-    counterargument = `RSI ${rsi.toFixed(0)} is depressed (< ${
-      100 - cfg.rsiCeiling
-    }) — snap-back risk on a short.`;
+    counterargument = `Momentum is deeply oversold — snap-back risk on a short.`;
   } else {
     counterargument = `No strong counter-signal — ${
       direction === "up" ? "momentum" : "weakness"

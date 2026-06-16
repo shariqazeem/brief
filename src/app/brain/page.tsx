@@ -12,7 +12,7 @@ import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { apiUrl } from "@/lib/api-base";
-import { explorerUrl } from "@/lib/brief-client";
+import { explorerUrl, momentumLabel } from "@/lib/brief-client";
 import { loadLatestTraderIdentity } from "@/lib/workforce-client";
 
 const INK = "#111111";
@@ -225,9 +225,10 @@ function DecisionCard({
         <div className="space-y-3 border-t px-4 py-4" style={{ borderColor: "#F0F0F0" }}>
           <Row label="What I saw">
             <span className="font-mono text-[12px] tabular-nums" style={{ color: INK }}>
-              ${d.mid.toFixed(3)} · ROC {(d.regime.roc30 * 100).toFixed(2)}% · RSI {d.regime.rsi.toFixed(0)} ·{" "}
-              {d.regime.trend > 0 ? "trend up" : d.regime.trend < 0 ? "trend down" : "trend flat"} · vol{" "}
-              {(d.regime.vol * 100).toFixed(2)}%
+              ${d.mid.toFixed(3)} ·{" "}
+              {d.regime.trend > 0 ? "trending up" : d.regime.trend < 0 ? "trending down" : "flat"} · momentum{" "}
+              {momentumLabel(d.regime.rsi).toLowerCase()} ·{" "}
+              {d.regime.vol < 0.008 ? "low" : d.regime.vol < 0.02 ? "moderate" : "high"} volatility
             </span>
           </Row>
           {d.detail?.recallNote && (

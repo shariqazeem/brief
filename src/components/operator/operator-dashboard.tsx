@@ -18,7 +18,7 @@ import nextDynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-import { explorerUrl, BRIEF_NETWORK } from "@/lib/brief-client";
+import { explorerUrl, BRIEF_NETWORK, momentumLabel } from "@/lib/brief-client";
 import {
   useOperatorJournal,
   type JournalDecision,
@@ -157,8 +157,7 @@ function deriveThesis(s: StreamSignals | null): string {
     parts.push(`Momentum ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% (30m)`);
   }
   if (s.rsi_60m != null) {
-    const z = s.rsi_60m > 70 ? "overbought" : s.rsi_60m < 30 ? "oversold" : "neutral";
-    parts.push(`RSI ${s.rsi_60m.toFixed(0)} ${z}`);
+    parts.push(`Momentum ${momentumLabel(s.rsi_60m).toLowerCase()}`);
   }
   if (s.sma_15m != null && s.sma_60m != null) {
     parts.push(s.sma_15m >= s.sma_60m ? "trend aligned up" : "trend aligned down");
@@ -1394,7 +1393,7 @@ function settlementHeadline(e: JournalDecision): string {
       return `Acted ${dir}. Awaiting settlement.`;
     case "preserved":
       return e.swingPct != null
-        ? `Preserved capital. BTC swung ${e.swingPct.toFixed(1)}% — volatility it sat out.`
+        ? `Preserved capital. The market swung ${e.swingPct.toFixed(1)}% — volatility it sat out.`
         : "Preserved capital. No edge worth the risk.";
     case "executed":
       return `Acted ${dir}${e.mode === "live" ? " · live on chain" : ""}.`;
@@ -1583,7 +1582,7 @@ function BottomStrip({ entries }: { entries: JournalDecision[] }) {
         {last.map((e, i) => (
           <span
             key={`${e.task_id}-${i}`}
-            title={`${(e.oracle_id ? "BTC" : e.direction ? "BTC" : "BTC")} · ${e.abstained ? "preserved" : (e.direction ?? "").toUpperCase()} · ${e.settlement}`}
+            title={`${e.oracle_id ? "BTC" : "SUI"} · ${e.abstained ? "preserved" : (e.direction ?? "").toUpperCase()} · ${e.settlement}`}
             className="inline-block h-2 w-2 rounded-full"
             style={{ background: settlementColor(e.settlement) }}
             aria-hidden
