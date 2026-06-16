@@ -69,6 +69,22 @@ export type StreamDecision = {
   regimeLabel: string | null;
   regimeReview: string | null;
   regimeTradeable: boolean;
+  // Allocation — the capital-manager view: where money should live vs where it is.
+  allocation: string | null;
+  targetExposurePct: number | null;
+  currentExposurePct: number | null;
+  rebalance: "buy" | "sell" | "hold" | null;
+  // Playbook — the operator's learned procedure for the current regime.
+  playbook: {
+    label: string;
+    occurrences: number;
+    acts: number;
+    stoodAside: number;
+    winRate: number | null;
+    bestAction: "act" | "stand-aside" | "insufficient";
+    preferredExposurePct: number | null;
+    note: string;
+  } | null;
   // Live portfolio mark — what the capital is worth right now.
   portfolio: {
     value: number;
@@ -294,6 +310,25 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         regimeLabel: str(d.regime_label),
         regimeReview: str(d.regime_review),
         regimeTradeable: d.regime_tradeable !== false,
+        allocation: str(d.allocation),
+        targetExposurePct: num(d.target_exposure_pct),
+        currentExposurePct: num(d.current_exposure_pct),
+        rebalance: (str(d.rebalance) as "buy" | "sell" | "hold" | null) ?? null,
+        playbook: (() => {
+          const p = d.playbook as Record<string, unknown> | undefined;
+          if (!p || typeof p !== "object") return null;
+          return {
+            label: str(p.label) ?? "",
+            occurrences: num(p.occurrences) ?? 0,
+            acts: num(p.acts) ?? 0,
+            stoodAside: num(p.stood_aside) ?? 0,
+            winRate: num(p.win_rate),
+            bestAction:
+              (str(p.best_action) as "act" | "stand-aside" | "insufficient") ?? "insufficient",
+            preferredExposurePct: num(p.preferred_exposure_pct),
+            note: str(p.note) ?? "",
+          };
+        })(),
         portfolio: (() => {
           const p = d.portfolio as Record<string, unknown> | undefined;
           if (!p || typeof p !== "object") return null;

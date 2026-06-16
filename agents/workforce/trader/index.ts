@@ -102,6 +102,7 @@ import {
   experienceMarkdown,
   loadExperience,
   nextSeq,
+  playbookFor,
   recallSimilar,
   regimeOf,
   saveExperience,
@@ -2188,13 +2189,19 @@ async function runGatedOperator(
   const mandate: Mandate | null = normalizeMandate(e.mandate);
   let mandateEval: MandateEval | null = null;
   let portfolio: { value: number; deposit: number; pnlPct: number } | null = null;
+  // Where capital currently LIVES — the allocator's starting point. Exposure is
+  // SUI value as a fraction of total capital (0–1); defaults to all-cash (0) on
+  // a read failure, a safe no-op assumption.
+  let currentExposure = 0;
   try {
     const mc = gatedCoinTypes(e.network);
     const [qBal, bBal] = await Promise.all([
       readBmAssetBalance(ctx, e.bmId, mc.quote),
       readBmAssetBalance(ctx, e.bmId, mc.base),
     ]);
-    const currentValue = Number(qBal) / 1e6 + (Number(bBal) / 1e9) * midUsd;
+    const suiValue = (Number(bBal) / 1e9) * midUsd;
+    const currentValue = Number(qBal) / 1e6 + suiValue;
+    currentExposure = currentValue > 0 ? suiValue / currentValue : 0;
     const deposit = budget.cap > 0 ? Number(budget.cap) / 1e6 : currentValue;
     portfolio = {
       value: currentValue,
@@ -2232,14 +2239,30 @@ async function runGatedOperator(
     opts: { memory: { note: recall.note, confidenceMult: recall.confidenceMult } },
   });
 
-  // ---- EXECUTION ANALYSIS: only when the operator would act, simulate the
-  // real order against the live DeepBook book (slippage / depth / DEEP fee).
-  // A thin book or excessive slippage can VETO the trade. Pass 2 folds it in.
-  if (eng.act) {
+  // ---- ALLOCATOR: think in ALLOCATIONS, not trades. Compare where capital
+  // currently lives (currentExposure) to where the thesis wants it
+  // (eng.targetExposurePct), and only move when the gap clears a band. This is
+  // what turns "tried to sell but had nothing" into "already in cash — no
+  // action required": a real capital manager, not a trade firehose.
+  const REBALANCE_BAND = 0.15; // ignore drift under 15 pts — avoids churn
+  const rebalanceSideFor = (d: typeof eng): Direction | null => {
+    if (d.targetExposurePct == null) return null; // no confident view → hold
+    const gap = d.targetExposurePct / 100 - currentExposure;
+    if (gap > REBALANCE_BAND) return "up"; // under-allocated → buy SUI
+    if (gap < -REBALANCE_BAND) return "down"; // over-allocated → sell SUI
+    return null; // already within the target band → hold
+  };
+  let rebalanceSide = rebalanceSideFor(eng);
+
+  // ---- EXECUTION ANALYSIS: only when a rebalance is actually needed, simulate
+  // the real order against the live DeepBook book (slippage / depth / DEEP fee).
+  // A thin book or excessive slippage can VETO it. Pass 2 folds it in, then we
+  // re-derive the rebalance (an exec veto cancels the move).
+  if (rebalanceSide) {
     const execA = await readSpotExecution(
       ctx,
       getMarket("SUI"),
-      eng.direction === "up" ? "buy" : "sell",
+      rebalanceSide === "up" ? "buy" : "sell",
       GATED_BASE_QTY,
       midUsd,
     );
@@ -2257,8 +2280,17 @@ async function runGatedOperator(
         exec: { note: execA.note, approved: execA.approved },
       },
     });
+    rebalanceSide = rebalanceSideFor(eng);
   }
-  const direction: Direction = eng.direction;
+  const willRebalance = rebalanceSide != null;
+  // `direction` carries the actual money move when rebalancing, else the lean.
+  const direction: Direction = rebalanceSide ?? eng.direction;
+  const curExposurePct = Math.round(currentExposure * 100);
+
+  // ---- PLAYBOOK: the operator's learned procedure for THIS regime (real,
+  // aggregated from settled outcomes — memory as an operating procedure).
+  const playbook = playbookFor(experience, marketRegime.kind);
+
   const reasoning = `${eng.thesis} ${eng.counterargument} → ${eng.verdict}`;
 
   emitAgentEvent("decision", {
@@ -2267,9 +2299,9 @@ async function runGatedOperator(
     asset: "SUI",
     data: {
       strategy: mode,
-      decided: eng.act,
+      decided: willRebalance,
       direction,
-      quantity: eng.act ? GATED_BASE_QTY : 0,
+      quantity: willRebalance ? GATED_BASE_QTY : 0,
       conviction: eng.confidence,
       reasoning,
       spot_usd: midUsd,
@@ -2288,6 +2320,22 @@ async function runGatedOperator(
       execution_review: eng.executionReview,
       verdict: eng.verdict,
       ai_reasoned: eng.aiReasoned,
+      // capital-manager view — what the money should be doing, vs where it is
+      allocation: eng.allocation,
+      target_exposure_pct: eng.targetExposurePct,
+      current_exposure_pct: curExposurePct,
+      rebalance: willRebalance ? (direction === "up" ? "buy" : "sell") : "hold",
+      // playbook — the operator's learned procedure for this regime
+      playbook: {
+        label: playbook.label,
+        occurrences: playbook.occurrences,
+        acts: playbook.acts,
+        stood_aside: playbook.stoodAside,
+        win_rate: playbook.winRate,
+        best_action: playbook.bestAction,
+        preferred_exposure_pct: playbook.preferredExposurePct,
+        note: playbook.note,
+      },
       // live portfolio mark — "how much money do I have right now"
       portfolio: portfolio
         ? {
@@ -2328,11 +2376,13 @@ async function runGatedOperator(
     taskId,
     seq: nextSeq(experience),
     regime,
+    regimeKind: marketRegime.kind,
     direction,
-    decided: eng.act,
+    decided: willRebalance,
+    targetExposurePct: eng.targetExposurePct,
     confidence: eng.confidence,
     mid: midUsd,
-    outcome: eng.act ? "pending" : "abstained",
+    outcome: willRebalance ? "pending" : "abstained",
     // Full replayable story (Brain / Decision Replay page).
     detail: {
       regimeLabel: eng.regimeLabel,
@@ -2357,19 +2407,25 @@ async function runGatedOperator(
   // verifiable — not just claimed.
   await maybePublishExperience(ctx, e, experience, taskId, matured.settled > 0);
 
-  // Abstained — capital preserved, no trade. A first-class outcome (the
-  // dashboard frames it as a win, not an absence).
-  if (!eng.act) {
+  // Held — already where it wants to be, or no confident edge. A first-class
+  // outcome: capital is positioned, none at NEW risk. The reason is stated in
+  // allocation terms ("Bearish — already in cash") so the user never has to
+  // reconcile "found an edge" with "no order placed".
+  if (!willRebalance) {
+    const aligned =
+      eng.targetExposurePct != null
+        ? ` Portfolio already at ${curExposurePct}% SUI, within the target band — no rebalance needed.`
+        : "";
     emitAgentEvent("mode", {
       policyId: e.policyId,
       taskId,
       asset: "SUI",
-      data: { mode: "simulated", sim_reason: eng.verdict },
+      data: { mode: "simulated", sim_reason: `${eng.allocation}${aligned}` },
     });
     return;
   }
 
-  // Decision to act — verify the BM can actually execute before firing.
+  // Rebalance required — verify the BM can actually execute before firing.
   const coins = gatedCoinTypes(e.network);
   const isBid = direction === "up";
 

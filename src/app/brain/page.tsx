@@ -44,6 +44,8 @@ type Decision = {
   mid: number;
   outcome: "win" | "loss" | "abstained" | "pending";
   outcomePct?: number;
+  /** Target SUI allocation at decision time (0–100), if it set one. */
+  targetExposurePct?: number | null;
   detail?: Detail;
 };
 
@@ -262,11 +264,16 @@ function FocusedDecision({
 
         <Section label="Decision">
           <p className="font-mono text-[26px] font-medium tracking-tight" style={{ color: verdictColor }}>
-            {act ? `${up ? "BUY ▲" : "SELL ▼"}` : "NO TRADE"}
+            {act ? `${up ? "ADD TO SUI ▲" : "TRIM SUI ▼"}` : "HOLD"}
             <span className="ml-3 font-sans text-[14px] font-normal" style={{ color: SUB }}>
               {(d.confidence * 100).toFixed(0)}% confidence
             </span>
           </p>
+          {d.targetExposurePct != null && (
+            <Sub>
+              Target allocation: {d.targetExposurePct}% SUI · {100 - d.targetExposurePct}% cash
+            </Sub>
+          )}
           {detail.verdict && <Sub>{detail.verdict}</Sub>}
         </Section>
 

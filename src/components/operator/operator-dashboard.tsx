@@ -160,6 +160,52 @@ function deriveThesis(s: StreamSignals | null): string {
   return parts.length ? `${parts.join(". ")}.` : "Reading the tape…";
 }
 
+// The hero statement, in ALLOCATION terms — never "found an edge → selling"
+// followed by "no order placed". A capital manager states where the money is
+// and where it's going: "Bearish outlook. Holding cash." / "Adding to SUI."
+function allocationHeadline(dec: NonNullable<AgentStreamState["decision"]>): string {
+  const cur = dec.currentExposurePct ?? 0;
+  const tgt = dec.targetExposurePct;
+  if (dec.decided && dec.rebalance === "buy") {
+    return `Adding to SUI — moving toward ${tgt ?? cur}% exposure.`;
+  }
+  if (dec.decided && dec.rebalance === "sell") {
+    return `Reducing risk — trimming SUI toward ${tgt ?? 0}%.`;
+  }
+  // Holding — state the outlook and where capital sits, no contradiction.
+  const outlook = tgt == null ? "No clear edge" : tgt === 0 ? "Bearish outlook" : "Bullish outlook";
+  const where = cur < 5 ? "Holding cash." : `Holding ${cur}% in SUI.`;
+  return `${outlook}. ${where}`;
+}
+
+// The operator's learned procedure for a regime — memory as an operating
+// procedure, not "found 3 similar situations".
+function playbookLine(pb: NonNullable<AgentStreamState["decision"]>["playbook"]): string {
+  if (!pb || pb.occurrences === 0) return "First time in this regime — recording it.";
+  const best =
+    pb.bestAction === "act" ? "act" : pb.bestAction === "stand-aside" ? "stand aside" : "build the record";
+  const wr = pb.winRate != null ? ` · ${Math.round(pb.winRate)}% win rate` : "";
+  return `${pb.label} · seen ${pb.occurrences}× · best play: ${best}${wr}`;
+}
+
+// The allocation step in the timeline — target vs current → the action.
+function allocationBeat(dec: NonNullable<AgentStreamState["decision"]>): string {
+  const cur = dec.currentExposurePct ?? 0;
+  const tgt = dec.targetExposurePct;
+  if (tgt == null) return `Currently ${cur}% SUI · no confident target — hold.`;
+  if (dec.rebalance === "buy") return `Target ${tgt}% SUI · currently ${cur}% → buy toward ${tgt}%.`;
+  if (dec.rebalance === "sell") return `Target ${tgt}% SUI · currently ${cur}% → trim toward ${tgt}%.`;
+  return `Target ${tgt}% SUI · currently ${cur}% — within band, hold.`;
+}
+
+// The result line when the operator holds — allocation terms, no "stood down".
+function holdResult(dec: NonNullable<AgentStreamState["decision"]>): string {
+  const cur = dec.currentExposurePct ?? 0;
+  if (dec.targetExposurePct != null)
+    return `Already aligned — ${cur}% SUI, within target. No rebalance needed.`;
+  return "No confident edge — capital positioned, none at new risk.";
+}
+
 function relTime(ms: number, now: number): string {
   const d = Math.max(0, now - ms);
   const s = Math.floor(d / 1000);
@@ -359,9 +405,14 @@ function OperatorHero({
       ? "Reading the market — its first decision lands shortly."
       : dec.mandate?.breached
         ? "Mandate guard tripped — standing down to honour your limit."
-        : dec.decided
-          ? `Found an edge — ${dec.direction === "up" ? "buying" : "selling"} SUI.`
-          : "No edge worth the risk — capital protected.";
+        : allocationHeadline(dec);
+  // The allocation sub-line — "what your money is doing" in one tabular glance.
+  const curEx = dec?.currentExposurePct ?? null;
+  const tgtEx = dec?.targetExposurePct ?? null;
+  const allocSub =
+    dec && !revoked && curEx != null
+      ? `${curEx}% SUI · ${100 - curEx}% cash${tgtEx != null ? ` · target ${tgtEx}% SUI` : ""}`
+      : null;
   const lastWhen = stream.lastEventTs ? relTime(stream.lastEventTs, now) : "—";
   const conf = dec ? `${Math.round(dec.conviction * 100)}%` : "—";
   const m = dec?.mandate ?? null;
@@ -395,13 +446,18 @@ function OperatorHero({
         </span>
       </div>
       <p
-        className="mt-4 font-sans text-[23px] font-medium leading-snug tracking-tight sm:text-[27px]"
+        className="mt-4 font-sans text-[27px] font-medium leading-[1.15] tracking-tight sm:text-[34px]"
         style={{ color: INK }}
       >
         {heroLine}
       </p>
+      {allocSub && (
+        <p className="mt-2.5 font-mono text-[12px] tabular-nums" style={{ color: SUB }}>
+          {allocSub}
+        </p>
+      )}
       <div
-        className="mt-5 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-4"
+        className="mt-6 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-4"
         style={{ background: "#E5E5EA" }}
       >
         <HeroStat label="Last decision" value={lastWhen} />
@@ -429,7 +485,8 @@ function HeroStat({ label, value, color = INK }: { label: string; value: string;
 // Operator Capital — the FIRST thing a user (and judge) wants: how much money
 // is it managing right now, and is it up or down. Marked to market live.
 function CapitalCard({ stream, bv }: { stream: AgentStreamState; bv: { cap: number; spent: number; unit: string } }) {
-  const p = stream.decision?.portfolio ?? null;
+  const dec = stream.decision;
+  const p = dec?.portfolio ?? null;
   const value = p?.value ?? bv.cap;
   const deposit = p?.deposit ?? bv.cap;
   const pnl = value - deposit;
@@ -437,6 +494,9 @@ function CapitalCard({ stream, bv }: { stream: AgentStreamState; bv: { cap: numb
   const budgetRem = p?.budgetRemainingPct ?? (bv.cap > 0 ? Math.max(0, 100 - (bv.spent / bv.cap) * 100) : 100);
   const flat = Math.abs(pnl) < 0.005;
   const pnlColor = flat ? SUB : pnl > 0 ? EMERALD : RED;
+  // Where the money LIVES right now — the allocation split (SUI vs cash).
+  const suiPct = dec?.currentExposurePct ?? null;
+  const tgtPct = dec?.targetExposurePct ?? null;
   return (
     <section
       className="bg-bg-elev px-6 py-7 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9 sm:py-8"
@@ -458,7 +518,23 @@ function CapitalCard({ stream, bv }: { stream: AgentStreamState; bv: { cap: numb
         {!flat && ` · ${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(1)}%`}
         <span className="ml-1" style={{ color: SUB }}>vs deposit</span>
       </p>
-      <div className="mt-5">
+      {suiPct != null && (
+        <div className="mt-5">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="font-mono text-[9px] uppercase tracking-[0.16em]" style={{ color: SUB }}>
+              Allocation
+            </span>
+            <span className="font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
+              {suiPct}% SUI · {100 - suiPct}% cash
+              {tgtPct != null && tgtPct !== suiPct ? ` → ${tgtPct}%` : ""}
+            </span>
+          </div>
+          <div className="flex h-1.5 w-full overflow-hidden rounded-full" style={{ background: "#E5E5EA" }}>
+            <div className="h-full transition-[width] duration-500" style={{ width: `${suiPct}%`, background: NAVY }} />
+          </div>
+        </div>
+      )}
+      <div className="mt-4">
         <div className="mb-1 flex items-center justify-between">
           <span className="font-mono text-[9px] uppercase tracking-[0.16em]" style={{ color: SUB }}>
             Budget remaining
@@ -530,6 +606,13 @@ function MarketState({
       <p className="mt-3 text-[13px] leading-relaxed" style={{ color: SUB }}>
         <span style={{ color: INK }}>Confidence to act {conf}</span> — {reason}
       </p>
+      {dec?.playbook && dec.playbook.occurrences > 0 && (
+        <p className="mt-2 font-mono text-[11.5px] tabular-nums" style={{ color: SUB }}>
+          <span style={{ color: NAVY }}>Playbook</span> · seen {dec.playbook.occurrences}× here · best play:{" "}
+          {dec.playbook.bestAction === "act" ? "act" : "stand aside"}
+          {dec.playbook.winRate != null ? ` · ${Math.round(dec.playbook.winRate)}% win` : ""}
+        </p>
+      )}
     </section>
   );
 }
@@ -931,13 +1014,21 @@ function SpotPipeline({
         label: "Regime",
         body: dec.regimeReview || dec.regimeLabel,
       });
-    if (dec.recall) steps.push({ key: "recall", label: "Recalled", body: recallLine(dec.recall) });
+    if (dec.playbook)
+      steps.push({ key: "playbook", label: "Recalled playbook", body: playbookLine(dec.playbook) });
+    else if (dec.recall)
+      steps.push({ key: "recall", label: "Recalled", body: recallLine(dec.recall) });
     steps.push({ key: "thesis", label: "Thesis", body: dec.thesis ?? "—" });
     steps.push({ key: "counter", label: "Counterargument", body: dec.counterargument ?? "—" });
     steps.push({
       key: "risk",
       label: "Risk review",
       body: <span className="font-mono text-[12px]" style={{ color: SUB }}>{dec.riskReview}</span>,
+    });
+    steps.push({
+      key: "allocation",
+      label: "Target allocation",
+      body: <span className="font-mono text-[12px]" style={{ color: SUB }}>{allocationBeat(dec)}</span>,
     });
     if (act)
       steps.push({
@@ -957,10 +1048,10 @@ function SpotPipeline({
       emphasis: true,
       body: (
         <span>
-          <span style={{ color: decTone }}>{act ? (up ? "BUY ▲" : "SELL ▼") : "NO TRADE"}</span>
-          {dec.verdict && (
+          <span style={{ color: decTone }}>{act ? (up ? "ADD TO SUI ▲" : "TRIM SUI ▼") : "HOLD"}</span>
+          {dec.allocation && (
             <span className="ml-2 font-sans text-[13px] font-normal" style={{ color: SUB }}>
-              {dec.verdict}
+              {dec.allocation}
             </span>
           )}
         </span>
@@ -973,7 +1064,7 @@ function SpotPipeline({
       emphasis: true,
       body: !act ? (
         <span className="font-sans text-[14px] font-medium" style={{ color: EMERALD }}>
-          Capital protected — DeepBook untouched.
+          {holdResult(dec)}
         </span>
       ) : chainReached ? (
         <ChainBlock stream={stream} isSpot />

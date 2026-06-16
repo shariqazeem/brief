@@ -18,6 +18,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
 import type { SignalBundle } from "./signals.js";
+import type { RegimeKind } from "./regime.js";
 
 export type RegimeFingerprint = {
   /** 30m rate of change (signed fraction). */
@@ -57,9 +58,13 @@ export type ExperienceRecord = {
   /** Monotonic decision number (1-based) for stable "Decision #N" references. */
   seq?: number;
   regime: RegimeFingerprint;
+  /** Classified regime kind (the playbook key). Older records may omit it. */
+  regimeKind?: RegimeKind;
   direction: "up" | "down";
   /** Whether the operator acted (true) or abstained (false). */
   decided: boolean;
+  /** Target SUI allocation at decision time (0–100), if it set one. */
+  targetExposurePct?: number | null;
   /** Confidence at decision time (0–1). */
   confidence: number;
   /** Spot mid at decision. */
@@ -112,6 +117,108 @@ export function experienceStats(recs: ExperienceRecord[], block = 10): Experienc
     recentWinRate: recent.length >= 3 ? rate(recent) : null,
     priorWinRate: prior.length >= 3 ? rate(prior) : null,
   };
+}
+
+// ── Playbooks — experience aggregated BY regime ──────────────────────────────
+// Memory becomes an operating procedure: "in a Breakout-down regime I've stood
+// aside 12 of 17 times; the 5 acts went 3W/2L." The operator isn't just
+// remembering — it has a learned policy per regime, surfaced to the user and
+// fed alongside the live decision. Every number is real, derived from settled
+// outcomes; nothing is fabricated.
+
+export type PlaybookAction = "act" | "stand-aside" | "insufficient";
+
+export type Playbook = {
+  kind: RegimeKind;
+  label: string;
+  /** Total decisions recorded in this regime. */
+  occurrences: number;
+  /** Times it moved money vs held. */
+  acts: number;
+  stoodAside: number;
+  /** Settled directional outcomes among the acts. */
+  wins: number;
+  losses: number;
+  /** Win rate over settled acts (0–100), or null if none settled. */
+  winRate: number | null;
+  /** Median target SUI exposure when it acted (0–100), or null. */
+  preferredExposurePct: number | null;
+  /** Learned best play given the record (defaults to stand-aside under thin data). */
+  bestAction: PlaybookAction;
+  /** One-line, human, e.g. "Seen 17× · stood aside 12 · acted 5 (3W/2L, 60%)". */
+  note: string;
+};
+
+const REGIME_LABEL: Record<RegimeKind, string> = {
+  "trending-up": "Trending up",
+  "trending-down": "Trending down",
+  breakout: "Breakout",
+  "range-bound": "Range-bound",
+  "mean-reversion": "Mean-reversion",
+};
+
+function median(xs: number[]): number | null {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+}
+
+/** Aggregate a record list into one playbook for a regime kind. */
+export function playbookFor(recs: ExperienceRecord[], kind: RegimeKind): Playbook {
+  const inReg = recs.filter((r) => r.regimeKind === kind);
+  const acts = inReg.filter((r) => r.decided);
+  const stoodAside = inReg.length - acts.length;
+  const settled = acts.filter((r) => r.outcome === "win" || r.outcome === "loss");
+  const wins = settled.filter((r) => r.outcome === "win").length;
+  const losses = settled.length - wins;
+  const winRate = settled.length ? (wins / settled.length) * 100 : null;
+  const preferredExposurePct = median(
+    acts
+      .map((r) => r.targetExposurePct)
+      .filter((x): x is number => x != null && Number.isFinite(x)),
+  );
+
+  // Best play: only call "act" when there's settled evidence it pays; otherwise
+  // the safe default is to stand aside (honest under thin data).
+  let bestAction: PlaybookAction;
+  if (settled.length < 3) bestAction = inReg.length ? "stand-aside" : "insufficient";
+  else if (winRate != null && winRate >= 55) bestAction = "act";
+  else bestAction = "stand-aside";
+
+  const settledNote = settled.length ? ` (${wins}W/${losses}L, ${Math.round(winRate ?? 0)}%)` : "";
+  const note = inReg.length
+    ? `Seen ${inReg.length}× · stood aside ${stoodAside} · acted ${acts.length}${settledNote}.`
+    : "No experience in this regime yet — this cycle starts the record.";
+
+  return {
+    kind,
+    label: REGIME_LABEL[kind],
+    occurrences: inReg.length,
+    acts: acts.length,
+    stoodAside,
+    wins,
+    losses,
+    winRate,
+    preferredExposurePct,
+    bestAction,
+    note,
+  };
+}
+
+/** All non-empty playbooks, most-seen first — the operator's full procedure set. */
+export function buildPlaybooks(recs: ExperienceRecord[]): Playbook[] {
+  const kinds: RegimeKind[] = [
+    "trending-up",
+    "trending-down",
+    "breakout",
+    "range-bound",
+    "mean-reversion",
+  ];
+  return kinds
+    .map((k) => playbookFor(recs, k))
+    .filter((p) => p.occurrences > 0)
+    .sort((a, b) => b.occurrences - a.occurrences);
 }
 
 export type Recall = {

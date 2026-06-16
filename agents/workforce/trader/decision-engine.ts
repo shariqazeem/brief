@@ -27,6 +27,8 @@ export type ModeConfig = {
   rocFloor: number;
   /** Avoid longs above / shorts below this RSI (exhaustion guard). */
   rsiCeiling: number;
+  /** Max fraction of capital this mode will allocate to SUI (risk appetite). */
+  maxExposure: number;
 };
 
 export const MODE_CFG: Record<OperatorMode, ModeConfig> = {
@@ -36,6 +38,7 @@ export const MODE_CFG: Record<OperatorMode, ModeConfig> = {
     minConfidence: 0.66,
     rocFloor: 0.004,
     rsiCeiling: 64,
+    maxExposure: 0.3,
   },
   grow: {
     label: "Grow",
@@ -43,6 +46,7 @@ export const MODE_CFG: Record<OperatorMode, ModeConfig> = {
     minConfidence: 0.5,
     rocFloor: 0.0025,
     rsiCeiling: 72,
+    maxExposure: 0.55,
   },
   aggressive: {
     label: "Aggressive",
@@ -50,6 +54,7 @@ export const MODE_CFG: Record<OperatorMode, ModeConfig> = {
     minConfidence: 0.38,
     rocFloor: 0.0015,
     rsiCeiling: 80,
+    maxExposure: 0.85,
   },
 };
 
@@ -107,6 +112,11 @@ export type OperatorDecision = {
   act: boolean;
   direction: "up" | "down";
   confidence: number;
+  /** Capital-manager view: target SUI allocation as % of capital
+   *  (null = no confident view → hold current). The loop rebalances to it. */
+  targetExposurePct: number | null;
+  /** The allocation reasoning — what the operator wants its money doing. */
+  allocation: string;
   /** One-line synthesis for headers/journal. */
   verdict: string;
   /** True when the AI layer produced the thesis. */
@@ -245,12 +255,36 @@ export function runDecisionEngine(args: {
                   cfg.minConfidence * 100
                 ).toFixed(0)}% ${cfg.label} bar.`;
 
+  // ── Allocation — the capital-manager view: what % should live in SUI ────
+  let targetExposurePct: number | null;
+  let allocation: string;
+  if (act) {
+    if (direction === "up") {
+      targetExposurePct = Math.max(20, Math.round(clamp01(confidence) * cfg.maxExposure * 100));
+      allocation = `Bullish ${regimeLabel.toLowerCase()} — target ${targetExposurePct}% in SUI.`;
+    } else {
+      targetExposurePct = 0;
+      allocation = `Bearish ${regimeLabel.toLowerCase()} — target cash (0% SUI).`;
+    }
+  } else {
+    targetExposurePct = null;
+    allocation = mandateBlocked
+      ? "Mandate guard — no new exposure; holding."
+      : budgetBlocked
+        ? "Budget fully deployed — holding current allocation."
+        : regimeBlocked
+          ? `${regimeLabel} regime — no directional edge; holding current allocation.`
+          : "No confident edge — holding current allocation.";
+  }
+
   return {
     mode,
     asset,
     spotUsd,
     regimeLabel,
     regimeReview,
+    targetExposurePct,
+    allocation,
     thesis,
     counterargument,
     riskReview,
