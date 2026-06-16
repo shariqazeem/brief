@@ -2193,14 +2193,20 @@ async function runGatedOperator(
   // SUI value as a fraction of total capital (0–1); defaults to all-cash (0) on
   // a read failure, a safe no-op assumption.
   let currentExposure = 0;
+  // Raw balances the allocator needs to check a rebalance is actually
+  // executable at the 1-SUI min-lot (cash to buy / SUI to sell).
+  let quoteBalUsd = 0; // dry-powder cash (USDC/DBUSDC)
+  let baseBalSui = 0; // SUI inventory
   try {
     const mc = gatedCoinTypes(e.network);
     const [qBal, bBal] = await Promise.all([
       readBmAssetBalance(ctx, e.bmId, mc.quote),
       readBmAssetBalance(ctx, e.bmId, mc.base),
     ]);
-    const suiValue = (Number(bBal) / 1e9) * midUsd;
-    const currentValue = Number(qBal) / 1e6 + suiValue;
+    quoteBalUsd = Number(qBal) / 1e6;
+    baseBalSui = Number(bBal) / 1e9;
+    const suiValue = baseBalSui * midUsd;
+    const currentValue = quoteBalUsd + suiValue;
     currentExposure = currentValue > 0 ? suiValue / currentValue : 0;
     const deposit = budget.cap > 0 ? Number(budget.cap) / 1e6 : currentValue;
     portfolio = {
@@ -2253,6 +2259,20 @@ async function runGatedOperator(
     return null; // already within the target band → hold
   };
   let rebalanceSide = rebalanceSideFor(eng);
+
+  // ---- FEASIBILITY: a rebalance is one 1-SUI min-lot. If the balances can't
+  // cover it (no cash to buy / sub-lot SUI to sell), DON'T claim a move we
+  // can't make — hold honestly. This keeps the headline "holding" instead of
+  // "adding/trimming" → "no order placed" (the contradiction we're killing).
+  let infeasibleNote: string | null = null;
+  const lotCostUsd = GATED_BASE_QTY * midUsd;
+  if (rebalanceSide === "up" && quoteBalUsd < lotCostUsd) {
+    infeasibleNote = `cash (${quoteBalUsd.toFixed(2)}) below a ${GATED_BASE_QTY}-SUI lot (~$${lotCostUsd.toFixed(2)})`;
+    rebalanceSide = null;
+  } else if (rebalanceSide === "down" && baseBalSui < GATED_BASE_QTY) {
+    infeasibleNote = `SUI position (${baseBalSui.toFixed(2)}) below a ${GATED_BASE_QTY}-SUI lot`;
+    rebalanceSide = null;
+  }
 
   // ---- EXECUTION ANALYSIS: only when a rebalance is actually needed, simulate
   // the real order against the live DeepBook book (slippage / depth / DEEP fee).
@@ -2412,15 +2432,16 @@ async function runGatedOperator(
   // allocation terms ("Bearish — already in cash") so the user never has to
   // reconcile "found an edge" with "no order placed".
   if (!willRebalance) {
-    const aligned =
-      eng.targetExposurePct != null
+    const tail = infeasibleNote
+      ? ` Would rebalance but ${infeasibleNote} — holding.`
+      : eng.targetExposurePct != null
         ? ` Portfolio already at ${curExposurePct}% SUI, within the target band — no rebalance needed.`
         : "";
     emitAgentEvent("mode", {
       policyId: e.policyId,
       taskId,
       asset: "SUI",
-      data: { mode: "simulated", sim_reason: `${eng.allocation}${aligned}` },
+      data: { mode: "simulated", sim_reason: `${eng.allocation}${tail}` },
     });
     return;
   }
