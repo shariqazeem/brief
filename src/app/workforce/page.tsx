@@ -1061,7 +1061,7 @@ function ViewOperator({ policyId }: { policyId: string }) {
       traderName={policy?.name || "Operator"}
       goal={null}
       onReset={() => {
-        if (typeof window !== "undefined") window.location.href = "/workforce";
+        if (typeof window !== "undefined") window.location.href = "/workforce/adopt";
       }}
       dispatchError={null}
       onDispatchAgain={() => {}}
@@ -1099,7 +1099,15 @@ function Connected({ address }: { address: string }) {
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("predict") === "1";
 
+  // Your operator home: once you've adopted one, /workforce leads with it
+  // LIVE (the command center), not a pitch. Adoption lives in the wizard.
+  const [latest, setLatest] = useState<TraderIdentity | null>(null);
+  useEffect(() => setLatest(loadLatestTraderIdentity()), []);
+
   if (!activation) {
+    if (latest && !legacy && !predict) {
+      return <ViewOperator policyId={latest.policyId} />;
+    }
     return (
       <section className="mx-auto max-w-page px-6 pt-10 pb-24 sm:px-10 sm:pt-14">
         {legacy ? (
@@ -1122,10 +1130,7 @@ function Connected({ address }: { address: string }) {
             <TraderGallery address={address} onActivated={setActivation} />
           </>
         ) : (
-          <>
-            <DepositIntro />
-            <ActiveOperatorResume />
-          </>
+          <FirstOperatorEntry />
         )}
       </section>
     );
@@ -1461,6 +1466,68 @@ function useUsdcBalance(address: string): {
 // One signature via buildAdoptTx: the user's own BalanceManager is created
 // + funded, a TradeCap is delegated to the operator (trade-not-withdraw),
 // and the chain-enforced policy is created. The user keeps custody.
+// The connected home when you have NO operator yet — the product offering
+// (the three modes) + one CTA into the wizard. Not a wall of text.
+function FirstOperatorEntry() {
+  const isMainnet = BRIEF_NETWORK === "mainnet";
+  return (
+    <div className="mx-auto max-w-page">
+      <header className="max-w-3xl">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+          Brief · adopt an operator · {isMainnet ? "mainnet" : "testnet practice"}
+        </p>
+        <h1 className="mt-4 font-sans text-[34px] font-medium leading-[1.08] tracking-tightest text-ink sm:text-[52px]">
+          Adopt an autonomous operator.
+        </h1>
+        <p className="mt-3 font-mono text-[12px] uppercase tracking-[0.28em] text-emerald-600">
+          The chain holds the leash.
+        </p>
+        <p className="mt-5 max-w-prose text-[15px] leading-relaxed text-ink-2">
+          Deposit your {isMainnet ? "USDC" : "test USDC"}, choose how it behaves, and watch
+          it trade on DeepBook — non-custodially. It never holds your funds, can&apos;t
+          exceed your budget, and you revoke it in one tap.
+        </p>
+      </header>
+
+      <div className="mt-10 grid gap-4 sm:grid-cols-3">
+        {WF_MODES.map((m) => (
+          <Link
+            key={m.id}
+            href="/workforce/adopt"
+            className="group flex min-h-[184px] flex-col border border-line bg-bg-elev p-5 shadow-[0_1px_3px_rgba(0,0,0,0.05)] transition-colors hover:border-line-strong"
+          >
+            <span className="font-sans text-[28px] leading-none text-ink" aria-hidden>
+              {m.glyph}
+            </span>
+            <span className="mt-3 font-sans text-[17px] font-medium tracking-tight text-ink">
+              {m.label}
+            </span>
+            <span className="mt-1 font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: "#1a2c4e" }}>
+              {m.sub}
+            </span>
+            <span className="mt-2 flex-1 text-[13px] leading-snug text-ink-2">{m.desc}</span>
+            <span className="mt-3 font-mono text-[9.5px] uppercase tracking-[0.2em] text-muted group-hover:text-ink">
+              Choose this →
+            </span>
+          </Link>
+        ))}
+      </div>
+
+      <div className="mt-8 flex flex-wrap items-center gap-5">
+        <Link
+          href="/workforce/adopt"
+          className="bg-accent px-7 py-3.5 font-mono text-[11px] uppercase tracking-[0.28em] text-white transition-opacity hover:opacity-90"
+        >
+          Adopt an operator →
+        </Link>
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
+          One signature · revoke any time · the chain refuses the rest
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function DepositIntro() {
   const isMainnet = BRIEF_NETWORK === "mainnet";
   return (
