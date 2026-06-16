@@ -217,10 +217,6 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         : "preserve"
       : "idle";
 
-  const cap = bv.cap;
-  const spent = bv.spent;
-  const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
-
   return (
     <div className="min-h-screen bg-bg">
       <TopBar
@@ -228,10 +224,6 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         name={traderName}
         dot={dot}
         revoked={revoked}
-        spent={spent}
-        cap={cap}
-        pct={pct}
-        unit={bv.unit}
         fuel={revoked ? null : stream.fuel}
         policyId={policyId}
         onYank={onRequestRevoke}
@@ -550,10 +542,6 @@ function TopBar({
   name,
   dot,
   revoked,
-  spent,
-  cap,
-  pct,
-  unit,
   fuel,
   policyId,
   onYank,
@@ -564,10 +552,6 @@ function TopBar({
   name: string;
   dot: "act" | "preserve" | "idle" | "grounded";
   revoked: boolean;
-  spent: number;
-  cap: number;
-  pct: number;
-  unit: string;
   fuel: { deepHuman: number; level: "ok" | "low" | "empty" } | null;
   policyId: string | null;
   onYank: () => void;
@@ -576,7 +560,6 @@ function TopBar({
 }) {
   const dotColor =
     dot === "act" ? EMERALD : dot === "preserve" ? AMBER : dot === "grounded" ? "#CCCCCC" : IDLE;
-  const fill = pct >= 95 ? RED : pct >= 80 ? AMBER : EMERALD;
   return (
     <header
       className="sticky top-0 z-30 bg-bg-elev"
@@ -602,19 +585,6 @@ function TopBar({
             style={{ background: dotColor }}
             aria-hidden
           />
-        </div>
-
-        {/* budget leash */}
-        <div className="hidden flex-1 items-center gap-3 sm:flex">
-          <div className="h-1 flex-1 overflow-hidden" style={{ background: "#E5E5E5" }}>
-            <div
-              className="h-full transition-[width] duration-500"
-              style={{ width: `${pct}%`, background: fill }}
-            />
-          </div>
-          <span className="shrink-0 font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
-            {spent.toFixed(2)} / {cap.toFixed(2)} {unit}
-          </span>
         </div>
 
         {/* fuel gauge — DEEP tank for DeepBook fees. Understated; the user
@@ -650,7 +620,7 @@ function TopBar({
         )}
 
         {/* controls — judge path (Brain · Proof) + the leash */}
-        <div className="ml-auto flex items-center gap-4 sm:ml-0">
+        <div className="ml-auto flex items-center gap-5">
           {policyId && (
             <>
               <Link
@@ -701,15 +671,6 @@ function TopBar({
         </div>
       </div>
 
-      {/* mobile budget row */}
-      <div className="flex items-center gap-3 px-5 pb-2.5 sm:hidden">
-        <div className="h-1 flex-1 overflow-hidden" style={{ background: "#E5E5E5" }}>
-          <div className="h-full" style={{ width: `${pct}%`, background: fill }} />
-        </div>
-        <span className="shrink-0 font-mono text-[10px] tabular-nums" style={{ color: SUB }}>
-          {spent.toFixed(2)} / {cap.toFixed(0)} SUI
-        </span>
-      </div>
     </header>
   );
 }
