@@ -117,6 +117,12 @@ function AdoptWizard() {
 
   const [pickedMode, setPickedMode] = useState<OperatorMode | null>(null);
   const [amount, setAmount] = useState<number>(5);
+  // Optional investment mandate — a human objective + a drawdown guard the
+  // operator is bound to. Off by default; the chain caps spend regardless.
+  const [mandateOn, setMandateOn] = useState(false);
+  const [mTarget, setMTarget] = useState(15);
+  const [mHorizon, setMHorizon] = useState(180);
+  const [mMaxDD, setMMaxDD] = useState(8);
   const [sui, setSui] = useState<number | null>(null);
   const [usdc, setUsdc] = useState<number>(0);
   const [usdcLoaded, setUsdcLoaded] = useState(false);
@@ -258,6 +264,13 @@ function AdoptWizard() {
                       owner: address,
                       personality: modeCfg.personality,
                       mode: modeCfg.id,
+                      mandate: mandateOn
+                        ? {
+                            targetReturnPct: mTarget,
+                            horizonDays: mHorizon,
+                            maxDrawdownPct: mMaxDD,
+                          }
+                        : null,
                       goal,
                       network: BRIEF_NETWORK,
                     }),
@@ -286,7 +299,7 @@ function AdoptWizard() {
         setAdopt({ kind: "error", msg: e instanceof Error ? e.message : String(e) });
       }
     })();
-  }, [address, modeCfg, amount, client, cfg.capitalCoinType, signer, usdcLabel]);
+  }, [address, modeCfg, amount, client, cfg.capitalCoinType, signer, usdcLabel, mandateOn, mTarget, mHorizon, mMaxDD]);
 
   const busy = adopt.kind === "checking" || adopt.kind === "signing";
 
@@ -397,6 +410,42 @@ function AdoptWizard() {
               Hard cap: <span className="text-ink">{amount} {unitLabel}</span> total —
               the chain reverts anything past it.
             </p>
+          </section>
+        )}
+
+        {/* ─── Section 2b · Mandate (optional objective + drawdown guard) ── */}
+        {showBudget && modeCfg && (
+          <section className="mt-16 animate-fade-up">
+            <SectionLabel n="02b" title="Set a mandate — optional" />
+            <p className="mt-2 max-w-prose text-[14px] leading-relaxed text-ink-2">
+              Give your operator a goal, not just a budget. It acts toward this
+              objective and <span className="text-ink">stands down if the drawdown
+              guard trips</span> — it will not open new risk that violates the
+              mandate. The mandate is anchored on Walrus, verifiable by anyone.
+            </p>
+            <button
+              type="button"
+              onClick={() => setMandateOn((v) => !v)}
+              className={`mt-4 inline-flex items-center gap-2 border px-4 py-2 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors ${
+                mandateOn ? "border-emerald-500 text-emerald-700" : "border-line text-muted hover:text-ink"
+              }`}
+            >
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${mandateOn ? "bg-emerald-500" : "bg-[#C7C7CC]"}`} aria-hidden />
+              {mandateOn ? "Mandate on" : "Add a mandate"}
+            </button>
+
+            {mandateOn && (
+              <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <MandateField label="Target return" suffix="%" value={mTarget} min={0} onChange={setMTarget} />
+                <MandateField label="Horizon" suffix="days" value={mHorizon} min={1} onChange={setMHorizon} />
+                <MandateField label="Max drawdown" suffix="%" value={mMaxDD} min={1} onChange={setMMaxDD} />
+              </div>
+            )}
+            {mandateOn && (
+              <p className="mt-3 font-mono text-[10.5px] leading-relaxed text-ink-2">
+                Mandate: <span className="text-ink">grow {mTarget}% in {mHorizon} days · never down more than {mMaxDD}% from peak.</span>
+              </p>
+            )}
           </section>
         )}
 
@@ -523,6 +572,36 @@ function AdoptWizard() {
         )}
       </div>
     </main>
+  );
+}
+
+function MandateField({
+  label,
+  suffix,
+  value,
+  min,
+  onChange,
+}: {
+  label: string;
+  suffix: string;
+  value: number;
+  min: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div className="border border-line bg-bg-elev px-4 py-3">
+      <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">{label}</p>
+      <div className="mt-1.5 flex items-baseline gap-1.5">
+        <input
+          type="number"
+          min={min}
+          value={value}
+          onChange={(e) => onChange(Math.max(min, Number(e.target.value) || min))}
+          className="w-16 border-b border-line bg-transparent py-0.5 font-mono text-[20px] font-medium tabular-nums tracking-tight text-ink outline-none focus:border-ink"
+        />
+        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">{suffix}</span>
+      </div>
+    </div>
   );
 }
 

@@ -709,6 +709,9 @@ function SpotPipeline({
 
   return (
     <div className="mx-auto max-w-xl">
+      {/* user mandate — the human objective the operator acts within */}
+      {dec?.mandate && <MandateBanner mandate={dec.mandate} />}
+
       {/* mode + reasoning provenance */}
       <div className="mb-5 flex flex-wrap items-center gap-2">
         {modeLabel && (
@@ -863,6 +866,54 @@ function PendingLine() {
     <p className="font-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: "#CCCCCC" }}>
       queued…
     </p>
+  );
+}
+
+function MandateBanner({ mandate }: { mandate: NonNullable<AgentStreamState["decision"]>["mandate"] }) {
+  if (!mandate) return null;
+  const ddRatio = mandate.maxDrawdownPct > 0 ? Math.min(1, mandate.drawdownPct / mandate.maxDrawdownPct) : 0;
+  const ddColor = mandate.breached ? RED : ddRatio > 0.66 ? AMBER : EMERALD;
+  const prog = mandate.progressPct;
+  return (
+    <div
+      className="mb-5 rounded-md border px-4 py-3"
+      style={{ borderColor: mandate.breached ? RED : "#E5E5E5", background: mandate.breached ? "rgba(239,68,68,0.05)" : "#FAFAFA" }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-[9.5px] uppercase tracking-[0.2em]" style={{ color: SUB }}>
+          Mandate
+        </span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: mandate.breached ? RED : "#047857" }}>
+          {mandate.breached ? "guard tripped · standing down" : "within mandate"}
+        </span>
+      </div>
+      <p className="mt-1 text-[13.5px] font-medium tracking-tight" style={{ color: INK }}>
+        {mandate.summary}
+      </p>
+      <div className="mt-2.5 flex items-center gap-4">
+        <div className="flex-1">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="font-mono text-[9px] uppercase tracking-[0.16em]" style={{ color: SUB }}>
+              drawdown
+            </span>
+            <span className="font-mono text-[10px] tabular-nums" style={{ color: ddColor }}>
+              {mandate.drawdownPct.toFixed(1)}% / {mandate.maxDrawdownPct.toFixed(0)}%
+            </span>
+          </div>
+          <div className="h-1 w-full overflow-hidden rounded-full" style={{ background: "#E5E5E5" }}>
+            <div className="h-full transition-[width] duration-500" style={{ width: `${ddRatio * 100}%`, background: ddColor }} />
+          </div>
+        </div>
+        <div className="text-right">
+          <span className="font-mono text-[9px] uppercase tracking-[0.16em]" style={{ color: SUB }}>
+            progress
+          </span>
+          <p className="font-mono text-[13px] tabular-nums" style={{ color: prog >= 0 ? EMERALD : RED }}>
+            {prog >= 0 ? "+" : ""}{prog.toFixed(1)}%
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 

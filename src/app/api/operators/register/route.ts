@@ -32,12 +32,30 @@ type Entry = {
    *  labels kept for the journal + manifesto. */
   mode: string;
   goal: Goal;
+  /** Optional user investment mandate — objective + drawdown guard. */
+  mandate?: Mandate | null;
   network: "mainnet" | "testnet";
   revoked: boolean;
   adoptedAtMs: number;
 };
 
+type Mandate = { targetReturnPct: number; horizonDays: number; maxDrawdownPct: number };
+
 const MODES = ["protect", "grow", "aggressive"] as const;
+
+function parseMandate(raw: unknown): Mandate | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const d = Number(o.maxDrawdownPct);
+  if (!Number.isFinite(d) || d <= 0) return null; // drawdown guard is required
+  const t = Number(o.targetReturnPct);
+  const h = Number(o.horizonDays);
+  return {
+    targetReturnPct: Number.isFinite(t) && t > 0 ? t : 0,
+    horizonDays: Number.isFinite(h) && h > 0 ? h : 30,
+    maxDrawdownPct: Math.min(90, d),
+  };
+}
 
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
@@ -88,6 +106,7 @@ export async function POST(req: NextRequest) {
     mode: (MODES as readonly string[]).includes(String(body.mode))
       ? String(body.mode)
       : "grow",
+    mandate: parseMandate(body.mandate),
     goal,
     network: body.network === "mainnet" ? "mainnet" : "testnet",
     revoked: false,

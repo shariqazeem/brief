@@ -192,8 +192,13 @@ export function settlePending(
 }
 
 /** Human-readable experience log for the Walrus snapshot — the verifiable
- *  memory anyone can audit. */
-export function experienceMarkdown(policyId: string, recs: ExperienceRecord[]): string {
+ *  memory anyone can audit. `mandateLine` (optional) anchors the user's
+ *  investment mandate alongside the operator's track record. */
+export function experienceMarkdown(
+  policyId: string,
+  recs: ExperienceRecord[],
+  mandateLine?: string,
+): string {
   const wins = recs.filter((r) => r.outcome === "win").length;
   const losses = recs.filter((r) => r.outcome === "loss").length;
   const abst = recs.filter((r) => r.outcome === "abstained").length;
@@ -219,6 +224,7 @@ export function experienceMarkdown(policyId: string, recs: ExperienceRecord[]): 
   return [
     `# Brief Operator — Experience`,
     `policy: ${policyId}`,
+    mandateLine ? `mandate: ${mandateLine}` : `mandate: (none set)`,
     `decisions: ${recs.length} · wins ${wins} · losses ${losses} · abstained ${abst}`,
     ``,
     `The operator recalls similar past regimes before each decision and lets`,

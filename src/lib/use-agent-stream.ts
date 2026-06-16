@@ -64,6 +64,15 @@ export type StreamDecision = {
   executionReview: string | null;
   verdict: string | null;
   aiReasoned: boolean;
+  // User mandate — objective + live drawdown guard (null when none set).
+  mandateReview: string | null;
+  mandate: {
+    summary: string;
+    progressPct: number;
+    drawdownPct: number;
+    maxDrawdownPct: number;
+    breached: boolean;
+  } | null;
   // Experience Engine — similar past situations recalled before deciding.
   recall: {
     note: string;
@@ -269,6 +278,18 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         executionReview: str(d.execution_review),
         verdict: str(d.verdict),
         aiReasoned: d.ai_reasoned === true,
+        mandateReview: str(d.mandate_review),
+        mandate: (() => {
+          const m = d.mandate as Record<string, unknown> | undefined;
+          if (!m || typeof m !== "object") return null;
+          return {
+            summary: str(m.summary) ?? "",
+            progressPct: num(m.progress_pct) ?? 0,
+            drawdownPct: num(m.drawdown_pct) ?? 0,
+            maxDrawdownPct: num(m.max_drawdown_pct) ?? 0,
+            breached: m.breached === true,
+          };
+        })(),
         recall: (() => {
           const r = d.recall as Record<string, unknown> | undefined;
           if (!r || typeof r !== "object") return null;

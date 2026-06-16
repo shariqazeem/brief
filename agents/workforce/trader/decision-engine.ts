@@ -91,10 +91,12 @@ export type OperatorDecision = {
   mode: OperatorMode;
   asset: string;
   spotUsd: number;
-  /** The seven visible steps. */
+  /** The visible reasoning steps. */
   thesis: string;
   counterargument: string;
   riskReview: string;
+  /** Mandate check — empty string when no mandate is set. */
+  mandateReview: string;
   policyReview: string;
   executionReview: string;
   /** Outcome. */
@@ -124,11 +126,16 @@ export function runDecisionEngine(args: {
   /** Capital is fully deployed — no headroom for another min-lot. A normal
    *  end-state: the operator abstains as a SUCCESS and stays alive. */
   budgetExhausted?: boolean;
+  /** User-mandate check (drawdown guard). When breached, the operator stands
+   *  down to honour the human's objective — a hard, non-negotiable stop. */
+  mandate?: { review: string; breached: boolean };
   opts?: EngineOpts;
 }): OperatorDecision {
   const { asset, signals, spotUsd, mode, budgetUsedPct, opts } = args;
   const cfg = MODE_CFG[mode];
   const budgetBlocked = !!args.budgetExhausted;
+  const mandateBlocked = !!args.mandate?.breached;
+  const mandateReview = args.mandate?.review ?? "";
 
   const roc30 = signals.roc_30m ?? 0;
   const roc5 = signals.roc_5m ?? 0;
@@ -205,11 +212,14 @@ export function runDecisionEngine(args: {
 
   // ── Decision ────────────────────────────────────────────────────────────
   const execOk = opts?.exec ? opts.exec.approved : true;
-  const act = confidence >= cfg.minConfidence && trending && execOk && !budgetBlocked;
+  const act =
+    confidence >= cfg.minConfidence && trending && execOk && !budgetBlocked && !mandateBlocked;
 
   const verdict = act
     ? `Act ${direction.toUpperCase()} — ${(confidence * 100).toFixed(0)}% confidence clears the ${cfg.label} bar.`
-    : budgetBlocked
+    : mandateBlocked
+      ? `Stand down — mandate drawdown guard tripped; honouring your risk limit.`
+      : budgetBlocked
       ? `Stand down — budget fully deployed; capital working, none at new risk.`
       : !trending
         ? `Stand down — flat tape, capital protected.`
@@ -226,6 +236,7 @@ export function runDecisionEngine(args: {
     thesis,
     counterargument,
     riskReview,
+    mandateReview,
     policyReview,
     executionReview,
     act,

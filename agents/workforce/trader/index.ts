@@ -107,6 +107,15 @@ import {
   settlePending,
   type ExperienceRecord,
 } from "./experience.js";
+import {
+  evalMandate,
+  loadMandateState,
+  mandateSummary,
+  normalizeMandate,
+  saveMandateState,
+  type Mandate,
+  type MandateEval,
+} from "./mandate.js";
 
 const POLL_MS = 3000;
 const REDEEM_POLL_MS = 30_000;
@@ -1919,6 +1928,9 @@ type OperatorRegistryEntry = {
    *  from the legacy goal so existing operators keep working. */
   mode?: string;
   goal?: OperatorGoal;
+  /** Optional user investment mandate (target return / horizon / max drawdown).
+   *  The operator acts toward it and stands down if the drawdown guard trips. */
+  mandate?: { targetReturnPct?: number; horizonDays?: number; maxDrawdownPct?: number } | null;
   network: GatedNetwork;
   revoked: boolean;
   adoptedAtMs: number;
@@ -1995,7 +2007,8 @@ async function maybePublishExperience(
   if (!force && Date.now() - last < EXPERIENCE_UPLOAD_THROTTLE_MS) return;
   if (!(await hasWalrusFunding(ctx.client, ctx.address))) return;
   try {
-    const md = experienceMarkdown(e.policyId, experience);
+    const m = normalizeMandate(e.mandate);
+    const md = experienceMarkdown(e.policyId, experience, m ? mandateSummary(m) : undefined);
     const up = await uploadToWalrus(
       new TextEncoder().encode(md),
       ctx.client,
@@ -2167,7 +2180,33 @@ async function runGatedOperator(
   experience = matured.history;
   const recall = recallSimilar(experience, regime);
 
-  // Pass 1 — reason over signals + memory (no execution analysis yet).
+  // ---- MANDATE: the user's objective + drawdown guard. Mark the portfolio to
+  // market (quote + base·mid), track the peak, stand down if the drawdown hits
+  // the human's limit. Optional — only when a mandate was set at adoption.
+  const mandate: Mandate | null = normalizeMandate(e.mandate);
+  let mandateEval: MandateEval | null = null;
+  if (mandate && budget.cap > 0) {
+    try {
+      const mc = gatedCoinTypes(e.network);
+      const [qBal, bBal] = await Promise.all([
+        readBmAssetBalance(ctx, e.bmId, mc.quote),
+        readBmAssetBalance(ctx, e.bmId, mc.base),
+      ]);
+      const currentValue = Number(qBal) / 1e6 + (Number(bBal) / 1e9) * midUsd;
+      const initialValue = Number(budget.cap) / 1e6;
+      const prev = await loadMandateState(e.policyId);
+      const peakValue = Math.max(prev?.peakValue ?? 0, currentValue, initialValue);
+      await saveMandateState(e.policyId, { peakValue, updatedMs: Date.now() });
+      mandateEval = evalMandate({ mandate, currentValue, initialValue, peakValue });
+    } catch {
+      mandateEval = null; // read failure → no guard this cycle (fail-safe)
+    }
+  }
+  const mandateArg = mandateEval
+    ? { review: mandateEval.review, breached: mandateEval.breached }
+    : undefined;
+
+  // Pass 1 — reason over signals + memory + mandate (no execution analysis yet).
   let eng = runDecisionEngine({
     asset: "SUI",
     signals,
@@ -2175,6 +2214,7 @@ async function runGatedOperator(
     mode,
     budgetUsedPct: budget.pct,
     budgetExhausted,
+    mandate: mandateArg,
     opts: { memory: { note: recall.note, confidenceMult: recall.confidenceMult } },
   });
 
@@ -2196,6 +2236,7 @@ async function runGatedOperator(
       mode,
       budgetUsedPct: budget.pct,
       budgetExhausted,
+      mandate: mandateArg,
       opts: {
         memory: { note: recall.note, confidenceMult: recall.confidenceMult },
         exec: { note: execA.note, approved: execA.approved },
@@ -2223,10 +2264,21 @@ async function runGatedOperator(
       thesis: eng.thesis,
       counterargument: eng.counterargument,
       risk_review: eng.riskReview,
+      mandate_review: eng.mandateReview || null,
       policy_review: eng.policyReview,
       execution_review: eng.executionReview,
       verdict: eng.verdict,
       ai_reasoned: eng.aiReasoned,
+      // user mandate (objective + drawdown guard), null when none set
+      mandate: mandateEval
+        ? {
+            summary: mandateEval.summary,
+            progress_pct: mandateEval.progressPct,
+            drawdown_pct: mandateEval.drawdownPct,
+            max_drawdown_pct: mandate ? mandate.maxDrawdownPct : 0,
+            breached: mandateEval.breached,
+          }
+        : null,
       // experience-engine recall (memory)
       recall: {
         note: recall.note,
