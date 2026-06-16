@@ -251,7 +251,9 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           bv={bv}
         />
 
-        <MarketState signals={stream.signals} assetLabel={bv.asset} />
+        <CapitalCard stream={stream} bv={bv} />
+
+        <MarketState signals={stream.signals} dec={stream.decision} assetLabel={bv.asset} />
 
         <SectionCard title="Right now">
           <NowTab
@@ -432,44 +434,96 @@ function HeroStat({ label, value, color = INK }: { label: string; value: string;
   );
 }
 
-// Market State — the same numbers, in human words. Premium, not raw.
-function MarketState({ signals, assetLabel }: { signals: StreamSignals | null; assetLabel: string }) {
-  if (!signals || signals.spot == null) return null;
-  const roc = signals.roc_30m ?? 0;
-  const aligned =
-    signals.sma_15m != null && signals.sma_60m != null ? signals.sma_15m >= signals.sma_60m : roc >= 0;
-  const a = Math.abs(roc);
-  const trend =
-    a < 0.0008
-      ? "Flat"
-      : `${a > 0.008 ? "Strongly " : a > 0.003 ? "" : "Weakly "}${aligned ? "bullish" : "bearish"}`;
-  const vol = signals.realized_vol_60m ?? 0;
-  const volLabel = vol < 0.005 ? "Calm" : vol < 0.012 ? "Moderate" : "Elevated";
+// Operator Capital — the FIRST thing a user (and judge) wants: how much money
+// is it managing right now, and is it up or down. Marked to market live.
+function CapitalCard({ stream, bv }: { stream: AgentStreamState; bv: { cap: number; spent: number; unit: string } }) {
+  const p = stream.decision?.portfolio ?? null;
+  const value = p?.value ?? bv.cap;
+  const deposit = p?.deposit ?? bv.cap;
+  const pnl = value - deposit;
+  const pnlPct = p?.pnlPct ?? 0;
+  const budgetRem = p?.budgetRemainingPct ?? (bv.cap > 0 ? Math.max(0, 100 - (bv.spent / bv.cap) * 100) : 100);
+  const flat = Math.abs(pnl) < 0.005;
+  const pnlColor = flat ? SUB : pnl > 0 ? EMERALD : RED;
   return (
-    <section className="bg-bg-elev px-6 py-5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
-      <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
-        Market state
+    <section
+      className="bg-bg-elev px-6 py-7 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9 sm:py-8"
+      style={{ borderTop: `3px solid ${NAVY}` }}
+    >
+      <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: SUB }}>
+        Operator capital
       </p>
-      <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-        <MS label={assetLabel} value={`$${signals.spot.toFixed(3)}`} />
-        <MS label="Trend" value={trend} />
-        <MS label="Momentum" value={momentumLabel(signals.rsi_60m)} />
-        <MS label="Volatility" value={volLabel} />
+      <div className="mt-2 flex items-baseline gap-2.5">
+        <span className="font-sans text-[42px] font-medium tabular-nums leading-none tracking-tight sm:text-[52px]" style={{ color: INK }}>
+          {value.toFixed(2)}
+        </span>
+        <span className="font-mono text-[12px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
+          {bv.unit}
+        </span>
+      </div>
+      <p className="mt-2 font-mono text-[14px] tabular-nums" style={{ color: pnlColor }}>
+        {flat ? "±0.00" : `${pnl > 0 ? "+" : ""}${pnl.toFixed(2)}`} {bv.unit}
+        {!flat && ` · ${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(1)}%`}
+        <span className="ml-1" style={{ color: SUB }}>vs deposit</span>
+      </p>
+      <div className="mt-5">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="font-mono text-[9px] uppercase tracking-[0.16em]" style={{ color: SUB }}>
+            Budget remaining
+          </span>
+          <span className="font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
+            {budgetRem.toFixed(0)}%
+          </span>
+        </div>
+        <div className="h-1 w-full overflow-hidden rounded-full" style={{ background: "#E5E5EA" }}>
+          <div className="h-full transition-[width] duration-500" style={{ width: `${budgetRem}%`, background: budgetRem < 10 ? RED : EMERALD }} />
+        </div>
       </div>
     </section>
   );
 }
 
-function MS({ label, value }: { label: string; value: string }) {
+// Market State — a story, not a metrics grid. Trend headline + price +
+// confidence-to-act + a one-line reason. Humans read stories.
+function MarketState({
+  signals,
+  dec,
+  assetLabel,
+}: {
+  signals: StreamSignals | null;
+  dec: AgentStreamState["decision"];
+  assetLabel: string;
+}) {
+  if (!signals || signals.spot == null) return null;
+  const roc = signals.roc_30m ?? 0;
+  const aligned =
+    signals.sma_15m != null && signals.sma_60m != null ? signals.sma_15m >= signals.sma_60m : roc >= 0;
+  const a = Math.abs(roc);
+  const flat = a < 0.0008;
+  const trend = flat
+    ? "Flat tape"
+    : `${a > 0.008 ? "Strongly " : a > 0.003 ? "" : "Weakly "}${aligned ? "bullish" : "bearish"}`;
+  const trendColor = flat ? SUB : aligned ? EMERALD : RED;
+  const mom = momentumLabel(signals.rsi_60m).toLowerCase();
+  const conf = dec ? `${Math.round(dec.conviction * 100)}%` : "—";
+  const reason = flat
+    ? `No trend to ride — momentum ${mom}.`
+    : `Trend present, momentum ${mom}.`;
   return (
-    <div>
-      <p className="font-mono text-[9px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
-        {label}
+    <section className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
+      <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+        Market state
       </p>
-      <p className="mt-0.5 font-sans text-[15px] font-medium tracking-tight" style={{ color: INK }}>
-        {value}
+      <p className="mt-2 font-sans text-[24px] font-medium tracking-tight" style={{ color: trendColor }}>
+        {trend}
       </p>
-    </div>
+      <p className="mt-1 font-mono text-[13px] tabular-nums" style={{ color: SUB }}>
+        {assetLabel} ${signals.spot.toFixed(3)} · momentum {mom}
+      </p>
+      <p className="mt-3 text-[13px] leading-relaxed" style={{ color: SUB }}>
+        <span style={{ color: INK }}>Confidence to act {conf}</span> — {reason}
+      </p>
+    </section>
   );
 }
 

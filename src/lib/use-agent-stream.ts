@@ -64,6 +64,13 @@ export type StreamDecision = {
   executionReview: string | null;
   verdict: string | null;
   aiReasoned: boolean;
+  // Live portfolio mark — what the capital is worth right now.
+  portfolio: {
+    value: number;
+    deposit: number;
+    pnlPct: number;
+    budgetRemainingPct: number;
+  } | null;
   // User mandate — objective + live drawdown guard (null when none set).
   mandateReview: string | null;
   mandate: {
@@ -278,6 +285,16 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         executionReview: str(d.execution_review),
         verdict: str(d.verdict),
         aiReasoned: d.ai_reasoned === true,
+        portfolio: (() => {
+          const p = d.portfolio as Record<string, unknown> | undefined;
+          if (!p || typeof p !== "object") return null;
+          return {
+            value: num(p.value) ?? 0,
+            deposit: num(p.deposit) ?? 0,
+            pnlPct: num(p.pnl_pct) ?? 0,
+            budgetRemainingPct: num(p.budget_remaining_pct) ?? 100,
+          };
+        })(),
         mandateReview: str(d.mandate_review),
         mandate: (() => {
           const m = d.mandate as Record<string, unknown> | undefined;

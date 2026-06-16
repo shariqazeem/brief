@@ -2181,27 +2181,34 @@ async function runGatedOperator(
   experience = matured.history;
   const recall = recallSimilar(experience, regime);
 
-  // ---- MANDATE: the user's objective + drawdown guard. Mark the portfolio to
-  // market (quote + base·mid), track the peak, stand down if the drawdown hits
-  // the human's limit. Optional — only when a mandate was set at adoption.
+  // ---- CAPITAL + MANDATE: mark the portfolio to market (quote + base·mid)
+  // EVERY cycle so the user always sees "how much money do I have right now".
+  // The same value feeds the optional mandate drawdown guard.
   const mandate: Mandate | null = normalizeMandate(e.mandate);
   let mandateEval: MandateEval | null = null;
-  if (mandate && budget.cap > 0) {
-    try {
-      const mc = gatedCoinTypes(e.network);
-      const [qBal, bBal] = await Promise.all([
-        readBmAssetBalance(ctx, e.bmId, mc.quote),
-        readBmAssetBalance(ctx, e.bmId, mc.base),
-      ]);
-      const currentValue = Number(qBal) / 1e6 + (Number(bBal) / 1e9) * midUsd;
-      const initialValue = Number(budget.cap) / 1e6;
+  let portfolio: { value: number; deposit: number; pnlPct: number } | null = null;
+  try {
+    const mc = gatedCoinTypes(e.network);
+    const [qBal, bBal] = await Promise.all([
+      readBmAssetBalance(ctx, e.bmId, mc.quote),
+      readBmAssetBalance(ctx, e.bmId, mc.base),
+    ]);
+    const currentValue = Number(qBal) / 1e6 + (Number(bBal) / 1e9) * midUsd;
+    const deposit = budget.cap > 0 ? Number(budget.cap) / 1e6 : currentValue;
+    portfolio = {
+      value: currentValue,
+      deposit,
+      pnlPct: deposit > 0 ? ((currentValue - deposit) / deposit) * 100 : 0,
+    };
+    if (mandate && budget.cap > 0) {
       const prev = await loadMandateState(e.policyId);
-      const peakValue = Math.max(prev?.peakValue ?? 0, currentValue, initialValue);
+      const peakValue = Math.max(prev?.peakValue ?? 0, currentValue, deposit);
       await saveMandateState(e.policyId, { peakValue, updatedMs: Date.now() });
-      mandateEval = evalMandate({ mandate, currentValue, initialValue, peakValue });
-    } catch {
-      mandateEval = null; // read failure → no guard this cycle (fail-safe)
+      mandateEval = evalMandate({ mandate, currentValue, initialValue: deposit, peakValue });
     }
+  } catch {
+    portfolio = null; // read failure → omit (dashboard falls back to budget)
+    mandateEval = null;
   }
   const mandateArg = mandateEval
     ? { review: mandateEval.review, breached: mandateEval.breached }
@@ -2270,6 +2277,16 @@ async function runGatedOperator(
       execution_review: eng.executionReview,
       verdict: eng.verdict,
       ai_reasoned: eng.aiReasoned,
+      // live portfolio mark — "how much money do I have right now"
+      portfolio: portfolio
+        ? {
+            value: portfolio.value,
+            deposit: portfolio.deposit,
+            pnl_pct: portfolio.pnlPct,
+            budget_remaining_pct:
+              budget.cap > 0 ? Math.max(0, 100 - (budget.spent / budget.cap) * 100) : 100,
+          }
+        : null,
       // user mandate (objective + drawdown guard), null when none set
       mandate: mandateEval
         ? {
