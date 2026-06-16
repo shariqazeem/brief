@@ -1519,7 +1519,7 @@ function OperatorHomeCard({ op }: { op: TraderIdentity }) {
         ? { word: "Expired", color: "#F59E0B", live: false }
         : { word: "Active", color: "#10B981", live: true };
   return (
-    <Link
+    <a
       href={`/workforce?policy=${op.policyId}`}
       className="group flex flex-col bg-bg-elev p-5 shadow-[0_1px_3px_rgba(0,0,0,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] sm:p-6"
       style={{ borderTop: `3px solid ${status.color}` }}
@@ -1561,7 +1561,7 @@ function OperatorHomeCard({ op }: { op: TraderIdentity }) {
       <span className="mt-5 font-mono text-[9.5px] uppercase tracking-[0.2em] text-muted transition-colors group-hover:text-ink">
         Open operator →
       </span>
-    </Link>
+    </a>
   );
 }
 
