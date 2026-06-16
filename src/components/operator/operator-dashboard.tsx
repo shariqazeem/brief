@@ -770,8 +770,19 @@ function SpotPipeline({
         )}
       </PipeStep>
 
-      {/* 6 — Policy review */}
-      <PipeStep n={6} label="Policy review" state={dec ? "done" : "pending"} tone={INK}>
+      {/* 6 — Execution analysis (DeepBook depth / slippage, pre-trade) */}
+      <PipeStep n={6} label="Execution analysis · DeepBook" state={dec ? "done" : "pending"} tone={INK}>
+        {dec ? (
+          <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
+            {dec.executionReview}
+          </p>
+        ) : (
+          <PendingLine />
+        )}
+      </PipeStep>
+
+      {/* 7 — Policy review */}
+      <PipeStep n={7} label="Policy review" state={dec ? "done" : "pending"} tone={INK}>
         {dec ? (
           <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
             {dec.policyReview}
@@ -781,13 +792,13 @@ function SpotPipeline({
         )}
       </PipeStep>
 
-      {/* 7 — Decision */}
-      <PipeStep n={7} label="Decision" state={decided ? "done" : "pending"} tone={decTone}>
+      {/* 8 — Decision */}
+      <PipeStep n={8} label="Decision" state={decided ? "done" : "pending"} tone={decTone}>
         {dec ? <SpotVerdict dec={dec} /> : <PendingLine />}
       </PipeStep>
 
-      {/* 8 — Execution */}
-      <PipeStep n={8} label="Execution" state={decided ? "done" : "pending"} tone={execTone} isLast>
+      {/* 9 — On chain (the actual fill, or stood down) */}
+      <PipeStep n={9} label="On chain" state={decided ? "done" : "pending"} tone={execTone} isLast>
         {dec ? (
           <ExecutionBody dec={dec} stream={stream} chainReached={chainReached} />
         ) : (
@@ -943,19 +954,12 @@ function ExecutionBody({
       </p>
     );
   }
-  return (
-    <div className="space-y-2">
-      <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
-        {dec.executionReview}
-      </p>
-      {chainReached ? (
-        <ChainBlock stream={stream} isSpot />
-      ) : (
-        <p className="font-mono text-[11px] uppercase tracking-[0.18em] op-breathe" style={{ color: AMBER }}>
-          placing order…
-        </p>
-      )}
-    </div>
+  return chainReached ? (
+    <ChainBlock stream={stream} isSpot />
+  ) : (
+    <p className="font-mono text-[11px] uppercase tracking-[0.18em] op-breathe" style={{ color: AMBER }}>
+      placing order…
+    </p>
   );
 }
 

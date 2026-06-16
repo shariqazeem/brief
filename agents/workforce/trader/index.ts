@@ -44,7 +44,7 @@ import {
 } from "../../lib/walrus.js";
 import { consolidateSuiCoins } from "../../lib/sui-coin-consolidate.js";
 import { getMarket, type MarketSpec } from "../lib/markets.js";
-import { closeSpot, openSpot, readSpotMid } from "./spot-handler.js";
+import { closeSpot, openSpot, readSpotExecution, readSpotMid } from "./spot-handler.js";
 import {
   buildFuelDepositTx,
   buildGatedSpotTx,
@@ -2167,7 +2167,8 @@ async function runGatedOperator(
   experience = matured.history;
   const recall = recallSimilar(experience, regime);
 
-  const eng = runDecisionEngine({
+  // Pass 1 — reason over signals + memory (no execution analysis yet).
+  let eng = runDecisionEngine({
     asset: "SUI",
     signals,
     spotUsd: midUsd,
@@ -2176,6 +2177,31 @@ async function runGatedOperator(
     budgetExhausted,
     opts: { memory: { note: recall.note, confidenceMult: recall.confidenceMult } },
   });
+
+  // ---- EXECUTION ANALYSIS: only when the operator would act, simulate the
+  // real order against the live DeepBook book (slippage / depth / DEEP fee).
+  // A thin book or excessive slippage can VETO the trade. Pass 2 folds it in.
+  if (eng.act) {
+    const execA = await readSpotExecution(
+      ctx,
+      getMarket("SUI"),
+      eng.direction === "up" ? "buy" : "sell",
+      GATED_BASE_QTY,
+      midUsd,
+    );
+    eng = runDecisionEngine({
+      asset: "SUI",
+      signals,
+      spotUsd: midUsd,
+      mode,
+      budgetUsedPct: budget.pct,
+      budgetExhausted,
+      opts: {
+        memory: { note: recall.note, confidenceMult: recall.confidenceMult },
+        exec: { note: execA.note, approved: execA.approved },
+      },
+    });
+  }
   const direction: Direction = eng.direction;
   const reasoning = `${eng.thesis} ${eng.counterargument} → ${eng.verdict}`;
 

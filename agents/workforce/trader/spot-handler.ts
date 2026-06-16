@@ -62,6 +62,117 @@ export async function readSpotMid(
   return Number(raw) * baseScalar / quoteScalar / 1e9;
 }
 
+export type SpotExecution = {
+  side: "buy" | "sell";
+  baseQty: number;
+  /** Effective average fill price for the lot. */
+  effPrice: number;
+  midPrice: number;
+  /** Execution cost vs mid, in percent (positive = worse than mid). */
+  slippagePct: number;
+  /** DEEP required to clear DeepBook fees on this fill (human units). */
+  deepReq: number;
+  depthOk: boolean;
+  approved: boolean;
+  note: string;
+};
+
+const MAX_SLIPPAGE_PCT = 1.5;
+
+/** Pre-trade DeepBook execution analysis: simulate the actual order against the
+ *  live book (devInspect, no signing) and report real slippage + DEEP fee +
+ *  whether the fill quality clears the bar. Fail-safe: a read error never
+ *  blocks — the on-chain order + Move policy remain the true gate. */
+export async function readSpotExecution(
+  ctx: AgentContext,
+  market: MarketSpec,
+  side: "buy" | "sell",
+  baseQty: number,
+  mid: number,
+): Promise<SpotExecution> {
+  const base = market.baseCoinType;
+  const quote = market.quoteCoinType;
+  const baseScalar = market.baseScalar ?? 1;
+  const quoteScalar = market.quoteScalar ?? 1;
+  const fallback: SpotExecution = {
+    side,
+    baseQty,
+    effPrice: mid,
+    midPrice: mid,
+    slippagePct: 0,
+    deepReq: 0,
+    depthOk: true,
+    approved: true,
+    note: `DeepBook ${side}: live execution check unavailable — proceeding (the chain gates the fill).`,
+  };
+  if (!market.spotPoolId || !base || !quote) return fallback;
+  try {
+    const tx = new Transaction();
+    if (side === "sell") {
+      // get_quote_quantity_out(pool, base_quantity, clock): (base_left, quote_out, deep_req)
+      tx.moveCall({
+        target: `${DEEPBOOK_PACKAGE_ID}::pool::get_quote_quantity_out`,
+        arguments: [
+          tx.object(market.spotPoolId),
+          tx.pure.u64(Math.floor(baseQty * baseScalar)),
+          tx.object(SUI_CLOCK_OBJECT_ID),
+        ],
+        typeArguments: [base, quote],
+      });
+    } else {
+      // buy: get_base_quantity_out(pool, quote_quantity, clock): (base_out, quote_left, deep_req)
+      // Pad the quote 30% over mid so the fill clears the min lot (asks sit
+      // above mid); the eff price is the VWAP over what actually fills.
+      const quoteIn = Math.floor(mid * baseQty * 1.3 * quoteScalar);
+      tx.moveCall({
+        target: `${DEEPBOOK_PACKAGE_ID}::pool::get_base_quantity_out`,
+        arguments: [
+          tx.object(market.spotPoolId),
+          tx.pure.u64(quoteIn),
+          tx.object(SUI_CLOCK_OBJECT_ID),
+        ],
+        typeArguments: [base, quote],
+      });
+    }
+    const r = await ctx.client.devInspectTransactionBlock({
+      sender: ctx.address,
+      transactionBlock: tx,
+    });
+    const rv = r.results?.[0]?.returnValues ?? [];
+    const nums = rv.map((v) => Number(bcs.U64.parse(Uint8Array.from(v[0]))));
+    const deepReq = (nums[2] ?? 0) / 1e6;
+    let effPrice = 0;
+    let depthOk = false;
+    if (side === "sell") {
+      const quoteOut = (nums[1] ?? 0) / quoteScalar;
+      effPrice = baseQty > 0 ? quoteOut / baseQty : 0;
+      depthOk = quoteOut > 0;
+    } else {
+      const baseOut = (nums[0] ?? 0) / baseScalar;
+      const quoteLeft = (nums[1] ?? 0) / quoteScalar;
+      const spent = mid * baseQty * 1.3 - quoteLeft;
+      effPrice = baseOut > 0 ? spent / baseOut : 0;
+      depthOk = baseOut >= baseQty * 0.5; // at least half a lot fillable
+    }
+    const slippagePct =
+      effPrice > 0
+        ? ((side === "buy" ? effPrice - mid : mid - effPrice) / mid) * 100
+        : 999;
+    const approved = depthOk && effPrice > 0 && slippagePct <= MAX_SLIPPAGE_PCT;
+    const note =
+      depthOk && effPrice > 0
+        ? `DeepBook ${side}: depth ${
+            approved ? "healthy" : "thin"
+          } · slippage ${slippagePct.toFixed(2)}% · ${deepReq.toFixed(3)} DEEP fee → ${
+            approved ? "execution approved" : "execution declined — slippage over the bar"
+          }.`
+        : `DeepBook ${side}: order book too thin to fill a ${baseQty}-lot cleanly → execution declined.`;
+    return { side, baseQty, effPrice, midPrice: mid, slippagePct, deepReq, depthOk, approved, note };
+  } catch {
+    return fallback;
+  }
+}
+
 export type OpenSpotResult = {
   digest: string;
   midPrice: number;
