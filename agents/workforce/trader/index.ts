@@ -2098,12 +2098,22 @@ async function runGatedOperator(
   // memory replay and DeepBook execution analysis fold in via opts in later
   // phases; the Move policy gates execution regardless.
   const budget = await readPolicyBudget(ctx, e.policyId);
+  // record_spend amount (quote, 6dp): one min-lot of SUI at the current mid.
+  // Hitting the cap is a NORMAL end-state — if the next order wouldn't fit, the
+  // engine abstains as a SUCCESS (capital fully deployed) so the operator stays
+  // alive rather than attempting a doomed record_spend that aborts + retires it.
+  const recordSpendAmount = BigInt(
+    Math.max(1, Math.floor(GATED_BASE_QTY * midUsd * 1e6)),
+  );
+  const budgetExhausted =
+    budget.cap > 0 && Number(recordSpendAmount) > budget.remaining;
   const eng = runDecisionEngine({
     asset: "SUI",
     signals,
     spotUsd: midUsd,
     mode,
     budgetUsedPct: budget.pct,
+    budgetExhausted,
   });
   const direction: Direction = eng.direction;
   const reasoning = `${eng.thesis} ${eng.counterargument} → ${eng.verdict}`;
@@ -2148,34 +2158,6 @@ async function runGatedOperator(
   // Decision to act — verify the BM can actually execute before firing.
   const coins = gatedCoinTypes(e.network);
   const isBid = direction === "up";
-
-  // record_spend amount (quote, 6dp): one min-lot of SUI at the current mid.
-  const recordSpendAmount = BigInt(
-    Math.max(1, Math.floor(GATED_BASE_QTY * midUsd * 1e6)),
-  );
-
-  // ---- BUDGET HEADROOM: stay alive at the cap ---------------------------
-  // Hitting the budget cap is a NORMAL end-state, not a failure. If the next
-  // order wouldn't fit, abstain gracefully (capital fully deployed) — never
-  // attempt a doomed record_spend that aborts EBudgetExceeded and retires the
-  // operator. (The on-chain refusal proof comes from the REVOKE kill switch.)
-  if (budget.cap > 0 && Number(recordSpendAmount) > budget.remaining) {
-    const r = `Operator leaned ${direction.toUpperCase()} but its budget is fully deployed — ${(
-      budget.spent / 1e6
-    ).toFixed(2)} of ${(budget.cap / 1e6).toFixed(
-      2,
-    )} spent, less than one min-lot left. No trade; the leash held. Top up the budget to let it keep working.`;
-    emitAgentEvent("mode", {
-      policyId: e.policyId,
-      taskId,
-      asset: "SUI",
-      data: { mode: "simulated", sim_reason: r },
-    });
-    console.log(
-      `[trader-gated] ${e.policyId.slice(0, 10)}… ${direction} budget fully deployed — abstain (alive)`,
-    );
-    return;
-  }
 
   // ---- FUEL: the operator's DEEP tank pays DeepBook fees -----------------
   // SUI/USDC isn't whitelisted, so each order needs DEEP. If the tank is

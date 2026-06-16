@@ -121,10 +121,14 @@ export function runDecisionEngine(args: {
   spotUsd: number;
   mode: OperatorMode;
   budgetUsedPct: number;
+  /** Capital is fully deployed — no headroom for another min-lot. A normal
+   *  end-state: the operator abstains as a SUCCESS and stays alive. */
+  budgetExhausted?: boolean;
   opts?: EngineOpts;
 }): OperatorDecision {
   const { asset, signals, spotUsd, mode, budgetUsedPct, opts } = args;
   const cfg = MODE_CFG[mode];
+  const budgetBlocked = !!args.budgetExhausted;
 
   const roc30 = signals.roc_30m ?? 0;
   const roc5 = signals.roc_5m ?? 0;
@@ -187,7 +191,9 @@ export function runDecisionEngine(args: {
     0,
   )}% used · realized vol ${pct(signals.realized_vol_60m)} · ${cfg.label} mode needs ≥ ${(
     cfg.minConfidence * 100
-  ).toFixed(0)}% confidence.${opts?.memory ? ` Memory: ${opts.memory.note}.` : ""}`;
+  ).toFixed(0)}% confidence.${
+    budgetBlocked ? " Budget fully deployed — no headroom for another min-lot." : ""
+  }${opts?.memory ? ` Memory: ${opts.memory.note}.` : ""}`;
 
   // ── Policy review (the loop verifies the real on-chain gate; this is the
   //    operator's own pre-check before it even builds the tx) ──────────────
@@ -199,17 +205,19 @@ export function runDecisionEngine(args: {
 
   // ── Decision ────────────────────────────────────────────────────────────
   const execOk = opts?.exec ? opts.exec.approved : true;
-  const act = confidence >= cfg.minConfidence && trending && execOk;
+  const act = confidence >= cfg.minConfidence && trending && execOk && !budgetBlocked;
 
   const verdict = act
     ? `Act ${direction.toUpperCase()} — ${(confidence * 100).toFixed(0)}% confidence clears the ${cfg.label} bar.`
-    : !trending
-      ? `Stand down — flat tape, capital protected.`
-      : !execOk
-        ? `Stand down — execution conditions not met.`
-        : `Stand down — ${(confidence * 100).toFixed(0)}% confidence below the ${(
-            cfg.minConfidence * 100
-          ).toFixed(0)}% ${cfg.label} bar.`;
+    : budgetBlocked
+      ? `Stand down — budget fully deployed; capital working, none at new risk.`
+      : !trending
+        ? `Stand down — flat tape, capital protected.`
+        : !execOk
+          ? `Stand down — execution conditions not met.`
+          : `Stand down — ${(confidence * 100).toFixed(0)}% confidence below the ${(
+              cfg.minConfidence * 100
+            ).toFixed(0)}% ${cfg.label} bar.`;
 
   return {
     mode,
