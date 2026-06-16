@@ -53,7 +53,6 @@ import {
   type TraderPersonality,
   type WorkforceTask,
   type WorkforceTemplate,
-  TRADER_PERSONALITIES,
   dispatchTraderTask,
   loadTraderIdentity,
   loadLatestTraderIdentity,
@@ -581,7 +580,59 @@ function operatorStatus(
   }
 }
 
-// The "Choose your operator" grid — four operators, 2×2, 24px gutter.
+// ONE operator, THREE modes. The mode sets the decision engine's
+// confidence/trend bars (Protect/Grow/Aggressive) — not a different bot.
+// Each maps to a legacy personality + goal under the hood so the proven
+// adoption plumbing is untouched; the engine recovers the mode from the goal.
+type WfMode = "protect" | "grow" | "aggressive";
+
+const WF_MODES: {
+  id: WfMode;
+  label: string;
+  sub: string;
+  desc: string;
+  glyph: string;
+  personality: StrategyId;
+}[] = [
+  {
+    id: "protect",
+    label: "Protect",
+    sub: "Capital preservation",
+    desc: "Acts only on a strong, confirmed trend. Sits out chop — most cycles end in a green “no trade,” capital protected by design.",
+    glyph: "◈",
+    personality: "conservative",
+  },
+  {
+    id: "grow",
+    label: "Grow",
+    sub: "Balanced · default",
+    desc: "Trades a real edge, stands down on noise. Measured exposure under the same on-chain leash.",
+    glyph: "◇",
+    personality: "momentum",
+  },
+  {
+    id: "aggressive",
+    label: "Aggressive",
+    sub: "Higher activity",
+    desc: "A lower bar to act — more trades, more risk. For leaning in. Still hard-capped by the chain.",
+    glyph: "◆",
+    personality: "contrarian",
+  },
+];
+
+const MODE_FOR_PERSONALITY = Object.fromEntries(
+  WF_MODES.map((m) => [m.personality, m]),
+) as Partial<Record<StrategyId, (typeof WF_MODES)[number]>>;
+
+function modeGoal(id: WfMode): OperatorGoal {
+  return id === "grow"
+    ? { type: "grow", targetPct: 5, horizonDays: 30 }
+    : id === "protect"
+      ? { type: "preserve" }
+      : { type: "edge" };
+}
+
+// The "Choose a mode" grid — one operator, three modes, 24px gutter.
 // Used on the disconnected screen AND (when no preselect survives) right
 // after connect. Pure white cards, sharp corners, breathing glyph.
 function OperatorChoiceGrid({
@@ -593,15 +644,15 @@ function OperatorChoiceGrid({
 }) {
   const signals = useDisconnectedSignals();
   return (
-    <div className="mt-10 grid gap-6 sm:grid-cols-2">
-      {TRADER_PERSONALITIES.map((p, i) => (
+    <div className="mt-10 grid gap-6 sm:grid-cols-3">
+      {WF_MODES.map((m, i) => (
         <OperatorChoiceCard
-          key={p.strategy}
-          personality={p}
-          status={operatorStatus(p.strategy, signals)}
-          active={picked === p.strategy}
+          key={m.id}
+          mode={m}
+          status={operatorStatus(m.personality, signals)}
+          active={picked === m.personality}
           index={i}
-          onPick={() => onPick(p.strategy)}
+          onPick={() => onPick(m.personality)}
         />
       ))}
     </div>
@@ -609,13 +660,13 @@ function OperatorChoiceGrid({
 }
 
 function OperatorChoiceCard({
-  personality,
+  mode,
   status,
   active,
   index,
   onPick,
 }: {
-  personality: TraderPersonality;
+  mode: (typeof WF_MODES)[number];
   status: OperatorStatus;
   active: boolean;
   index: number;
@@ -651,13 +702,16 @@ function OperatorChoiceCard({
         className="op-glyph font-sans text-[48px] leading-none text-ink"
         aria-hidden
       >
-        {personality.glyph}
+        {mode.glyph}
       </span>
       <h3 className="mt-5 font-sans text-[20px] font-medium tracking-tight text-ink">
-        {personality.label}
+        {mode.label}
       </h3>
-      <p className="mt-1 text-[13.5px] leading-snug text-ink-2">
-        {personality.tagline}
+      <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+        {mode.sub}
+      </span>
+      <p className="mt-1.5 text-[13.5px] leading-snug text-ink-2">
+        {mode.desc}
       </p>
       <div className="mt-auto flex items-center justify-between pt-5">
         <span
@@ -688,7 +742,7 @@ function OperatorChoiceCard({
 function Disconnected() {
   const zk = useZkLogin();
   const [picked, setPicked] = useState<StrategyId | null>(null);
-  const pickedLabel = picked ? personalityById(picked)?.label ?? null : null;
+  const pickedLabel = picked ? MODE_FOR_PERSONALITY[picked]?.label ?? null : null;
   const onPick = (s: StrategyId) => {
     setPicked(s);
     setPreselectedStrategy(s);
@@ -702,11 +756,11 @@ function Disconnected() {
           Brief · live on Sui testnet
         </p>
         <h1 className="mt-4 font-sans text-4xl font-medium tracking-tightest sm:text-5xl">
-          Choose your operator.
+          One operator. Three modes.
         </h1>
         <p className="mt-4 max-w-prose text-[16px] leading-relaxed text-ink-2 sm:text-lg">
-          Four temperaments, one leash. Pick one — it trades on chain,
-          bounded by a Move policy you revoke in one tap.{" "}
+          One autonomous operator, calibrated by the mode you choose. It trades
+          on chain, bounded by a Move policy you revoke in one tap.{" "}
           <Link
             href="/leaderboard"
             className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
@@ -722,7 +776,7 @@ function Disconnected() {
         {pickedLabel && (
           <p className="mt-6 inline-flex items-center gap-2 border-l-[3px] border-emerald-500 bg-emerald-50/70 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-800 animate-land-in">
             <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            Connect a wallet to adopt {pickedLabel}
+            Connect a wallet to adopt in {pickedLabel} mode
           </p>
         )}
 
@@ -1212,7 +1266,9 @@ const TYPICAL_QTY_BY_STRATEGY: Record<StrategyId, number> = {
   quant: 4,
 };
 const TRADER_DEFAULT_BUDGET_SUI = 1;
-const TRADER_EXPIRY_HOURS = 12;
+// Operators live for the demo window, not 12h — long enough that the owner (or
+// a judge) can come back tomorrow and find it still working, not expired.
+const TRADER_EXPIRY_HOURS = 24 * 14; // 14 days
 const TRADER_FAUCET_TIMEOUT_MS = 15_000;
 
 function useTraderLauncher({
@@ -1516,6 +1572,7 @@ function useDepositAdopt({
                         deposit_cap_id: depositCapId,
                         owner: address,
                         personality: personality.strategy,
+                        mode: MODE_FOR_PERSONALITY[personality.strategy]?.id ?? "grow",
                         goal,
                         network: BRIEF_NETWORK,
                       }),
@@ -1641,7 +1698,7 @@ function DepositGallery({
     <section className="mt-10">
       <ActiveOperatorResume />
       <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-        Choose your operator
+        Choose a mode
       </p>
       <OperatorChoiceGrid picked={pickedId} onPick={setPickedId} />
       <ControlReassurance />
@@ -1667,13 +1724,16 @@ function DepositAdoptPanel({
   const client = useSuiClient();
   const { signAndExecute } = useAccountSigner();
   const { usdc, loaded, refetch } = useUsdcBalance(address);
+  // The mode the chosen card maps to — drives all the copy + the fixed goal.
+  const mode = MODE_FOR_PERSONALITY[personality.strategy];
   const [name, setName] = useState(
-    () => `${personality.label}-${Math.floor(Math.random() * 9) + 1}`,
+    () => `${mode?.label ?? "Brief"} Operator ${Math.floor(Math.random() * 9) + 1}`,
   );
   // Testnet SUI is faucet-scarce, so small deposits keep the demo reachable.
   const presets = isMainnet ? [5, 10, 20] : [1, 2, 5];
   const [deposit, setDeposit] = useState(isMainnet ? 5 : 1);
-  const [goal, setGoal] = useState<OperatorGoal>(() => defaultGoalFor(personality.strategy));
+  // Mode IS the goal — no separate selector. Fixed per the card chosen.
+  const goal: OperatorGoal = modeGoal(mode?.id ?? "grow");
   const [swap, setSwap] = useState<{ kind: "idle" | "swapping" | "error"; msg?: string }>({
     kind: "idle",
   });
@@ -1740,7 +1800,7 @@ function DepositAdoptPanel({
       <div className="px-6 py-7 sm:px-8 sm:py-8 space-y-7">
         {/* Operator + name */}
         <div className="flex items-start gap-3">
-          <span className="font-sans text-[40px] leading-none text-ink" aria-hidden>{personality.glyph}</span>
+          <span className="font-sans text-[40px] leading-none text-ink" aria-hidden>{mode?.glyph ?? "◇"}</span>
           <div className="flex-1">
             <input
               type="text"
@@ -1749,35 +1809,16 @@ function DepositAdoptPanel({
               maxLength={32}
               className="w-full border-b-2 border-line bg-transparent px-0 py-1 text-[22px] font-medium tracking-tight text-ink outline-none transition-colors focus:border-ink"
             />
-            <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{personality.tagline}</p>
+            <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{mode?.desc ?? personality.tagline}</p>
           </div>
         </div>
 
-        {/* Goal (calibration) */}
+        {/* Mode — set by the card you chose; it IS the goal. */}
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">Goal</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {([
-              { t: "grow", label: "Grow" },
-              { t: "preserve", label: "Preserve" },
-              { t: "edge", label: "Max edge" },
-            ] as const).map((g) => {
-              const active = goal.type === g.t;
-              return (
-                <button
-                  key={g.t}
-                  type="button"
-                  onClick={() => setGoal(g.t === "grow" ? { type: "grow", targetPct: 5, horizonDays: 30 } : { type: g.t })}
-                  className={[
-                    "px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
-                    active ? "bg-ink text-bg" : "border border-line text-muted hover:text-ink",
-                  ].join(" ")}
-                >
-                  {g.label}
-                </button>
-              );
-            })}
-          </div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">Mode</p>
+          <p className="mt-2 font-mono text-[12px] uppercase tracking-[0.18em] text-ink">
+            {mode?.label ?? "Grow"} · <span className="text-muted">{mode?.sub ?? "Balanced"}</span>
+          </p>
           <p className="mt-2 font-mono text-[10.5px] leading-relaxed text-ink-2">
             {trimmed} will act at <span className="text-ink">edge ≥ {(cal.minEdge * 100).toFixed(1)}%</span> · conviction ≥ {cal.convictionFloor.toFixed(2)} · max qty {cal.maxQty}.
           </p>
@@ -1951,7 +1992,7 @@ function TraderGallery({
     <section className="mt-10">
       <ActiveOperatorResume />
       <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-        Choose your operator
+        Choose a mode
       </p>
       <OperatorChoiceGrid picked={pickedId} onPick={setPickedId} />
       <ControlReassurance />
