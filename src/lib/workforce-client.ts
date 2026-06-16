@@ -432,6 +432,20 @@ export function loadLatestTraderIdentity(): TraderIdentity | null {
   }
 }
 
+/** All adopted operators, newest first — drives the Operators home (fleet). */
+export function loadAllTraderIdentities(): TraderIdentity[] {
+  const s = safeStorage();
+  if (!s) return [];
+  const raw = s.getItem(TRADER_IDENTITY_KEY);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as TraderIdentity[];
+    return Array.isArray(arr) ? arr.slice().reverse() : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Flag an operator revoked locally so the kill switch retires it. */
 export function markIdentityRevoked(policyId: string): void {
   const s = safeStorage();

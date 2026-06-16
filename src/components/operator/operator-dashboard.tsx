@@ -666,7 +666,7 @@ function TopBar({
             className="font-mono text-[10px] uppercase tracking-[0.2em] transition-colors hover:text-ink"
             style={{ color: SUB }}
           >
-            {readOnly ? "Adopt your own →" : "← Adopt another"}
+            {readOnly ? "← Operators" : "← Adopt another"}
           </button>
         </div>
       </div>

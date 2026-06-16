@@ -56,6 +56,7 @@ import {
   dispatchTraderTask,
   loadTraderIdentity,
   loadLatestTraderIdentity,
+  loadAllTraderIdentities,
   type TraderIdentity,
   personalityById,
   saveTraderIdentity,
@@ -1061,7 +1062,7 @@ function ViewOperator({ policyId }: { policyId: string }) {
       traderName={policy?.name || "Operator"}
       goal={null}
       onReset={() => {
-        if (typeof window !== "undefined") window.location.href = "/workforce/adopt";
+        if (typeof window !== "undefined") window.location.href = "/workforce";
       }}
       dispatchError={null}
       onDispatchAgain={() => {}}
@@ -1099,15 +1100,12 @@ function Connected({ address }: { address: string }) {
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("predict") === "1";
 
-  // Your operator home: once you've adopted one, /workforce leads with it
-  // LIVE (the command center), not a pitch. Adoption lives in the wizard.
-  const [latest, setLatest] = useState<TraderIdentity | null>(null);
-  useEffect(() => setLatest(loadLatestTraderIdentity()), []);
+  // Your operators home — the fleet. /workforce shows every operator you've
+  // adopted; click one to open it live. Adoption lives in the wizard.
+  const [ops, setOps] = useState<TraderIdentity[]>([]);
+  useEffect(() => setOps(loadAllTraderIdentities()), []);
 
   if (!activation) {
-    if (latest && !legacy && !predict) {
-      return <ViewOperator policyId={latest.policyId} />;
-    }
     return (
       <section className="mx-auto max-w-page px-6 pt-10 pb-24 sm:px-10 sm:pt-14">
         {legacy ? (
@@ -1129,6 +1127,8 @@ function Connected({ address }: { address: string }) {
             <TraderIntro />
             <TraderGallery address={address} onActivated={setActivation} />
           </>
+        ) : ops.length > 0 ? (
+          <OperatorsHome ops={ops} />
         ) : (
           <FirstOperatorEntry />
         )}
@@ -1466,6 +1466,105 @@ function useUsdcBalance(address: string): {
 // One signature via buildAdoptTx: the user's own BalanceManager is created
 // + funded, a TradeCap is delegated to the operator (trade-not-withdraw),
 // and the chain-enforced policy is created. The user keeps custody.
+// The fleet home — every operator you've adopted, as premium cards. Click
+// one to open it live. This is /workforce when you have 1+ operators.
+function OperatorsHome({ ops }: { ops: TraderIdentity[] }) {
+  return (
+    <div className="mx-auto max-w-page">
+      <header className="flex flex-wrap items-end justify-between gap-5">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+            Brief · your operators
+          </p>
+          <h1 className="mt-3 font-sans text-[40px] font-medium leading-[1.04] tracking-tightest text-ink sm:text-[60px]">
+            Your operators.
+          </h1>
+          <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
+            {ops.length} operator{ops.length === 1 ? "" : "s"} — each non-custodial, each on
+            its own on-chain leash.
+          </p>
+        </div>
+        <Link
+          href="/workforce/adopt"
+          className="shrink-0 bg-accent px-6 py-3.5 font-mono text-[11px] uppercase tracking-[0.28em] text-white transition-opacity hover:opacity-90"
+        >
+          Adopt an operator →
+        </Link>
+      </header>
+
+      <div className="mt-12 grid gap-4 sm:grid-cols-2">
+        {ops.map((op) => (
+          <OperatorHomeCard key={op.policyId} op={op} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OperatorHomeCard({ op }: { op: TraderIdentity }) {
+  const { policy } = usePolicy(op.policyId);
+  const mode = MODE_FOR_PERSONALITY[op.strategy];
+  const spot = (policy?.allowedVenues ?? []).some((v) => v.startsWith("spot"));
+  const div = spot ? 1e6 : 1e9;
+  const unit = spot ? (BRIEF_NETWORK === "mainnet" ? "USDC" : "DBUSDC") : "SUI";
+  const cap = policy ? Number(policy.budgetCap) / div : 0;
+  const spent = policy ? Number(policy.spent) / div : 0;
+  const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
+  const expired = policy?.expiresAtMs ? Date.now() >= Number(policy.expiresAtMs) : false;
+  const status = !policy
+    ? { word: "Loading", color: "#C7C7CC", live: false }
+    : policy.revoked
+      ? { word: "Grounded", color: "#999999", live: false }
+      : expired
+        ? { word: "Expired", color: "#F59E0B", live: false }
+        : { word: "Active", color: "#10B981", live: true };
+  return (
+    <Link
+      href={`/workforce?policy=${op.policyId}`}
+      className="group flex flex-col bg-bg-elev p-5 shadow-[0_1px_3px_rgba(0,0,0,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] sm:p-6"
+      style={{ borderTop: `3px solid ${status.color}` }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="font-sans text-[30px] leading-none text-ink" aria-hidden>
+            {mode?.glyph ?? "◇"}
+          </span>
+          <div>
+            <p className="font-sans text-[17px] font-medium tracking-tight text-ink">{op.name}</p>
+            <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-muted">
+              {mode?.label ?? op.strategy} mode
+            </p>
+          </div>
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1.5">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${status.live ? "animate-pulse" : ""}`}
+            style={{ background: status.color }}
+            aria-hidden
+          />
+          <span className="font-mono text-[9px] uppercase tracking-[0.18em]" style={{ color: status.color }}>
+            {status.word}
+          </span>
+        </span>
+      </div>
+      <div className="mt-6">
+        <div className="mb-1 flex items-center justify-between font-mono text-[10px] tabular-nums text-muted">
+          <span>budget</span>
+          <span>
+            {spent.toFixed(2)} / {cap.toFixed(2)} {unit}
+          </span>
+        </div>
+        <div className="h-1 w-full overflow-hidden rounded-full" style={{ background: "#E5E5EA" }}>
+          <div className="h-full" style={{ width: `${pct}%`, background: pct >= 95 ? "#EF4444" : "#10B981" }} />
+        </div>
+      </div>
+      <span className="mt-5 font-mono text-[9.5px] uppercase tracking-[0.2em] text-muted transition-colors group-hover:text-ink">
+        Open operator →
+      </span>
+    </Link>
+  );
+}
+
 // The connected home when you have NO operator yet — the product offering
 // (the three modes) + one CTA into the wizard. Not a wall of text.
 function FirstOperatorEntry() {
