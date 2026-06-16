@@ -198,7 +198,7 @@ export function recallSimilar(
   if (matches.length === 0) {
     return {
       matches: [],
-      note: "No comparable past situations yet — building experience.",
+      note: "First time in conditions like these — recording it so future cycles can recall how it played out.",
       confidenceMult: 1,
       found: 0,
       wins: 0,
