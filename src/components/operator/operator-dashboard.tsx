@@ -199,7 +199,6 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   const spot = isSpotPolicy(policy);
   const bv = budgetView(policy);
   const journal = useOperatorJournal(policyId, bv.asset, spot);
-  const [tab, setTab] = useState<"now" | "journal" | "policy">("now");
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -240,34 +239,70 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         readOnly={props.readOnly}
       />
 
-      <main className="mx-auto max-w-4xl px-5 py-8 sm:px-8">
-        <div className="bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          <TabBar tab={tab} setTab={setTab} />
-          <div className="px-5 py-6 sm:px-8 sm:py-8">
-            {tab === "now" && (
-              <NowTab
-                stream={stream}
-                journal={journal}
-                stale={stale}
-                now={now}
-                policy={policy}
-                traderName={traderName}
-                revoked={revoked}
-                assetLabel={bv.asset}
-                isSpot={spot}
-                dispatchError={props.dispatchError}
-                onDispatchAgain={props.onDispatchAgain}
-                dispatching={props.dispatching}
-              />
-            )}
-            {tab === "journal" && (
-              <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} isSpot={spot} />
-            )}
-            {tab === "policy" && (
+      <main className="mx-auto max-w-3xl space-y-6 px-5 py-8 sm:px-8">
+        {/* ONE living surface: glance → market → thinking → history → policy */}
+        <OperatorHero
+          name={traderName}
+          glyph={personality?.glyph ?? "◇"}
+          stream={stream}
+          revoked={revoked}
+          stale={stale}
+          now={now}
+          bv={bv}
+        />
+
+        <MarketState signals={stream.signals} assetLabel={bv.asset} />
+
+        <SectionCard title="Right now">
+          <NowTab
+            stream={stream}
+            journal={journal}
+            stale={stale}
+            now={now}
+            policy={policy}
+            traderName={traderName}
+            revoked={revoked}
+            assetLabel={bv.asset}
+            isSpot={spot}
+            dispatchError={props.dispatchError}
+            onDispatchAgain={props.onDispatchAgain}
+            dispatching={props.dispatching}
+          />
+        </SectionCard>
+
+        <SectionCard
+          title="Timeline · its experience"
+          action={
+            policyId ? (
+              <Link
+                href={`/brain?policy=${policyId}`}
+                className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-60"
+                style={{ color: NAVY }}
+              >
+                Full replay →
+              </Link>
+            ) : null
+          }
+        >
+          <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} isSpot={spot} />
+        </SectionCard>
+
+        <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+          <summary
+            className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 sm:px-8"
+            style={{ color: NAVY }}
+          >
+            <span className="font-mono text-[10px] uppercase tracking-[0.24em]">Policy &amp; proof</span>
+            <span className="font-mono text-[10px] transition-transform group-open:rotate-90" aria-hidden>
+              ›
+            </span>
+          </summary>
+          <div className="px-5 pb-7 sm:px-8" style={{ borderTop: "1px solid #E5E5EA" }}>
+            <div className="pt-6">
               <PolicyTab {...props} manifestoBlobId={stream.walrusManifestoBlobId} />
-            )}
+            </div>
           </div>
-        </div>
+        </details>
 
         <BottomStrip entries={journal.entries} />
       </main>
@@ -292,6 +327,163 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hero — the ONE glance. Current status (live) AND last completed decision
+// COEXIST (they're different things — fixes the "watching↔protected" flicker),
+// over the four numbers that matter.
+// ---------------------------------------------------------------------------
+
+function OperatorHero({
+  name,
+  glyph,
+  stream,
+  revoked,
+  stale,
+  now,
+  bv,
+}: {
+  name: string;
+  glyph: string;
+  stream: AgentStreamState;
+  revoked: boolean;
+  stale: boolean;
+  now: number;
+  bv: { cap: number; spent: number; unit: string };
+}) {
+  const dec = stream.decision;
+  const status = revoked
+    ? { word: "Grounded", color: IDLE, live: false }
+    : stream.mode === "live" && !stale
+      ? { word: "Executing", color: EMERALD, live: true }
+      : { word: "Observing", color: NAVY, live: true };
+  const heroLine = revoked
+    ? "Operator grounded — past wins still redeem, no new trades."
+    : !dec
+      ? "Reading the market — its first decision lands shortly."
+      : dec.mandate?.breached
+        ? "Mandate guard tripped — standing down to honour your limit."
+        : dec.decided
+          ? `Found an edge — ${dec.direction === "up" ? "buying" : "selling"} SUI.`
+          : "No edge worth the risk — capital protected.";
+  const lastWhen = stream.lastEventTs ? relTime(stream.lastEventTs, now) : "—";
+  const conf = dec ? `${Math.round(dec.conviction * 100)}%` : "—";
+  const m = dec?.mandate ?? null;
+  const mandateHealth = m ? (m.breached ? "Guard tripped" : "Healthy") : "—";
+  const mandateColor = m ? (m.breached ? RED : EMERALD) : SUB;
+  const budgetRem = bv.cap > 0 ? `${Math.max(0, Math.round(100 - (bv.spent / bv.cap) * 100))}%` : "—";
+  return (
+    <section
+      className="bg-bg-elev px-6 py-7 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9 sm:py-8"
+      style={{ borderTop: `3px solid ${status.color}` }}
+    >
+      <div className="flex items-center gap-2.5">
+        <span className="font-sans text-[22px] leading-none" style={{ color: INK }} aria-hidden>
+          {glyph}
+        </span>
+        <span
+          className="font-sans text-[16px] font-medium tracking-tight"
+          style={{ color: revoked ? IDLE : INK, textDecoration: revoked ? "line-through" : "none" }}
+        >
+          {name}
+        </span>
+        <span className="ml-1 inline-flex items-center gap-1.5">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${status.live ? "animate-pulse" : ""}`}
+            style={{ background: status.color }}
+            aria-hidden
+          />
+          <span className="font-mono text-[9.5px] uppercase tracking-[0.24em]" style={{ color: status.color }}>
+            {status.word}
+          </span>
+        </span>
+      </div>
+      <p
+        className="mt-4 font-sans text-[23px] font-medium leading-snug tracking-tight sm:text-[27px]"
+        style={{ color: INK }}
+      >
+        {heroLine}
+      </p>
+      <div
+        className="mt-5 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-4"
+        style={{ background: "#E5E5EA" }}
+      >
+        <HeroStat label="Last decision" value={lastWhen} />
+        <HeroStat label="Confidence" value={conf} />
+        <HeroStat label="Mandate" value={mandateHealth} color={mandateColor} />
+        <HeroStat label="Budget left" value={budgetRem} />
+      </div>
+    </section>
+  );
+}
+
+function HeroStat({ label, value, color = INK }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="bg-bg-elev px-3 py-2.5">
+      <p className="font-mono text-[9px] uppercase tracking-[0.16em]" style={{ color: SUB }}>
+        {label}
+      </p>
+      <p className="mt-1 font-mono text-[14px] tabular-nums" style={{ color }}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// Market State — the same numbers, in human words. Premium, not raw.
+function MarketState({ signals, assetLabel }: { signals: StreamSignals | null; assetLabel: string }) {
+  if (!signals || signals.spot == null) return null;
+  const roc = signals.roc_30m ?? 0;
+  const aligned =
+    signals.sma_15m != null && signals.sma_60m != null ? signals.sma_15m >= signals.sma_60m : roc >= 0;
+  const a = Math.abs(roc);
+  const trend =
+    a < 0.0008
+      ? "Flat"
+      : `${a > 0.008 ? "Strongly " : a > 0.003 ? "" : "Weakly "}${aligned ? "bullish" : "bearish"}`;
+  const vol = signals.realized_vol_60m ?? 0;
+  const volLabel = vol < 0.005 ? "Calm" : vol < 0.012 ? "Moderate" : "Elevated";
+  return (
+    <section className="bg-bg-elev px-6 py-5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
+      <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+        Market state
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+        <MS label={assetLabel} value={`$${signals.spot.toFixed(3)}`} />
+        <MS label="Trend" value={trend} />
+        <MS label="Momentum" value={momentumLabel(signals.rsi_60m)} />
+        <MS label="Volatility" value={volLabel} />
+      </div>
+    </section>
+  );
+}
+
+function MS({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="font-mono text-[9px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
+        {label}
+      </p>
+      <p className="mt-0.5 font-sans text-[15px] font-medium tracking-tight" style={{ color: INK }}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function SectionCard({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+      <div className="flex items-center justify-between border-b px-5 py-3 sm:px-8" style={{ borderColor: "#E5E5EA" }}>
+        <span className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+          {title}
+        </span>
+        {action}
+      </div>
+      <div className="px-5 py-6 sm:px-8 sm:py-7">{children}</div>
+    </section>
   );
 }
 
@@ -468,50 +660,7 @@ function TopBar({
 }
 
 // ---------------------------------------------------------------------------
-// tab bar
-// ---------------------------------------------------------------------------
-
-function TabBar({
-  tab,
-  setTab,
-}: {
-  tab: "now" | "journal" | "policy";
-  setTab: (t: "now" | "journal" | "policy") => void;
-}) {
-  const tabs: Array<{ id: "now" | "journal" | "policy"; label: string }> = [
-    { id: "now", label: "Now" },
-    { id: "journal", label: "Journal" },
-    { id: "policy", label: "Policy" },
-  ];
-  return (
-    <div className="flex gap-6 px-5 sm:px-8" style={{ borderBottom: "1px solid #E5E5E5" }}>
-      {tabs.map((t) => {
-        const active = tab === t.id;
-        return (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className="relative -mb-px py-3.5 font-mono text-[11px] uppercase tracking-[0.22em] transition-colors"
-            style={{ color: active ? INK : SUB }}
-          >
-            {t.label}
-            {active && (
-              <span
-                className="absolute inset-x-0 bottom-0 h-[2px]"
-                style={{ background: EMERALD }}
-                aria-hidden
-              />
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// NOW tab — the decision cascade
+// "Right now" — the live decision cascade (the operator thinking)
 // ---------------------------------------------------------------------------
 
 function NowTab({
@@ -568,15 +717,6 @@ function NowTab({
 
   return (
     <div>
-      {/* Lead with the ONE thing: what is the operator doing right now. */}
-      <OperatorStatusHeader dec={dec} stale={stale} revoked={revoked} />
-
-      {showCascade && (
-        <p className="mx-auto mb-3 max-w-xl font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: SUB }}>
-          How it decided
-        </p>
-      )}
-
       {showCascade ? (
         isSpot ? (
           <SpotPipeline
@@ -693,66 +833,6 @@ function NowTab({
 }
 
 // ---------------------------------------------------------------------------
-// OperatorStatusHeader — the dashboard leads with the ONE thing a judge needs:
-// what is the operator doing right now, in one line + one why. The pipeline
-// below is the supporting "how"; the Brain is the deep dive.
-function OperatorStatusHeader({
-  dec,
-  stale,
-  revoked,
-}: {
-  dec: AgentStreamState["decision"];
-  stale: boolean;
-  revoked: boolean;
-}) {
-  let title: string;
-  let why: string;
-  let color: string;
-  let live: boolean;
-  if (revoked) {
-    title = "Operator grounded";
-    why = "The leash was pulled on chain. Past wins still redeem — no new trades.";
-    color = "#999999";
-    live = false;
-  } else if (!dec || stale) {
-    title = "Watching the market";
-    why = "Reading the tape every cycle — it acts only on a real edge.";
-    color = NAVY;
-    live = true;
-  } else if (dec.decided) {
-    const up = dec.direction === "up";
-    title = up ? "Trade approved — Buy" : "Trade approved — Sell";
-    why = dec.verdict ?? "Edge cleared the bar.";
-    color = up ? EMERALD : RED;
-    live = true;
-  } else {
-    title = "Capital protected";
-    why = dec.verdict ?? "No edge worth the risk this cycle — abstaining is a decision.";
-    color = EMERALD;
-    live = false;
-  }
-  return (
-    <div className="mx-auto mb-7 max-w-xl">
-      <div className="flex items-center gap-2">
-        <span
-          className={`h-2 w-2 rounded-full ${live ? "animate-pulse" : ""}`}
-          style={{ background: color }}
-          aria-hidden
-        />
-        <span className="font-mono text-[10px] uppercase tracking-[0.28em]" style={{ color }}>
-          {live ? "live" : revoked ? "grounded" : "decided"}
-        </span>
-      </div>
-      <p className="mt-2.5 font-sans text-[27px] font-medium leading-tight tracking-tight" style={{ color: INK }}>
-        {title}
-      </p>
-      <p className="mt-1.5 text-[14px] leading-relaxed" style={{ color: SUB }}>
-        {why}
-      </p>
-    </div>
-  );
-}
-
 // SpotPipeline — the Brief Operator's visible decision engine (gated-spot).
 //
 // Seven steps the user can watch execute, on real market data:
