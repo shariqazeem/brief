@@ -41,8 +41,8 @@ type OperatorMode = "protect" | "grow" | "aggressive";
 const MODES: {
   id: OperatorMode;
   label: string;
-  sub: string;
-  desc: string;
+  cadence: string;
+  behavior: string[];
   dot: string;
   glyph: string;
   personality: StrategyId;
@@ -51,8 +51,8 @@ const MODES: {
   {
     id: "protect",
     label: "Protect",
-    sub: "Capital preservation",
-    desc: "Acts only on a strong, confirmed trend. Sits out chop. Most cycles end in a green “no trade” — discipline by design.",
+    cadence: "Most days: no trade",
+    behavior: ["Waits patiently.", "Acts only when the edge is obvious."],
     dot: "#10B981",
     glyph: "◈",
     personality: "conservative",
@@ -61,8 +61,8 @@ const MODES: {
   {
     id: "grow",
     label: "Grow",
-    sub: "Balanced · default",
-    desc: "Trades a real edge, stands down on noise. Measured exposure under the same on-chain leash.",
+    cadence: "Most days: 1–3 decisions",
+    behavior: ["Balanced.", "Looks for genuine opportunities."],
     dot: "#4DA2FF",
     glyph: "◇",
     personality: "momentum",
@@ -71,8 +71,8 @@ const MODES: {
   {
     id: "aggressive",
     label: "Aggressive",
-    sub: "Higher activity",
-    desc: "A lower bar to act — more trades, more risk. For leaning in. Still hard-capped by the chain.",
+    cadence: "Most days: several decisions",
+    behavior: ["Acts earlier.", "Accepts more uncertainty."],
     dot: "#F59E0B",
     glyph: "◆",
     personality: "contrarian",
@@ -345,15 +345,13 @@ function AdoptWizard() {
           </div>
         </header>
 
-        {/* ─── Section 2 · Choose a mode ────────────────────────────── */}
+        {/* ─── Section 2 · Choose how your operator behaves ─────────── */}
         {showChoose && (
           <section className="mt-16 animate-fade-up">
-            <SectionLabel n="01" title="Choose a mode" />
+            <SectionLabel n="01" title="Choose how your operator behaves" />
             <p className="mt-3 max-w-prose text-[14px] leading-relaxed text-ink-2">
-              One operator, one decision engine. The mode sets how hard it leans
-              in — the confidence and trend bars it needs to clear before it acts.
-              You can change your mind by adopting again; the chain enforces each
-              the same way.
+              You&apos;re delegating judgement, not picking a plan. Same engine,
+              same on-chain leash — the mode just sets how often it acts.
             </p>
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {MODES.map((m) => (
@@ -639,10 +637,16 @@ function ModeCard({
       <span className="mt-3 font-sans text-[16px] font-medium tracking-tight text-ink">
         {m.label}
       </span>
-      <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted">
-        {m.sub}
+      <span className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: "#1a2c4e" }}>
+        {m.cadence}
       </span>
-      <span className="mt-2 flex-1 text-[12px] leading-snug text-ink-2">{m.desc}</span>
+      <div className="mt-3 flex-1 space-y-1">
+        {m.behavior.map((line) => (
+          <p key={line} className="text-[12.5px] leading-snug text-ink-2">
+            {line}
+          </p>
+        ))}
+      </div>
       <div className="mt-3 flex items-center gap-1.5">
         <span
           className="h-1.5 w-1.5 shrink-0 rounded-full"
