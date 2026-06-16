@@ -736,15 +736,20 @@ function SpotPipeline({
         </div>
       </PipeStep>
 
-      {/* 2 — Build thesis */}
-      <PipeStep n={2} label="Build thesis" state={dec ? "done" : "active"} tone={INK}>
+      {/* 2 — Recall (Experience Engine · memory) */}
+      <PipeStep n={2} label="Recall · experience" state={dec?.recall ? "done" : "pending"} tone={INK}>
+        {dec?.recall ? <RecallBody recall={dec.recall} /> : <PendingLine />}
+      </PipeStep>
+
+      {/* 3 — Build thesis */}
+      <PipeStep n={3} label="Build thesis" state={dec ? "done" : "active"} tone={INK}>
         <p className="text-[14px] leading-relaxed" style={{ color: INK }}>
           {dec?.thesis ?? deriveThesis(signals)}
         </p>
       </PipeStep>
 
-      {/* 3 — Challenge thesis */}
-      <PipeStep n={3} label="Challenge thesis · counterargument" state={dec ? "done" : "pending"} tone={INK}>
+      {/* 4 — Challenge thesis */}
+      <PipeStep n={4} label="Challenge thesis · counterargument" state={dec ? "done" : "pending"} tone={INK}>
         {dec ? (
           <p className="text-[14px] leading-relaxed" style={{ color: INK }}>
             {dec.counterargument}
@@ -754,8 +759,8 @@ function SpotPipeline({
         )}
       </PipeStep>
 
-      {/* 4 — Risk review */}
-      <PipeStep n={4} label="Risk review" state={dec ? "done" : "pending"} tone={INK}>
+      {/* 5 — Risk review */}
+      <PipeStep n={5} label="Risk review" state={dec ? "done" : "pending"} tone={INK}>
         {dec ? (
           <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
             {dec.riskReview}
@@ -765,8 +770,8 @@ function SpotPipeline({
         )}
       </PipeStep>
 
-      {/* 5 — Policy review */}
-      <PipeStep n={5} label="Policy review" state={dec ? "done" : "pending"} tone={INK}>
+      {/* 6 — Policy review */}
+      <PipeStep n={6} label="Policy review" state={dec ? "done" : "pending"} tone={INK}>
         {dec ? (
           <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
             {dec.policyReview}
@@ -776,13 +781,13 @@ function SpotPipeline({
         )}
       </PipeStep>
 
-      {/* 6 — Decision */}
-      <PipeStep n={6} label="Decision" state={decided ? "done" : "pending"} tone={decTone}>
+      {/* 7 — Decision */}
+      <PipeStep n={7} label="Decision" state={decided ? "done" : "pending"} tone={decTone}>
         {dec ? <SpotVerdict dec={dec} /> : <PendingLine />}
       </PipeStep>
 
-      {/* 7 — Execution */}
-      <PipeStep n={7} label="Execution" state={decided ? "done" : "pending"} tone={execTone} isLast>
+      {/* 8 — Execution */}
+      <PipeStep n={8} label="Execution" state={decided ? "done" : "pending"} tone={execTone} isLast>
         {dec ? (
           <ExecutionBody dec={dec} stream={stream} chainReached={chainReached} />
         ) : (
@@ -847,6 +852,33 @@ function PendingLine() {
     <p className="font-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: "#CCCCCC" }}>
       queued…
     </p>
+  );
+}
+
+function RecallBody({ recall }: { recall: NonNullable<AgentStreamState["decision"]>["recall"] }) {
+  if (!recall) return null;
+  const m = recall.confidenceMult;
+  const effect = m < 0.99 ? "confidence reduced" : m > 1.01 ? "confidence reinforced" : "confidence held";
+  const effectColor = m < 0.99 ? AMBER : m > 1.01 ? EMERALD : SUB;
+  return (
+    <div>
+      <p className="text-[13.5px] leading-relaxed" style={{ color: INK }}>
+        {recall.note}
+      </p>
+      {recall.found > 0 && (
+        <p className="mt-1 font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
+          <span style={{ color: EMERALD }}>{recall.wins}W</span>
+          {" / "}
+          <span style={{ color: RED }}>{recall.losses}L</span>
+          {" / "}
+          {recall.abstained}A
+          {" · "}
+          <span style={{ color: effectColor }}>
+            {effect} ×{m.toFixed(2)}
+          </span>
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -1207,19 +1239,34 @@ function JournalTab({
       {/* walrus provenance */}
       <div className="mt-8 space-y-2" style={{ borderTop: "1px solid #E5E5E5", paddingTop: 16 }}>
         <p className="text-[12px] leading-relaxed" style={{ color: SUB }}>
-          {traderName}&apos;s experience is permanently stored on Walrus. Verifiable by anyone.
+          {traderName}&apos;s experience is permanently stored on Walrus — and it&apos;s
+          not a log it forgets: the operator <span style={{ color: INK }}>recalls similar
+          past situations from this memory before every decision</span>. Verifiable by anyone.
         </p>
-        {journalBlob && (
-          <a
-            href={walrusBlobUrl(journalBlob)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-block font-mono text-[10px] uppercase tracking-[0.22em] underline-offset-2 hover:underline"
-            style={{ color: SUB }}
-          >
-            View raw Walrus blob ↗
-          </a>
-        )}
+        <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+          {stream.walrusExperienceBlobId && (
+            <a
+              href={walrusBlobUrl(stream.walrusExperienceBlobId)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block font-mono text-[10px] uppercase tracking-[0.22em] underline-offset-2 hover:underline"
+              style={{ color: "#047857" }}
+            >
+              Experience memory on Walrus ↗
+            </a>
+          )}
+          {journalBlob && (
+            <a
+              href={walrusBlobUrl(journalBlob)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block font-mono text-[10px] uppercase tracking-[0.22em] underline-offset-2 hover:underline"
+              style={{ color: SUB }}
+            >
+              View raw Walrus blob ↗
+            </a>
+          )}
+        </div>
       </div>
 
       {/* technical signals — hidden by default */}

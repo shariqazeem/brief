@@ -64,6 +64,15 @@ export type StreamDecision = {
   executionReview: string | null;
   verdict: string | null;
   aiReasoned: boolean;
+  // Experience Engine — similar past situations recalled before deciding.
+  recall: {
+    note: string;
+    found: number;
+    wins: number;
+    losses: number;
+    abstained: number;
+    confidenceMult: number;
+  } | null;
 };
 
 export type StepStatus = "pending" | "active" | "done" | "failed" | "skipped";
@@ -98,6 +107,9 @@ export type AgentStreamState = {
   /** The operator's manifesto blob — published once per policy, out of
    *  band from the per-decision lifecycle. */
   walrusManifestoBlobId: string | null;
+  /** The operator's Experience snapshot blob — its memory, anchored on
+   *  Walrus and refreshed as it learns. */
+  walrusExperienceBlobId: string | null;
   journalEntries: number | null;
   deliveredTx: string | null;
   steps: Record<WaterfallStep, { status: StepStatus; ts: number | null }>;
@@ -144,6 +156,7 @@ const INITIAL: AgentStreamState = {
   walrusReasoningBlobId: null,
   walrusJournalBlobId: null,
   walrusManifestoBlobId: null,
+  walrusExperienceBlobId: null,
   journalEntries: null,
   deliveredTx: null,
   steps: FRESH_STEPS(),
@@ -256,6 +269,18 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         executionReview: str(d.execution_review),
         verdict: str(d.verdict),
         aiReasoned: d.ai_reasoned === true,
+        recall: (() => {
+          const r = d.recall as Record<string, unknown> | undefined;
+          if (!r || typeof r !== "object") return null;
+          return {
+            note: str(r.note) ?? "",
+            found: num(r.found) ?? 0,
+            wins: num(r.wins) ?? 0,
+            losses: num(r.losses) ?? 0,
+            abstained: num(r.abstained) ?? 0,
+            confidenceMult: num(r.confidence_mult) ?? 1,
+          };
+        })(),
       };
       next.steps.decision = { status: "done", ts: e.ts };
       next.steps.mint = decided
@@ -291,6 +316,12 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
       // the blob but DON'T advance the per-decision waterfall.
       if (d.kind === "manifesto") {
         next.walrusManifestoBlobId = str(d.blob_id);
+        return next;
+      }
+      if (d.kind === "experience") {
+        // Memory snapshot — record the blob; don't touch the per-decision
+        // waterfall (it's published out of band).
+        next.walrusExperienceBlobId = str(d.blob_id);
         return next;
       }
       if (d.kind === "journal") {

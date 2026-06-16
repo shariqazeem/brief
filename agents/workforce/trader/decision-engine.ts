@@ -193,7 +193,7 @@ export function runDecisionEngine(args: {
     cfg.minConfidence * 100
   ).toFixed(0)}% confidence.${
     budgetBlocked ? " Budget fully deployed — no headroom for another min-lot." : ""
-  }${opts?.memory ? ` Memory: ${opts.memory.note}.` : ""}`;
+  }`;
 
   // ── Policy review (the loop verifies the real on-chain gate; this is the
   //    operator's own pre-check before it even builds the tx) ──────────────

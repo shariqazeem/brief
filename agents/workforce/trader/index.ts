@@ -98,6 +98,15 @@ import {
   modeFromGoal,
   normalizeMode,
 } from "./decision-engine.js";
+import {
+  experienceMarkdown,
+  loadExperience,
+  recallSimilar,
+  regimeOf,
+  saveExperience,
+  settlePending,
+  type ExperienceRecord,
+} from "./experience.js";
 
 const POLL_MS = 3000;
 const REDEEM_POLL_MS = 30_000;
@@ -1968,6 +1977,47 @@ function isTerminalPolicyAbort(err: unknown): boolean {
 
 /** Best-effort: append this trade to the operator's Walrus memory journal
  *  and publish its manifesto once. Never blocks the trade; never throws. */
+// The operator's experience snapshot is anchored on Walrus so the memory it
+// recalls from is verifiable. Throttled (10 min) unless a settlement just
+// happened — a learning moment worth recording immediately.
+const lastExperienceUploadMs = new Map<string, number>();
+const EXPERIENCE_UPLOAD_THROTTLE_MS = 10 * 60 * 1000;
+
+async function maybePublishExperience(
+  ctx: AgentContext,
+  e: OperatorRegistryEntry,
+  experience: ExperienceRecord[],
+  taskId: string,
+  force: boolean,
+): Promise<void> {
+  if (!walrusEnabled() || experience.length === 0) return;
+  const last = lastExperienceUploadMs.get(e.policyId) ?? 0;
+  if (!force && Date.now() - last < EXPERIENCE_UPLOAD_THROTTLE_MS) return;
+  if (!(await hasWalrusFunding(ctx.client, ctx.address))) return;
+  try {
+    const md = experienceMarkdown(e.policyId, experience);
+    const up = await uploadToWalrus(
+      new TextEncoder().encode(md),
+      ctx.client,
+      ctx.keypair,
+    );
+    lastExperienceUploadMs.set(e.policyId, Date.now());
+    emitAgentEvent("walrus_uploaded", {
+      policyId: e.policyId,
+      taskId,
+      asset: "SUI",
+      data: {
+        kind: "experience",
+        blob_id: up.blobId,
+        entries: experience.length,
+        upload_ms: up.uploadMs,
+      },
+    });
+  } catch {
+    /* best-effort — memory still works locally */
+  }
+}
+
 async function recordGatedMemory(
   ctx: AgentContext,
   e: OperatorRegistryEntry,
@@ -2107,6 +2157,16 @@ async function runGatedOperator(
   );
   const budgetExhausted =
     budget.cap > 0 && Number(recordSpendAmount) > budget.remaining;
+
+  // ---- EXPERIENCE: recall similar past situations (memory, not logs) -------
+  // Settle any matured ACT decisions against the current mid, then recall the
+  // most similar past regimes so their outcomes reshape confidence.
+  const regime = regimeOf(signals);
+  let experience = await loadExperience(e.policyId);
+  const matured = settlePending(experience, midUsd, Date.now(), SPOT_HORIZON_MS);
+  experience = matured.history;
+  const recall = recallSimilar(experience, regime);
+
   const eng = runDecisionEngine({
     asset: "SUI",
     signals,
@@ -2114,6 +2174,7 @@ async function runGatedOperator(
     mode,
     budgetUsedPct: budget.pct,
     budgetExhausted,
+    opts: { memory: { note: recall.note, confidenceMult: recall.confidenceMult } },
   });
   const direction: Direction = eng.direction;
   const reasoning = `${eng.thesis} ${eng.counterargument} → ${eng.verdict}`;
@@ -2140,8 +2201,36 @@ async function runGatedOperator(
       execution_review: eng.executionReview,
       verdict: eng.verdict,
       ai_reasoned: eng.aiReasoned,
+      // experience-engine recall (memory)
+      recall: {
+        note: recall.note,
+        found: recall.found,
+        wins: recall.wins,
+        losses: recall.losses,
+        abstained: recall.abstained,
+        confidence_mult: recall.confidenceMult,
+      },
     },
   });
+
+  // Persist this decision into the operator's experience. ACTs stay "pending"
+  // until their horizon settles; abstentions are terminal. This is the memory
+  // future cycles recall from.
+  const expRecord: ExperienceRecord = {
+    ts: Date.now(),
+    taskId,
+    regime,
+    direction,
+    decided: eng.act,
+    confidence: eng.confidence,
+    mid: midUsd,
+    outcome: eng.act ? "pending" : "abstained",
+  };
+  experience.push(expRecord);
+  await saveExperience(e.policyId, experience);
+  // Anchor the memory on Walrus (throttled, or on a settlement moment) so it's
+  // verifiable — not just claimed.
+  await maybePublishExperience(ctx, e, experience, taskId, matured.settled > 0);
 
   // Abstained — capital preserved, no trade. A first-class outcome (the
   // dashboard frames it as a win, not an absence).
