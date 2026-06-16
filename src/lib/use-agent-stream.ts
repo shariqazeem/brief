@@ -55,6 +55,15 @@ export type StreamDecision = {
   strikeUsd: number | null;
   spotUsd: number | null;
   marketP: number | null;
+  // Brief Operator decision-engine pipeline (gated-spot operators).
+  mode: string | null;
+  thesis: string | null;
+  counterargument: string | null;
+  riskReview: string | null;
+  policyReview: string | null;
+  executionReview: string | null;
+  verdict: string | null;
+  aiReasoned: boolean;
 };
 
 export type StepStatus = "pending" | "active" | "done" | "failed" | "skipped";
@@ -239,6 +248,14 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         strikeUsd: num(d.strike_usd),
         spotUsd: num(d.spot_usd),
         marketP: num(d.market_p),
+        mode: str(d.mode),
+        thesis: str(d.thesis),
+        counterargument: str(d.counterargument),
+        riskReview: str(d.risk_review),
+        policyReview: str(d.policy_review),
+        executionReview: str(d.execution_review),
+        verdict: str(d.verdict),
+        aiReasoned: d.ai_reasoned === true,
       };
       next.steps.decision = { status: "done", ts: e.ts };
       next.steps.mint = decided

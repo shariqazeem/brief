@@ -93,6 +93,11 @@ import {
   type StrategyDecision,
   type StrategyId,
 } from "./strategy.js";
+import {
+  runDecisionEngine,
+  modeFromGoal,
+  normalizeMode,
+} from "./decision-engine.js";
 
 const POLL_MS = 3000;
 const REDEEM_POLL_MS = 30_000;
@@ -1901,6 +1906,9 @@ type OperatorRegistryEntry = {
   depositCapId?: string | null;
   owner: string;
   personality: StrategyId;
+  /** The Brief Operator mode (Protect/Grow/Aggressive). Absent → derived
+   *  from the legacy goal so existing operators keep working. */
+  mode?: string;
   goal?: OperatorGoal;
   network: GatedNetwork;
   revoked: boolean;
@@ -2029,6 +2037,25 @@ async function recordGatedMemory(
   );
 }
 
+/** Read the policy's budget utilization (0–100) — feeds the risk review. */
+async function readPolicyBudgetPct(
+  ctx: AgentContext,
+  policyId: string,
+): Promise<number> {
+  try {
+    const o = await ctx.client.getObject({
+      id: policyId,
+      options: { showContent: true },
+    });
+    const f = (o.data?.content as { fields?: Record<string, unknown> })?.fields;
+    const cap = Number(f?.budget_cap ?? 0);
+    const spent = Number(f?.spent ?? 0);
+    return cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** Run one autonomous decision cycle for a single adopted operator. May
  *  place exactly one gated order (on edge + funded) or abstain. Throws on a
  *  terminal policy abort so the caller can retire the operator. */
@@ -2038,11 +2065,13 @@ async function runGatedOperator(
   midUsd: number,
   signals: SignalBundle,
 ): Promise<void> {
+  // Legacy label kept for the journal/manifesto; the decision is the unified
+  // operator engine below, calibrated by the operator's mode.
   const strategy: StrategyId = STRATEGIES[e.personality]
     ? e.personality
     : DEFAULT_STRATEGY;
   const goal = registryGoal(e.goal);
-  const params = calibrateParams(strategy, goal);
+  const mode = e.mode ? normalizeMode(e.mode) : modeFromGoal(e.goal?.type);
   const taskId = gatedTaskId(e);
 
   emitAgentEvent("observe", {
@@ -2058,66 +2087,55 @@ async function runGatedOperator(
     data: { signals },
   });
 
-  let decision = decide(strategy, {
+  // The Brief Operator's decision engine — ONE operator, mode-calibrated, a
+  // transparent 7-step pipeline over the real signals (Observe → Thesis →
+  // Counterargument → Risk → Policy → Execution → Decision). AI reasoning,
+  // memory replay and DeepBook execution analysis fold in via opts in later
+  // phases; the Move policy gates execution regardless.
+  const budgetUsedPct = await readPolicyBudgetPct(ctx, e.policyId);
+  const eng = runDecisionEngine({
     asset: "SUI",
-    spotUsd: midUsd,
     signals,
-    recentSettled: [],
-    market: { strikeUsd: midUsd, expiryMs: Date.now() + SPOT_HORIZON_MS },
-    surface: null,
-    params,
-    nowMs: Date.now(),
+    spotUsd: midUsd,
+    mode,
+    budgetUsedPct,
   });
-  // Conviction-floor gate (mirrors the BTC path): abstain below the
-  // calibrated floor (a no-op at baseline).
-  let floorConv: number | null = null;
-  if (decision && decision.conviction < params.convictionFloor) {
-    floorConv = decision.conviction;
-    decision = null;
-  }
-  if (decision) decision.quantity = GATED_BASE_QTY;
-
-  const direction: Direction =
-    decision?.direction ?? (strategy === "contrarian" ? "down" : "up");
-  const conviction = decision?.conviction ?? 0;
-  let reasoning =
-    decision?.reasoning ??
-    (floorConv !== null
-      ? `${strategy} preserved capital on SUI: conviction ${floorConv.toFixed(2)} is below the ${params.convictionFloor.toFixed(2)} floor calibrated for your ${goalLabel(goal)} — not strong enough to risk capital.`
-      : abstentionReason(strategy, signals, "SUI", midUsd, params));
-  // The strategy phrases its tail for Predict ("→ qty N (Xm window)"); on
-  // spot the operator trades exactly one min-lot of SUI per edge, so restate
-  // it accurately for the journal + dashboard.
-  if (decision) {
-    reasoning = reasoning.replace(
-      /→ qty \d+(?: \([^)]*\))?\.?$/,
-      `→ ${GATED_BASE_QTY} SUI on DeepBook spot.`,
-    );
-  }
+  const direction: Direction = eng.direction;
+  const reasoning = `${eng.thesis} ${eng.counterargument} → ${eng.verdict}`;
 
   emitAgentEvent("decision", {
     policyId: e.policyId,
     taskId,
     asset: "SUI",
     data: {
-      strategy,
-      decided: !!decision,
+      strategy: mode,
+      decided: eng.act,
       direction,
-      quantity: decision ? GATED_BASE_QTY : 0,
-      conviction,
+      quantity: eng.act ? GATED_BASE_QTY : 0,
+      conviction: eng.confidence,
       reasoning,
       spot_usd: midUsd,
       market_p: null,
+      // the visible decision-engine pipeline
+      mode,
+      thesis: eng.thesis,
+      counterargument: eng.counterargument,
+      risk_review: eng.riskReview,
+      policy_review: eng.policyReview,
+      execution_review: eng.executionReview,
+      verdict: eng.verdict,
+      ai_reasoned: eng.aiReasoned,
     },
   });
 
-  // Abstained — capital preserved, no trade. The honest common case.
-  if (!decision) {
+  // Abstained — capital preserved, no trade. A first-class outcome (the
+  // dashboard frames it as a win, not an absence).
+  if (!eng.act) {
     emitAgentEvent("mode", {
       policyId: e.policyId,
       taskId,
       asset: "SUI",
-      data: { mode: "simulated", sim_reason: reasoning },
+      data: { mode: "simulated", sim_reason: eng.verdict },
     });
     return;
   }
@@ -2175,7 +2193,7 @@ async function runGatedOperator(
     },
   });
   if (deepBal < FUEL_FLOOR_BASE) {
-    const r = `${strategy} decided ${direction.toUpperCase()} SUI but the operator is out of fuel — its DEEP tank (DeepBook fees) is empty${e.depositCapId ? " and the house reserve couldn't top it up" : " and it has no delegated DepositCap to refuel"}. Alive, awaiting fuel; capital untouched.`;
+    const r = `The operator decided ${direction.toUpperCase()} SUI but is out of fuel — its DEEP tank (DeepBook fees) is empty${e.depositCapId ? " and the house reserve couldn't top it up" : " and it has no delegated DepositCap to refuel"}. Alive, awaiting fuel; capital untouched.`;
     emitAgentEvent("mode", {
       policyId: e.policyId,
       taskId,

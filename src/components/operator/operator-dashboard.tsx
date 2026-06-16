@@ -554,6 +554,16 @@ function NowTab({
   return (
     <div>
       {showCascade ? (
+        isSpot ? (
+          <SpotPipeline
+            dec={dec}
+            stream={stream}
+            decided={decided}
+            chainReached={chainReached}
+            livePrice={livePrice}
+            sparkPts={sparkPts}
+          />
+        ) : (
         <div className="mx-auto max-w-xl space-y-px">
           {/* 1 — Observing */}
           <CascadeRow
@@ -628,6 +638,7 @@ function NowTab({
             <ChainBlock stream={stream} isSpot={isSpot} />
           </CascadeRow>
         </div>
+        )
       ) : (
         <IdleBlock
           stream={stream}
@@ -653,6 +664,265 @@ function NowTab({
           height={150}
         />
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SpotPipeline — the Brief Operator's visible decision engine (gated-spot).
+//
+// Seven steps the user can watch execute, on real market data:
+//   Observe → Build thesis → Challenge thesis → Risk review → Policy review →
+//   Decision → Execution.
+// AI (Claude) may author the thesis/counterargument; the Move policy still
+// gates execution. Abstention renders as a SUCCESS — capital protected.
+// ---------------------------------------------------------------------------
+
+function SpotPipeline({
+  dec,
+  stream,
+  decided,
+  chainReached,
+  livePrice,
+  sparkPts,
+}: {
+  dec: AgentStreamState["decision"];
+  stream: AgentStreamState;
+  decided: boolean;
+  chainReached: boolean;
+  livePrice: number | null;
+  sparkPts: number[];
+}) {
+  const signals = stream.signals;
+  const modeLabel = dec?.mode ? dec.mode : null;
+  const act = !!dec?.decided;
+  const up = dec?.direction === "up";
+  // Abstention is success → green. Acting up → green, down → red.
+  const decTone = !dec ? IDLE : act ? (up ? EMERALD : RED) : EMERALD;
+  const execTone = !act
+    ? EMERALD // abstained — capital protected
+    : stream.mode === "live"
+      ? EMERALD
+      : stream.steps.mint.status === "failed"
+        ? RED
+        : AMBER;
+
+  return (
+    <div className="mx-auto max-w-xl">
+      {/* mode + reasoning provenance */}
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        {modeLabel && (
+          <span
+            className="border px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.18em]"
+            style={{ borderColor: "#E5E5E5", color: INK }}
+          >
+            {modeLabel} mode
+          </span>
+        )}
+        <span className="font-mono text-[9.5px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
+          {dec?.aiReasoned
+            ? "Reasoned by Claude · enforced by Move"
+            : "Reasoning engine · enforced by Move"}
+        </span>
+      </div>
+
+      {/* 1 — Observe */}
+      <PipeStep n={1} label="Observe" state="done" tone={INK}>
+        <div className="flex items-center justify-between gap-4">
+          <span className="font-mono text-[22px] tabular-nums" style={{ color: INK }}>
+            {usd(livePrice, 3)}
+          </span>
+          <Sparkline values={sparkPts} />
+        </div>
+      </PipeStep>
+
+      {/* 2 — Build thesis */}
+      <PipeStep n={2} label="Build thesis" state={dec ? "done" : "active"} tone={INK}>
+        <p className="text-[14px] leading-relaxed" style={{ color: INK }}>
+          {dec?.thesis ?? deriveThesis(signals)}
+        </p>
+      </PipeStep>
+
+      {/* 3 — Challenge thesis */}
+      <PipeStep n={3} label="Challenge thesis · counterargument" state={dec ? "done" : "pending"} tone={INK}>
+        {dec ? (
+          <p className="text-[14px] leading-relaxed" style={{ color: INK }}>
+            {dec.counterargument}
+          </p>
+        ) : (
+          <PendingLine />
+        )}
+      </PipeStep>
+
+      {/* 4 — Risk review */}
+      <PipeStep n={4} label="Risk review" state={dec ? "done" : "pending"} tone={INK}>
+        {dec ? (
+          <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
+            {dec.riskReview}
+          </p>
+        ) : (
+          <PendingLine />
+        )}
+      </PipeStep>
+
+      {/* 5 — Policy review */}
+      <PipeStep n={5} label="Policy review" state={dec ? "done" : "pending"} tone={INK}>
+        {dec ? (
+          <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
+            {dec.policyReview}
+          </p>
+        ) : (
+          <PendingLine />
+        )}
+      </PipeStep>
+
+      {/* 6 — Decision */}
+      <PipeStep n={6} label="Decision" state={decided ? "done" : "pending"} tone={decTone}>
+        {dec ? <SpotVerdict dec={dec} /> : <PendingLine />}
+      </PipeStep>
+
+      {/* 7 — Execution */}
+      <PipeStep n={7} label="Execution" state={decided ? "done" : "pending"} tone={execTone} isLast>
+        {dec ? (
+          <ExecutionBody dec={dec} stream={stream} chainReached={chainReached} />
+        ) : (
+          <PendingLine />
+        )}
+      </PipeStep>
+    </div>
+  );
+}
+
+function PipeStep({
+  n,
+  label,
+  state,
+  tone,
+  isLast,
+  children,
+}: {
+  n: number;
+  label: string;
+  state: "done" | "active" | "pending";
+  tone: string;
+  isLast?: boolean;
+  children: React.ReactNode;
+}) {
+  const dotColor = state === "pending" ? "#D4D4D4" : tone;
+  return (
+    <div className="relative flex gap-3.5">
+      <div className="flex flex-col items-center">
+        <span
+          className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full font-mono text-[10px] tabular-nums ${
+            state === "active" ? "animate-pulse" : ""
+          }`}
+          style={{
+            border: `1.5px solid ${dotColor}`,
+            background: state === "done" ? dotColor : "transparent",
+            color: state === "done" ? "#FFFFFF" : dotColor,
+          }}
+          aria-hidden
+        >
+          {n}
+        </span>
+        {!isLast && (
+          <span className="my-1 w-px flex-1" style={{ background: "#E8E8E8", minHeight: 16 }} aria-hidden />
+        )}
+      </div>
+      <div className="flex-1 pb-5">
+        <p
+          className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.22em]"
+          style={{ color: state === "pending" ? "#CCCCCC" : SUB }}
+        >
+          {label}
+        </p>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function PendingLine() {
+  return (
+    <p className="font-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: "#CCCCCC" }}>
+      queued…
+    </p>
+  );
+}
+
+function SpotVerdict({ dec }: { dec: NonNullable<AgentStreamState["decision"]> }) {
+  if (!dec.decided) {
+    // Abstention as a SUCCESS — the operator protected capital.
+    return (
+      <div
+        className="animate-fade-up rounded-md border px-4 py-3.5"
+        style={{ borderColor: EMERALD, background: "rgba(16,185,129,0.07)" }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-white"
+            style={{ background: EMERALD }}
+            aria-hidden
+          >
+            ✓
+          </span>
+          <span className="font-mono text-[12px] uppercase tracking-[0.2em]" style={{ color: "#047857" }}>
+            No trade · Capital protected
+          </span>
+        </div>
+        <p className="mt-2 text-[13.5px] leading-relaxed" style={{ color: INK }}>
+          {dec.verdict}
+        </p>
+      </div>
+    );
+  }
+  const up = dec.direction === "up";
+  return (
+    <div
+      className="animate-fade-up rounded-md border px-4 py-3.5"
+      style={{
+        borderColor: up ? EMERALD : RED,
+        background: up ? "rgba(16,185,129,0.06)" : "rgba(239,68,68,0.05)",
+      }}
+    >
+      <p className="font-mono text-[22px] font-medium tracking-tight" style={{ color: up ? EMERALD : RED }}>
+        ACT — {up ? "UP ▲" : "DOWN ▼"}
+      </p>
+      <p className="mt-1 text-[13px] leading-relaxed" style={{ color: SUB }}>
+        {dec.verdict}
+      </p>
+    </div>
+  );
+}
+
+function ExecutionBody({
+  dec,
+  stream,
+  chainReached,
+}: {
+  dec: NonNullable<AgentStreamState["decision"]>;
+  stream: AgentStreamState;
+  chainReached: boolean;
+}) {
+  if (!dec.decided) {
+    return (
+      <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
+        No order placed — DeepBook untouched. The leash never tightened; budget stays whole.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
+        {dec.executionReview}
+      </p>
+      {chainReached ? (
+        <ChainBlock stream={stream} isSpot />
+      ) : (
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] op-breathe" style={{ color: AMBER }}>
+          placing order…
+        </p>
+      )}
     </div>
   );
 }
