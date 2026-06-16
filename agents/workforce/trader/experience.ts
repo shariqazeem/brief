@@ -32,9 +32,28 @@ export type RegimeFingerprint = {
 
 export type DecisionOutcome = "win" | "loss" | "abstained" | "pending";
 
+/** The full, replayable story of one decision — what the operator saw,
+ *  remembered, feared, and concluded. Drives the Brain / Decision Replay page. */
+export type ExperienceDetail = {
+  thesis: string;
+  counterargument: string;
+  riskReview: string;
+  executionReview: string;
+  mandateReview: string;
+  policyReview: string;
+  verdict: string;
+  recallNote: string;
+  recallFound: number;
+  recallWins: number;
+  recallLosses: number;
+  txDigest?: string | null;
+};
+
 export type ExperienceRecord = {
   ts: number;
   taskId: string;
+  /** Monotonic decision number (1-based) for stable "Decision #N" references. */
+  seq?: number;
   regime: RegimeFingerprint;
   direction: "up" | "down";
   /** Whether the operator acted (true) or abstained (false). */
@@ -46,7 +65,52 @@ export type ExperienceRecord = {
   outcome: DecisionOutcome;
   /** Realized move in the operator's favour (signed fraction), once settled. */
   outcomePct?: number;
+  /** Full reasoning for replay (Brain page). */
+  detail?: ExperienceDetail;
 };
+
+/** Next monotonic decision number for a record list. */
+export function nextSeq(recs: ExperienceRecord[]): number {
+  const last = recs[recs.length - 1];
+  return (last?.seq ?? recs.length) + 1;
+}
+
+export type ExperienceStats = {
+  total: number;
+  acts: number;
+  wins: number;
+  losses: number;
+  abstained: number;
+  /** Settled win rate over all acts (0–100), or null if none settled. */
+  winRate: number | null;
+  /** Win rate of the most recent settled acts vs the prior block — the
+   *  "operator evolves" signal. null when not enough settled history. */
+  recentWinRate: number | null;
+  priorWinRate: number | null;
+};
+
+export function experienceStats(recs: ExperienceRecord[], block = 10): ExperienceStats {
+  const acts = recs.filter((r) => r.decided);
+  const wins = acts.filter((r) => r.outcome === "win").length;
+  const losses = acts.filter((r) => r.outcome === "loss").length;
+  const abstained = recs.filter((r) => !r.decided).length;
+  const settled = acts.filter((r) => r.outcome === "win" || r.outcome === "loss");
+  const winRate = settled.length ? (wins / settled.length) * 100 : null;
+  const rate = (rs: ExperienceRecord[]) =>
+    rs.length ? (rs.filter((r) => r.outcome === "win").length / rs.length) * 100 : null;
+  const recent = settled.slice(-block);
+  const prior = settled.slice(-2 * block, -block);
+  return {
+    total: recs.length,
+    acts: acts.length,
+    wins,
+    losses,
+    abstained,
+    winRate,
+    recentWinRate: recent.length >= 3 ? rate(recent) : null,
+    priorWinRate: prior.length >= 3 ? rate(prior) : null,
+  };
+}
 
 export type Recall = {
   matches: ExperienceRecord[];

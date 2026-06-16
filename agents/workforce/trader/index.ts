@@ -101,6 +101,7 @@ import {
 import {
   experienceMarkdown,
   loadExperience,
+  nextSeq,
   recallSimilar,
   regimeOf,
   saveExperience,
@@ -2297,12 +2298,28 @@ async function runGatedOperator(
   const expRecord: ExperienceRecord = {
     ts: Date.now(),
     taskId,
+    seq: nextSeq(experience),
     regime,
     direction,
     decided: eng.act,
     confidence: eng.confidence,
     mid: midUsd,
     outcome: eng.act ? "pending" : "abstained",
+    // Full replayable story (Brain / Decision Replay page).
+    detail: {
+      thesis: eng.thesis,
+      counterargument: eng.counterargument,
+      riskReview: eng.riskReview,
+      executionReview: eng.executionReview,
+      mandateReview: eng.mandateReview,
+      policyReview: eng.policyReview,
+      verdict: eng.verdict,
+      recallNote: recall.note,
+      recallFound: recall.found,
+      recallWins: recall.wins,
+      recallLosses: recall.losses,
+      txDigest: null,
+    },
   };
   experience.push(expRecord);
   await saveExperience(e.policyId, experience);
@@ -2448,6 +2465,11 @@ async function runGatedOperator(
   console.log(
     `[trader-gated] LIVE ${strategy} ${direction} ${GATED_BASE_QTY} SUI op=${e.policyId.slice(0, 10)}… tx=${digest}`,
   );
+  // Stamp the on-chain digest onto this decision's replay record.
+  if (expRecord.detail) {
+    expRecord.detail.txDigest = digest;
+    await saveExperience(e.policyId, experience).catch(() => {});
+  }
   emitAgentEvent("spot_opened", {
     policyId: e.policyId,
     taskId,
