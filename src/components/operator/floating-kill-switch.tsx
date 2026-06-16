@@ -131,10 +131,12 @@ export function FloatingKillSwitch() {
           type="button"
           onClick={() => setConfirm(true)}
           title="Revoke on-chain. The operator stops immediately. No backend call needed."
-          className="group flex items-center gap-2 border border-[#EF4444] bg-[#EF4444] px-4 py-3 text-[10px] uppercase tracking-[0.24em] text-white shadow-[0_8px_30px_rgba(239,68,68,0.28)] transition-transform hover:-translate-y-0.5"
+          className="group flex items-center gap-2 border bg-bg-elev px-3.5 py-2.5 text-[10px] uppercase tracking-[0.22em] shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-colors hover:border-[#EF4444]"
+          style={{ borderColor: "#E5E5EA", color: "#525560" }}
         >
-          <span aria-hidden className="text-[13px] leading-none">⦸</span>
-          Revoke Operator
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          Operator active
+          <span className="transition-colors group-hover:text-[#EF4444]" style={{ color: "#8E8E93" }}>· Revoke →</span>
         </button>
       )}
     </div>

@@ -682,10 +682,11 @@ function TopBar({
               <button
                 type="button"
                 onClick={onYank}
-                className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70"
-                style={{ color: RED }}
+                title="Revoke on-chain — the operator stops immediately. Past wins still redeem."
+                className="font-mono text-[10px] uppercase tracking-[0.2em] transition-colors hover:text-[#EF4444]"
+                style={{ color: SUB }}
               >
-                Yank the leash
+                Revoke
               </button>
             )
           )}
@@ -1642,8 +1643,31 @@ function PolicyTab({
       <p className="mt-4 text-[12px] leading-relaxed" style={{ color: SUB }}>
         This operator published a manifesto to Walrus at adoption — its declared
         parameters + a pledge, verifiable by anyone. Past wins still auto-redeem
-        after revocation; the kill switch blocks new bets, never your winnings.
+        after revocation; the kill switch blocks new trades, never your funds.
       </p>
+
+      {/* Lifecycle — answer "how do I leave?" plainly. */}
+      <div className="mt-6 border-t pt-5" style={{ borderColor: "#E5E5EA" }}>
+        <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+          Lifecycle
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px]" style={{ color: SUB }}>
+          <span style={{ color: revoked ? "#999999" : EMERALD }}>Active</span>
+          <span style={{ color: "#C7C7CC" }}>→</span>
+          <span style={{ color: revoked ? "#EF4444" : SUB }}>Revoke</span>
+          <span style={{ color: "#C7C7CC" }}>→</span>
+          <span style={{ color: SUB }}>Withdraw</span>
+          <span style={{ color: "#C7C7CC" }}>→</span>
+          <span style={{ color: SUB }}>Done</span>
+        </div>
+        <p className="mt-3 text-[12px] leading-relaxed" style={{ color: SUB }}>
+          Your capital never left your custody — it&apos;s in{" "}
+          <span style={{ color: INK }}>your own DeepBook BalanceManager</span>. Revoke
+          stops the operator on-chain. To take funds out, you withdraw from your
+          BalanceManager — <span style={{ color: INK }}>only you hold the WithdrawCap</span>,
+          so neither the operator nor we ever can.
+        </p>
+      </div>
     </div>
   );
 }
