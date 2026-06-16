@@ -19,7 +19,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { explorerUrl, BRIEF_NETWORK, momentumLabel } from "@/lib/brief-client";
-import { INK, SUB, NAVY, EMERALD, RED, AMBER, IDLE } from "@/lib/ui";
+import { INK, SUB, MUTED, NAVY, EMERALD, RED, AMBER, IDLE } from "@/lib/ui";
 import {
   useOperatorJournal,
   type JournalDecision,
@@ -36,6 +36,18 @@ import {
   type AgentStreamState,
   type StreamSignals,
 } from "@/lib/use-agent-stream";
+import {
+  useOperatorScorecard,
+  matrixCell,
+  matrixRowKey,
+  MATRIX_MODES,
+  MATRIX_ROWS,
+  MODE_LABEL,
+  type Scorecard,
+  type PlaybookStat,
+  type MatrixMode,
+  type RegimeKind,
+} from "@/lib/operator-scorecard";
 import type { TraderPersonality } from "@/lib/workforce-client";
 import { walrusBlobUrl } from "@/lib/work-object";
 
@@ -245,6 +257,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   const spot = isSpotPolicy(policy);
   const bv = budgetView(policy);
   const journal = useOperatorJournal(policyId, bv.asset, spot);
+  const { scorecard } = useOperatorScorecard(policyId);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -291,7 +304,17 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
         <CapitalCard stream={stream} bv={bv} />
 
+        {spot && <OperatorScorecard scorecard={scorecard} stream={stream} revoked={revoked} />}
+
         <MarketState signals={stream.signals} dec={stream.decision} assetLabel={bv.asset} />
+
+        {spot && <AllocationMatrix dec={stream.decision} />}
+
+        {spot && scorecard && scorecard.playbooks.length > 0 && (
+          <SectionCard title="What it's learned · playbooks">
+            <PlaybookIntelligence playbooks={scorecard.playbooks} />
+          </SectionCard>
+        )}
 
         <SectionCard title="Right now">
           <NowTab
@@ -548,6 +571,198 @@ function CapitalCard({ stream, bv }: { stream: AgentStreamState; bv: { cap: numb
         </div>
       </div>
     </section>
+  );
+}
+
+// Operator Scorecard — the track record. The answer to "why should I trust
+// this with money?" — measurable, not an agent count. PnL headline over the
+// real counts: decisions, reallocations, abstentions, mandate compliance,
+// policy violations (0 — chain-enforced), and the regime it reads best.
+function OperatorScorecard({
+  scorecard,
+  stream,
+  revoked,
+}: {
+  scorecard: Scorecard | null;
+  stream: AgentStreamState;
+  revoked: boolean;
+}) {
+  const sc = scorecard;
+  if (!sc || sc.decisions === 0) return null;
+  const p = stream.decision?.portfolio ?? null;
+  const pnlPct = p?.pnlPct ?? 0;
+  const flat = Math.abs(pnlPct) < 0.05;
+  const pnlColor = revoked ? IDLE : flat ? SUB : pnlPct > 0 ? EMERALD : RED;
+  const m = stream.decision?.mandate ?? null;
+  const mandateHealthy = !m || !m.breached;
+  const days = sc.spanDays != null ? Math.round(sc.spanDays) : null;
+  const spanLabel = days != null && days >= 1 ? `over ${days} day${days === 1 ? "" : "s"}` : "since launch";
+  return (
+    <section
+      className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9"
+      style={{ borderTop: `3px solid ${NAVY}` }}
+    >
+      <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: SUB }}>
+        Track record
+      </p>
+      <div className="mt-2 flex items-baseline gap-2.5">
+        <span
+          className="font-sans text-[34px] font-medium tabular-nums leading-none tracking-tight sm:text-[40px]"
+          style={{ color: pnlColor }}
+        >
+          {flat ? "±0.0%" : `${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(1)}%`}
+        </span>
+        <span className="font-mono text-[12px]" style={{ color: SUB }}>
+          {spanLabel}
+        </span>
+      </div>
+      <div
+        className="mt-5 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-3"
+        style={{ background: "#E5E5EA" }}
+      >
+        <HeroStat label="Decisions" value={`${sc.decisions}`} />
+        <HeroStat label="Reallocations" value={`${sc.reallocations}`} />
+        <HeroStat label="Abstentions" value={`${sc.abstentions}`} />
+        <HeroStat
+          label="Mandate"
+          value={mandateHealthy ? "100%" : "Breached"}
+          color={mandateHealthy ? EMERALD : RED}
+        />
+        <HeroStat label="Policy violations" value="0" color={EMERALD} />
+        <HeroStat
+          label="Win rate"
+          value={sc.winRate != null ? `${Math.round(sc.winRate)}%` : "—"}
+        />
+      </div>
+      {sc.bestRegime && (
+        <p className="mt-3 font-mono text-[11.5px] tabular-nums" style={{ color: SUB }}>
+          <span style={{ color: NAVY }}>Best regime</span> · {sc.bestRegime.label} ·{" "}
+          {Math.round(sc.bestRegime.winRate ?? 0)}% success over {sc.bestRegime.wins + sc.bestRegime.losses} settled
+        </p>
+      )}
+    </section>
+  );
+}
+
+// Regime → Allocation Matrix — the operator's visible brain. Its allocation
+// POLICY: each mode's SUI ceiling × each regime's stance. Mirrors the engine
+// (MODE_CFG.maxExposure), so it's a window into the real logic, not a claim.
+// The current regime row + active mode column are lit; the live target/current
+// reading makes "already aligned" obvious at a glance.
+function AllocationMatrix({ dec }: { dec: AgentStreamState["decision"] }) {
+  const mode = (dec?.mode as MatrixMode) ?? "grow";
+  const curRowKey = matrixRowKey((dec?.regimeKind as RegimeKind) ?? null, dec?.direction ?? null);
+  const cur = dec?.currentExposurePct ?? null;
+  const tgt = dec?.targetExposurePct ?? null;
+  const action =
+    dec?.rebalance === "buy"
+      ? "Buy toward target"
+      : dec?.rebalance === "sell"
+        ? "Trim toward target"
+        : tgt != null
+          ? "Already aligned"
+          : "Hold — no edge";
+  return (
+    <section className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
+      <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+        Allocation policy · its brain
+      </p>
+      <div className="mt-3 overflow-hidden" style={{ border: "1px solid #E5E5EA" }}>
+        {/* header */}
+        <div className="grid grid-cols-4" style={{ background: "#FAFAFA" }}>
+          <div className="px-3 py-2 font-mono text-[9px] uppercase tracking-[0.14em]" style={{ color: SUB }}>
+            Regime
+          </div>
+          {MATRIX_MODES.map((md) => (
+            <div
+              key={md}
+              className="px-3 py-2 text-right font-mono text-[9px] uppercase tracking-[0.14em]"
+              style={{ color: md === mode ? NAVY : SUB, background: md === mode ? "#EEF3FB" : "transparent" }}
+            >
+              {MODE_LABEL[md]}
+            </div>
+          ))}
+        </div>
+        {/* rows */}
+        {MATRIX_ROWS.map((row) => {
+          const isCur = row.key === curRowKey;
+          return (
+            <div
+              key={row.key}
+              className="grid grid-cols-4"
+              style={{ borderTop: "1px solid #F0F0F0", background: isCur ? "#F5F8FE" : "transparent" }}
+            >
+              <div
+                className="px-3 py-2 text-[12px]"
+                style={{ color: isCur ? INK : SUB, fontWeight: isCur ? 600 : 400 }}
+              >
+                {isCur && <span style={{ color: NAVY }}>▸ </span>}
+                {row.label}
+              </div>
+              {MATRIX_MODES.map((md) => (
+                <div
+                  key={md}
+                  className="px-3 py-2 text-right font-mono text-[12px] tabular-nums"
+                  style={{
+                    color: row.stance === "follow-up" ? INK : SUB,
+                    background: md === mode ? (isCur ? "#E7F0FC" : "#F6F9FE") : "transparent",
+                    fontWeight: isCur && md === mode ? 600 : 400,
+                  }}
+                >
+                  {matrixCell(row.stance, md)}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+      {curRowKey && (
+        <p className="mt-3 text-[13px] leading-relaxed" style={{ color: SUB }}>
+          <span style={{ color: INK }}>
+            {action}
+          </span>{" "}
+          — target {tgt != null ? `${tgt}% SUI` : "hold current"}, holding {cur ?? 0}% now.
+        </p>
+      )}
+      <p className="mt-1.5 font-mono text-[10px]" style={{ color: MUTED }}>
+        Targets scale with conviction within each ceiling.
+      </p>
+    </section>
+  );
+}
+
+// Playbook Intelligence — per-regime learned behavior. Not "found 3 similar
+// situations"; a procedure the operator has built from settled outcomes.
+function PlaybookIntelligence({ playbooks }: { playbooks: PlaybookStat[] }) {
+  if (!playbooks.length) return null;
+  return (
+    <div className="space-y-0">
+      {playbooks.map((p, i) => (
+        <div
+          key={p.kind}
+          className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-2.5"
+          style={{ borderTop: i === 0 ? "none" : "1px solid #F0F0F0" }}
+        >
+          <span className="font-sans text-[14px] font-medium tracking-tight" style={{ color: INK, minWidth: 120 }}>
+            {p.label}
+          </span>
+          <span className="font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
+            seen {p.occurrences}×
+          </span>
+          <span className="flex-1 text-[13px]" style={{ color: SUB }}>
+            {p.learned}
+          </span>
+          {p.winRate != null && (
+            <span
+              className="font-mono text-[11px] tabular-nums"
+              style={{ color: p.winRate >= 50 ? EMERALD : INK }}
+            >
+              {Math.round(p.winRate)}% win
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
