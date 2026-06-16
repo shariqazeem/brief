@@ -40,6 +40,9 @@ type OperatorMode = "protect" | "grow" | "aggressive";
 
 const MODES: {
   id: OperatorMode;
+  /** The GOAL the user is adopting — people buy goals, not strategies. */
+  intent: string;
+  /** The mode under the hood (engine confidence/trend bars). */
   label: string;
   cadence: string;
   behavior: string[];
@@ -50,9 +53,10 @@ const MODES: {
 }[] = [
   {
     id: "protect",
+    intent: "Protect my capital",
     label: "Protect",
     cadence: "Most days: no trade",
-    behavior: ["Waits patiently.", "Acts only when the edge is obvious."],
+    behavior: ["Stays in cash unless the edge is obvious.", "Capital preservation first."],
     dot: "#10B981",
     glyph: "◈",
     personality: "conservative",
@@ -60,9 +64,10 @@ const MODES: {
   },
   {
     id: "grow",
+    intent: "Grow steadily",
     label: "Grow",
     cadence: "Most days: 1–3 decisions",
-    behavior: ["Balanced.", "Looks for genuine opportunities."],
+    behavior: ["Balanced cash↔SUI allocation.", "Targets genuine, confirmed trends."],
     dot: "#4DA2FF",
     glyph: "◇",
     personality: "momentum",
@@ -70,9 +75,10 @@ const MODES: {
   },
   {
     id: "aggressive",
+    intent: "Beat passive SUI",
     label: "Aggressive",
     cadence: "Most days: several decisions",
-    behavior: ["Acts earlier.", "Accepts more uncertainty."],
+    behavior: ["Higher SUI ceiling, acts earlier.", "Accepts more uncertainty for upside."],
     dot: "#F59E0B",
     glyph: "◆",
     personality: "contrarian",
@@ -345,13 +351,13 @@ function AdoptWizard() {
           </div>
         </header>
 
-        {/* ─── Section 2 · Choose how your operator behaves ─────────── */}
+        {/* ─── Section 2 · Choose your goal ─────────── */}
         {showChoose && (
           <section className="mt-16 animate-fade-up">
-            <SectionLabel n="01" title="Choose how your operator behaves" />
+            <SectionLabel n="01" title="Choose your goal" />
             <p className="mt-3 max-w-prose text-[14px] leading-relaxed text-ink-2">
-              You&apos;re delegating judgement, not picking a plan. Same engine,
-              same on-chain leash — the mode just sets how often it acts.
+              You&apos;re adopting an objective, not picking a strategy. Same engine,
+              same on-chain leash — your goal sets how it allocates between cash and SUI.
             </p>
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {MODES.map((m) => (
@@ -525,7 +531,7 @@ function AdoptWizard() {
                   disabled={busy || insufficient}
                   className="w-full bg-accent px-6 py-4 font-mono text-[12px] uppercase tracking-[0.3em] text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-10"
                 >
-                  {busy ? "Awaiting signature…" : `Adopt in ${modeCfg.label} mode — One Signature`}
+                  {busy ? "Awaiting signature…" : `Adopt to ${modeCfg.intent.toLowerCase()} — One Signature`}
                 </button>
                 <p className="mt-3 max-w-prose font-mono text-[10.5px] leading-relaxed text-muted">
                   This single transaction creates your BalanceManager, deposits your
@@ -635,10 +641,10 @@ function ModeCard({
         {m.glyph}
       </span>
       <span className="mt-3 font-sans text-[16px] font-medium tracking-tight text-ink">
-        {m.label}
+        {m.intent}
       </span>
       <span className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: "#1a2c4e" }}>
-        {m.cadence}
+        {m.label} mode · {m.cadence}
       </span>
       <div className="mt-3 flex-1 space-y-1">
         {m.behavior.map((line) => (

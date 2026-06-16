@@ -43,11 +43,14 @@ import {
   MATRIX_MODES,
   MATRIX_ROWS,
   MODE_LABEL,
+  REGIME_LABEL,
   type Scorecard,
   type PlaybookStat,
   type MatrixMode,
   type RegimeKind,
+  type DecisionRecord,
 } from "@/lib/operator-scorecard";
+import { operatorCodename, objectiveLabel } from "@/lib/operator-identity";
 import type { TraderPersonality } from "@/lib/workforce-client";
 import { walrusBlobUrl } from "@/lib/work-object";
 
@@ -246,6 +249,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
     policy,
     personality,
     traderName,
+    goal,
     onReset,
     revoked,
     chainAbort,
@@ -257,7 +261,9 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   const spot = isSpotPolicy(policy);
   const bv = budgetView(policy);
   const journal = useOperatorJournal(policyId, bv.asset, spot);
-  const { scorecard } = useOperatorScorecard(policyId);
+  const { scorecard, decisions } = useOperatorScorecard(policyId);
+  const codename = operatorCodename(policyId);
+  const objective = objectiveLabel(goal ?? null);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -280,7 +286,8 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
     <div className="min-h-screen bg-bg">
       <TopBar
         glyph={personality?.glyph ?? "◇"}
-        name={traderName}
+        name={codename}
+        subname={traderName}
         dot={dot}
         revoked={revoked}
         fuel={revoked ? null : stream.fuel}
@@ -291,9 +298,10 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
       />
 
       <main className="mx-auto max-w-3xl space-y-6 px-5 py-8 sm:px-8">
-        {/* ONE living surface: glance → market → thinking → history → policy */}
+        {/* My operator → my capital → my goal → my progress → what it's doing → why */}
         <OperatorHero
-          name={traderName}
+          name={codename}
+          objective={objective}
           glyph={personality?.glyph ?? "◇"}
           stream={stream}
           revoked={revoked}
@@ -302,9 +310,15 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           bv={bv}
         />
 
-        <CapitalCard stream={stream} bv={bv} />
+        <CapitalCard stream={stream} bv={bv} spanDays={scorecard?.spanDays ?? null} />
+
+        {spot && (
+          <GoalCard goal={goal ?? null} stream={stream} spanDays={scorecard?.spanDays ?? null} />
+        )}
 
         {spot && <OperatorScorecard scorecard={scorecard} stream={stream} revoked={revoked} />}
+
+        {spot && <ProtectedBySui policyId={policyId} />}
 
         <MarketState signals={stream.signals} dec={stream.decision} assetLabel={bv.asset} />
 
@@ -347,7 +361,16 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             ) : null
           }
         >
-          <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} isSpot={spot} />
+          {spot ? (
+            <OperatorTimeline
+              decisions={decisions}
+              stream={stream}
+              traderName={codename}
+              now={now}
+            />
+          ) : (
+            <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} isSpot={spot} />
+          )}
         </SectionCard>
 
         <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
@@ -401,6 +424,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
 function OperatorHero({
   name,
+  objective,
   glyph,
   stream,
   revoked,
@@ -409,6 +433,7 @@ function OperatorHero({
   bv,
 }: {
   name: string;
+  objective: string;
   glyph: string;
   stream: AgentStreamState;
   revoked: boolean;
@@ -452,7 +477,7 @@ function OperatorHero({
           {glyph}
         </span>
         <span
-          className="font-sans text-[16px] font-medium tracking-tight"
+          className="font-sans text-[18px] font-semibold tracking-tight"
           style={{ color: revoked ? IDLE : INK, textDecoration: revoked ? "line-through" : "none" }}
         >
           {name}
@@ -468,6 +493,9 @@ function OperatorHero({
           </span>
         </span>
       </div>
+      <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
+        {objective}
+      </p>
       <p
         className="mt-4 font-sans text-[27px] font-medium leading-[1.15] tracking-tight sm:text-[34px]"
         style={{ color: INK }}
@@ -507,7 +535,15 @@ function HeroStat({ label, value, color = INK }: { label: string; value: string;
 
 // Operator Capital — the FIRST thing a user (and judge) wants: how much money
 // is it managing right now, and is it up or down. Marked to market live.
-function CapitalCard({ stream, bv }: { stream: AgentStreamState; bv: { cap: number; spent: number; unit: string } }) {
+function CapitalCard({
+  stream,
+  bv,
+  spanDays,
+}: {
+  stream: AgentStreamState;
+  bv: { cap: number; spent: number; unit: string };
+  spanDays: number | null;
+}) {
   const dec = stream.decision;
   const p = dec?.portfolio ?? null;
   const value = p?.value ?? bv.cap;
@@ -540,6 +576,12 @@ function CapitalCard({ stream, bv }: { stream: AgentStreamState; bv: { cap: numb
         {flat ? "±0.00" : `${pnl > 0 ? "+" : ""}${pnl.toFixed(2)}`} {bv.unit}
         {!flat && ` · ${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(1)}%`}
         <span className="ml-1" style={{ color: SUB }}>vs deposit</span>
+      </p>
+      <p className="mt-1 font-mono text-[11.5px] tabular-nums" style={{ color: MUTED }}>
+        Deposited {deposit.toFixed(2)} {bv.unit}
+        {spanDays != null && spanDays >= 1
+          ? ` · lifetime ${Math.round(spanDays)} day${Math.round(spanDays) === 1 ? "" : "s"}`
+          : ""}
       </p>
       {suiPct != null && (
         <div className="mt-5">
@@ -766,6 +808,238 @@ function PlaybookIntelligence({ playbooks }: { playbooks: PlaybookStat[] }) {
   );
 }
 
+// Goal Progress — "my goal", felt. A grow target shows progress toward the %;
+// a protect mandate shows the drawdown guard. People adopt goals, not strategies.
+function GoalCard({
+  goal,
+  stream,
+  spanDays,
+}: {
+  goal: OperatorGoal | null;
+  stream: AgentStreamState;
+  spanDays: number | null;
+}) {
+  const dec = stream.decision;
+  const m = dec?.mandate ?? null;
+  const pnlPct = dec?.portfolio?.pnlPct ?? 0;
+  const days = spanDays != null ? Math.round(spanDays) : null;
+
+  // GROW target → progress toward the %.
+  if (goal?.type === "grow" && goal.targetPct) {
+    const target = goal.targetPct;
+    const pctOfTarget = target > 0 ? Math.max(0, Math.min(100, (pnlPct / target) * 100)) : 0;
+    const remaining =
+      goal.horizonDays != null && days != null ? Math.max(0, goal.horizonDays - days) : null;
+    const pnlColor = Math.abs(pnlPct) < 0.05 ? SUB : pnlPct > 0 ? EMERALD : RED;
+    return (
+      <GoalShell eyebrow="My goal" title={`Grow ${target}% in ${goal.horizonDays ?? "?"} days`}>
+        <div className="mt-3 flex items-baseline gap-2.5">
+          <span className="font-sans text-[28px] font-medium tabular-nums leading-none tracking-tight" style={{ color: pnlColor }}>
+            {pnlPct > 0 ? "+" : ""}{pnlPct.toFixed(1)}%
+          </span>
+          <span className="font-mono text-[12px]" style={{ color: SUB }}>
+            {Math.round(pctOfTarget)}% of target
+          </span>
+        </div>
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full" style={{ background: "#E5E5EA" }}>
+          <div className="h-full transition-[width] duration-500" style={{ width: `${pctOfTarget}%`, background: NAVY }} />
+        </div>
+        <p className="mt-2 font-mono text-[11px] tabular-nums" style={{ color: MUTED }}>
+          {remaining != null ? `${remaining} day${remaining === 1 ? "" : "s"} remaining` : "open-ended horizon"}
+        </p>
+      </GoalShell>
+    );
+  }
+
+  // PROTECT (or any drawdown mandate) → the guard.
+  if (goal?.type === "preserve" || (m && m.maxDrawdownPct > 0)) {
+    const maxDD = m && m.maxDrawdownPct > 0 ? m.maxDrawdownPct : null;
+    const curDD = m ? m.drawdownPct : Math.max(0, -pnlPct);
+    const healthy = !m || !m.breached;
+    const fill = maxDD ? Math.max(0, Math.min(100, (curDD / maxDD) * 100)) : 0;
+    return (
+      <GoalShell eyebrow="My goal" title="Protect capital">
+        <p className="mt-3 font-mono text-[13px] tabular-nums" style={{ color: SUB }}>
+          {maxDD != null ? (
+            <>
+              Max drawdown {maxDD}% · <span style={{ color: INK }}>current {curDD.toFixed(1)}%</span>
+            </>
+          ) : (
+            <>Current drawdown {curDD.toFixed(1)}%</>
+          )}
+          {" · "}
+          <span style={{ color: healthy ? EMERALD : RED }}>{healthy ? "Healthy" : "Breached"}</span>
+        </p>
+        {maxDD != null && (
+          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full" style={{ background: "#E5E5EA" }}>
+            <div className="h-full transition-[width] duration-500" style={{ width: `${fill}%`, background: healthy ? EMERALD : RED }} />
+          </div>
+        )}
+      </GoalShell>
+    );
+  }
+
+  // EDGE / generic.
+  return (
+    <GoalShell eyebrow="My goal" title={objectiveLabel(goal)}>
+      <p className="mt-3 text-[13px]" style={{ color: SUB }}>
+        Working under your mandate{days != null && days >= 1 ? ` · ${days} day${days === 1 ? "" : "s"} in` : ""}.
+      </p>
+    </GoalShell>
+  );
+}
+
+function GoalShell({ eyebrow, title, children }: { eyebrow: string; title: string; children: React.ReactNode }) {
+  return (
+    <section
+      className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9"
+      style={{ borderTop: `3px solid ${NAVY}` }}
+    >
+      <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: SUB }}>
+        {eyebrow}
+      </p>
+      <p className="mt-1.5 font-sans text-[20px] font-medium tracking-tight" style={{ color: INK }}>
+        {title}
+      </p>
+      {children}
+    </section>
+  );
+}
+
+// Protected by Sui — the "why Sui" answer, visible every day (not buried in
+// Proof). These are not features; they are the guarantees the chain enforces.
+function ProtectedBySui({ policyId }: { policyId: string | null }) {
+  const items = [
+    "Budget enforced on-chain — it cannot overspend its cap",
+    "Funds never leave your account — non-custodial, delegated trade-only",
+    "Mandate enforced by Move — your risk limit is law, not a setting",
+    "Revoke anytime — one signature stops it immediately",
+    "Every decision verifiable — reasoning on Walrus, trades on Sui",
+  ];
+  return (
+    <section className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+          Protected by Sui
+        </p>
+        {policyId && (
+          <Link
+            href={`/proof?policy=${policyId}`}
+            className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-60"
+            style={{ color: NAVY }}
+          >
+            See the proof →
+          </Link>
+        )}
+      </div>
+      <ul className="mt-3 space-y-1.5">
+        {items.map((it) => (
+          <li key={it} className="flex items-start gap-2 text-[13px] leading-relaxed" style={{ color: SUB }}>
+            <span className="mt-0.5 font-sans" style={{ color: EMERALD }} aria-hidden>
+              ✓
+            </span>
+            <span>{it}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// Operator Timeline — the most alive part. Driven by the SAME decision archive
+// the scorecard reads (so it can NEVER say "no decisions yet" while the count
+// shows hundreds). Each beat: when, what regime, what it did with the money.
+function OperatorTimeline({
+  decisions,
+  stream,
+  traderName,
+  now,
+}: {
+  decisions: DecisionRecord[];
+  stream: AgentStreamState;
+  traderName: string;
+  now: number;
+}) {
+  if (decisions.length === 0) {
+    return (
+      <p className="py-10 text-center text-[13px]" style={{ color: SUB }}>
+        {traderName} is booting — its first decision lands shortly.
+      </p>
+    );
+  }
+  const recent = decisions.slice(0, 14);
+  return (
+    <div>
+      <p className="font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
+        {decisions.length} decision{decisions.length === 1 ? "" : "s"} recorded ·{" "}
+        <span style={{ color: INK }}>its experience, anchored on Walrus</span>
+      </p>
+      <div className="mt-5">
+        {recent.map((d, i) => (
+          <TimelineDecisionRow key={`${d.ts}-${i}`} d={d} now={now} isLast={i === recent.length - 1} />
+        ))}
+      </div>
+      {stream.walrusExperienceBlobId && (
+        <div className="mt-5" style={{ borderTop: "1px solid #E5E5E5", paddingTop: 14 }}>
+          <a
+            href={walrusBlobUrl(stream.walrusExperienceBlobId)}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono text-[10px] uppercase tracking-[0.22em] underline-offset-2 hover:underline"
+            style={{ color: "#047857" }}
+          >
+            Experience memory on Walrus ↗
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TimelineDecisionRow({ d, now, isLast }: { d: DecisionRecord; now: number; isLast: boolean }) {
+  const label = d.regimeKind ? REGIME_LABEL[d.regimeKind] : "Market";
+  const act = d.decided;
+  const tgt = d.targetExposurePct;
+  const action = act
+    ? d.direction === "up"
+      ? `Added toward ${tgt ?? "?"}% SUI`
+      : tgt === 0
+        ? "Moved to cash"
+        : `Trimmed toward ${tgt ?? 0}% SUI`
+    : tgt != null
+      ? `Held — target ${tgt}% SUI`
+      : "Held — no edge";
+  const color = !act ? "#CCCCCC" : d.outcome === "win" ? EMERALD : d.outcome === "loss" ? RED : "#4DA2FF";
+  const tag =
+    act && (d.outcome === "win" || d.outcome === "loss")
+      ? `${(d.outcomePct ?? 0) >= 0 ? "+" : ""}${((d.outcomePct ?? 0) * 100).toFixed(1)}%`
+      : act
+        ? "settling"
+        : null;
+  const tagColor = d.outcome === "win" ? EMERALD : d.outcome === "loss" ? RED : SUB;
+  return (
+    <div className="relative flex gap-3.5">
+      <div className="flex flex-col items-center pt-1">
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} aria-hidden />
+        {!isLast && <span className="my-1 w-px flex-1" style={{ background: "#E8E8E8", minHeight: 10 }} aria-hidden />}
+      </div>
+      <div className={`flex-1 ${isLast ? "pb-1" : "pb-4"}`}>
+        <p className="font-mono text-[10px] tabular-nums" style={{ color: MUTED }}>
+          {relTime(d.ts, now)}
+        </p>
+        <p className="mt-0.5 text-[13.5px] leading-snug" style={{ color: INK }}>
+          <span style={{ color: SUB }}>{label}</span> — {action}
+          {tag && (
+            <span className="ml-2 font-mono text-[11px] tabular-nums" style={{ color: tagColor }}>
+              {tag}
+            </span>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // Market State — a story, not a metrics grid. Trend headline + price +
 // confidence-to-act + a one-line reason. Humans read stories.
 function MarketState({
@@ -853,6 +1127,7 @@ function SectionCard({ title, action, children }: { title: string; action?: Reac
 function TopBar({
   glyph,
   name,
+  subname,
   dot,
   revoked,
   fuel,
@@ -863,6 +1138,7 @@ function TopBar({
 }: {
   glyph: string;
   name: string;
+  subname?: string;
   dot: "act" | "preserve" | "idle" | "grounded";
   revoked: boolean;
   fuel: { deepHuman: number; level: "ok" | "low" | "empty" } | null;
@@ -884,14 +1160,21 @@ function TopBar({
           <span className="font-sans text-[22px] leading-none" style={{ color: INK }} aria-hidden>
             {glyph}
           </span>
-          <span
-            className="truncate font-sans text-[15px] font-medium tracking-tight"
-            style={{
-              color: revoked ? "#CCCCCC" : INK,
-              textDecoration: revoked ? "line-through" : "none",
-            }}
-          >
-            {name}
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <span
+              className="truncate font-sans text-[15px] font-semibold tracking-tight"
+              style={{
+                color: revoked ? "#CCCCCC" : INK,
+                textDecoration: revoked ? "line-through" : "none",
+              }}
+            >
+              {name}
+            </span>
+            {subname && (
+              <span className="hidden truncate font-mono text-[10px] sm:inline" style={{ color: MUTED }}>
+                {subname}
+              </span>
+            )}
           </span>
           <span
             className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dot === "act" ? "animate-pulse" : ""}`}

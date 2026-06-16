@@ -32,6 +32,7 @@ import {
   GOAL_HORIZONS,
   type OperatorGoal,
 } from "@/lib/operator-goal";
+import { operatorCodename } from "@/lib/operator-identity";
 import {
   BRIEF_OPERATOR_ADDRESS,
   WORKFORCE_TEMPLATES,
@@ -1530,7 +1531,9 @@ function OperatorHomeCard({ op }: { op: TraderIdentity }) {
             {mode?.glyph ?? "◇"}
           </span>
           <div>
-            <p className="font-sans text-[17px] font-medium tracking-tight text-ink">{op.name}</p>
+            <p className="font-sans text-[17px] font-semibold tracking-tight text-ink">
+              {operatorCodename(op.policyId)}
+            </p>
             <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-muted">
               {mode?.label ?? op.strategy} mode
             </p>
