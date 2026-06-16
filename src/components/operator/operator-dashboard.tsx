@@ -912,324 +912,187 @@ function SpotPipeline({
   sparkPts: number[];
 }) {
   const signals = stream.signals;
-  const modeLabel = dec?.mode ? dec.mode : null;
   const act = !!dec?.decided;
   const up = dec?.direction === "up";
-  // Abstention is success → green. Acting up → green, down → red.
   const decTone = !dec ? IDLE : act ? (up ? EMERALD : RED) : EMERALD;
   const execTone = !act
-    ? EMERALD // abstained — capital protected
+    ? EMERALD
     : stream.mode === "live"
       ? EMERALD
       : stream.steps.mint.status === "failed"
         ? RED
         : AMBER;
 
-  return (
-    <div className="mx-auto max-w-xl">
-      {/* user mandate — the human objective the operator acts within */}
-      {dec?.mandate && <MandateBanner mandate={dec.mandate} />}
-
-      {/* mode + reasoning provenance */}
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        {modeLabel && (
-          <span
-            className="border px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.18em]"
-            style={{ borderColor: "#E5E5E5", color: INK }}
-          >
-            {modeLabel} mode
-          </span>
-        )}
-        <span className="font-mono text-[9.5px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
-          {dec?.aiReasoned
-            ? "Reasoned by Claude · enforced by Move"
-            : "Reasoning engine · enforced by Move"}
-        </span>
-      </div>
-
-      {/* 1 — Observe */}
-      <PipeStep n={1} label="Observe" state="done" tone={INK}>
-        <div className="flex items-center justify-between gap-4">
-          <span className="font-mono text-[22px] tabular-nums" style={{ color: INK }}>
+  type Step = {
+    key: string;
+    label: string;
+    body: React.ReactNode;
+    tone?: string;
+    emphasis?: boolean;
+    pulse?: boolean;
+  };
+  const steps: Step[] = [
+    {
+      key: "observe",
+      label: "Observed",
+      body: (
+        <span className="flex items-center gap-3">
+          <span className="font-mono tabular-nums" style={{ color: INK }}>
             {usd(livePrice, 3)}
           </span>
           <Sparkline values={sparkPts} />
-        </div>
-      </PipeStep>
+        </span>
+      ),
+    },
+  ];
+  if (!dec) {
+    steps.push({ key: "thinking", label: "Building thesis", body: deriveThesis(signals), pulse: true });
+  } else {
+    if (dec.recall) steps.push({ key: "recall", label: "Recalled", body: recallLine(dec.recall) });
+    steps.push({ key: "thesis", label: "Thesis", body: dec.thesis ?? "—" });
+    steps.push({ key: "counter", label: "Counterargument", body: dec.counterargument ?? "—" });
+    steps.push({
+      key: "risk",
+      label: "Risk review",
+      body: <span className="font-mono text-[12px]" style={{ color: SUB }}>{dec.riskReview}</span>,
+    });
+    if (act)
+      steps.push({
+        key: "exec",
+        label: "Execution · DeepBook",
+        body: <span className="font-mono text-[12px]" style={{ color: SUB }}>{dec.executionReview}</span>,
+      });
+    steps.push({
+      key: "policy",
+      label: "Policy check",
+      body: <span className="font-mono text-[12px]" style={{ color: SUB }}>{dec.policyReview}</span>,
+    });
+    steps.push({
+      key: "decision",
+      label: "Decision",
+      tone: decTone,
+      emphasis: true,
+      body: (
+        <span>
+          <span style={{ color: decTone }}>{act ? (up ? "BUY ▲" : "SELL ▼") : "NO TRADE"}</span>
+          {dec.verdict && (
+            <span className="ml-2 font-sans text-[13px] font-normal" style={{ color: SUB }}>
+              {dec.verdict}
+            </span>
+          )}
+        </span>
+      ),
+    });
+    steps.push({
+      key: "result",
+      label: "Result",
+      tone: execTone,
+      emphasis: true,
+      body: !act ? (
+        <span className="font-sans text-[14px] font-medium" style={{ color: EMERALD }}>
+          Capital protected — DeepBook untouched.
+        </span>
+      ) : chainReached ? (
+        <ChainBlock stream={stream} isSpot />
+      ) : (
+        <span className="op-breathe font-mono text-[12px] uppercase tracking-[0.18em]" style={{ color: AMBER }}>
+          placing order…
+        </span>
+      ),
+    });
+  }
 
-      {/* 2 — Recall (Experience Engine · memory) */}
-      <PipeStep n={2} label="Recall · experience" state={dec?.recall ? "done" : "pending"} tone={INK}>
-        {dec?.recall ? <RecallBody recall={dec.recall} /> : <PendingLine />}
-      </PipeStep>
-
-      {/* 3 — Build thesis */}
-      <PipeStep n={3} label="Build thesis" state={dec ? "done" : "active"} tone={INK}>
-        <p className="text-[14px] leading-relaxed" style={{ color: INK }}>
-          {dec?.thesis ?? deriveThesis(signals)}
-        </p>
-      </PipeStep>
-
-      {/* 4 — Challenge thesis */}
-      <PipeStep n={4} label="Challenge thesis · counterargument" state={dec ? "done" : "pending"} tone={INK}>
-        {dec ? (
-          <p className="text-[14px] leading-relaxed" style={{ color: INK }}>
-            {dec.counterargument}
-          </p>
-        ) : (
-          <PendingLine />
+  return (
+    <div className="mx-auto max-w-xl">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {dec?.mode && (
+          <span
+            className="border px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.18em]"
+            style={{ borderColor: "#E5E5EA", color: INK }}
+          >
+            {dec.mode} mode
+          </span>
         )}
-      </PipeStep>
-
-      {/* 5 — Risk review */}
-      <PipeStep n={5} label="Risk review" state={dec ? "done" : "pending"} tone={INK}>
-        {dec ? (
-          <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
-            {dec.riskReview}
-          </p>
-        ) : (
-          <PendingLine />
-        )}
-      </PipeStep>
-
-      {/* 6 — Execution analysis (DeepBook depth / slippage, pre-trade) */}
-      <PipeStep n={6} label="Execution analysis · DeepBook" state={dec ? "done" : "pending"} tone={INK}>
-        {dec ? (
-          <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
-            {dec.executionReview}
-          </p>
-        ) : (
-          <PendingLine />
-        )}
-      </PipeStep>
-
-      {/* 7 — Policy review */}
-      <PipeStep n={7} label="Policy review" state={dec ? "done" : "pending"} tone={INK}>
-        {dec ? (
-          <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
-            {dec.policyReview}
-          </p>
-        ) : (
-          <PendingLine />
-        )}
-      </PipeStep>
-
-      {/* 8 — Decision */}
-      <PipeStep n={8} label="Decision" state={decided ? "done" : "pending"} tone={decTone}>
-        {dec ? <SpotVerdict dec={dec} /> : <PendingLine />}
-      </PipeStep>
-
-      {/* 9 — On chain (the actual fill, or stood down) */}
-      <PipeStep n={9} label="On chain" state={decided ? "done" : "pending"} tone={execTone} isLast>
-        {dec ? (
-          <ExecutionBody dec={dec} stream={stream} chainReached={chainReached} />
-        ) : (
-          <PendingLine />
-        )}
-      </PipeStep>
+        <span className="font-mono text-[9.5px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
+          {dec?.aiReasoned ? "Reasoned by Claude · enforced by Move" : "Reasoning engine · enforced by Move"}
+        </span>
+      </div>
+      {steps.map((s, i) => (
+        <TimelineStep
+          key={s.key}
+          label={s.label}
+          tone={s.tone}
+          emphasis={s.emphasis}
+          pulse={s.pulse}
+          isLast={i === steps.length - 1}
+          delay={i * 70}
+        >
+          {s.body}
+        </TimelineStep>
+      ))}
     </div>
   );
 }
 
-function PipeStep({
-  n,
+// A single beat in the living timeline — ● dot + connector, fading in in turn.
+function TimelineStep({
   label,
-  state,
-  tone,
-  isLast,
   children,
+  tone,
+  emphasis,
+  pulse,
+  isLast,
+  delay,
 }: {
-  n: number;
   label: string;
-  state: "done" | "active" | "pending";
-  tone: string;
-  isLast?: boolean;
   children: React.ReactNode;
+  tone?: string;
+  emphasis?: boolean;
+  pulse?: boolean;
+  isLast?: boolean;
+  delay: number;
 }) {
-  const dotColor = state === "pending" ? "#D4D4D4" : tone;
+  const dot = tone ?? NAVY;
   return (
-    <div className="relative flex gap-3.5">
-      <div className="flex flex-col items-center">
+    <div
+      className="relative flex animate-fade-up gap-3.5"
+      style={{ animationDelay: `${delay}ms`, animationFillMode: "both" }}
+    >
+      <div className="flex flex-col items-center pt-1">
         <span
-          className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full font-mono text-[10px] tabular-nums ${
-            state === "active" ? "animate-pulse" : ""
-          }`}
-          style={{
-            border: `1.5px solid ${dotColor}`,
-            background: state === "done" ? dotColor : "transparent",
-            color: state === "done" ? "#FFFFFF" : dotColor,
-          }}
+          className={`h-2 w-2 shrink-0 rounded-full ${pulse ? "animate-pulse" : ""}`}
+          style={{ background: dot }}
           aria-hidden
-        >
-          {n}
-        </span>
+        />
         {!isLast && (
-          <span className="my-1 w-px flex-1" style={{ background: "#E8E8E8", minHeight: 16 }} aria-hidden />
+          <span className="my-1 w-px flex-1" style={{ background: "#E8E8E8", minHeight: 12 }} aria-hidden />
         )}
       </div>
-      <div className="flex-1 pb-5">
-        <p
-          className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.22em]"
-          style={{ color: state === "pending" ? "#CCCCCC" : SUB }}
-        >
+      <div className={`flex-1 ${isLast ? "pb-1" : "pb-4"}`}>
+        <p className="font-mono text-[9.5px] uppercase tracking-[0.2em]" style={{ color: emphasis ? dot : SUB }}>
           {label}
         </p>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function PendingLine() {
-  return (
-    <p className="font-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: "#CCCCCC" }}>
-      queued…
-    </p>
-  );
-}
-
-function MandateBanner({ mandate }: { mandate: NonNullable<AgentStreamState["decision"]>["mandate"] }) {
-  if (!mandate) return null;
-  const ddRatio = mandate.maxDrawdownPct > 0 ? Math.min(1, mandate.drawdownPct / mandate.maxDrawdownPct) : 0;
-  const ddColor = mandate.breached ? RED : ddRatio > 0.66 ? AMBER : EMERALD;
-  const prog = mandate.progressPct;
-  return (
-    <div
-      className="mb-5 rounded-md border px-4 py-3"
-      style={{ borderColor: mandate.breached ? RED : "#E5E5E5", background: mandate.breached ? "rgba(239,68,68,0.05)" : "#FAFAFA" }}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-[9.5px] uppercase tracking-[0.2em]" style={{ color: SUB }}>
-          Mandate
-        </span>
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: mandate.breached ? RED : "#047857" }}>
-          {mandate.breached ? "guard tripped · standing down" : "within mandate"}
-        </span>
-      </div>
-      <p className="mt-1 text-[13.5px] font-medium tracking-tight" style={{ color: INK }}>
-        {mandate.summary}
-      </p>
-      <div className="mt-2.5 flex items-center gap-4">
-        <div className="flex-1">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-[0.16em]" style={{ color: SUB }}>
-              drawdown
-            </span>
-            <span className="font-mono text-[10px] tabular-nums" style={{ color: ddColor }}>
-              {mandate.drawdownPct.toFixed(1)}% / {mandate.maxDrawdownPct.toFixed(0)}%
-            </span>
-          </div>
-          <div className="h-1 w-full overflow-hidden rounded-full" style={{ background: "#E5E5E5" }}>
-            <div className="h-full transition-[width] duration-500" style={{ width: `${ddRatio * 100}%`, background: ddColor }} />
-          </div>
-        </div>
-        <div className="text-right">
-          <span className="font-mono text-[9px] uppercase tracking-[0.16em]" style={{ color: SUB }}>
-            progress
-          </span>
-          <p className="font-mono text-[13px] tabular-nums" style={{ color: prog >= 0 ? EMERALD : RED }}>
-            {prog >= 0 ? "+" : ""}{prog.toFixed(1)}%
-          </p>
+        <div
+          className={`mt-1 leading-snug ${emphasis ? "font-mono text-[16px] font-medium tracking-tight" : "text-[13px]"}`}
+          style={{ color: INK }}
+        >
+          {children}
         </div>
       </div>
     </div>
   );
 }
 
-function RecallBody({ recall }: { recall: NonNullable<AgentStreamState["decision"]>["recall"] }) {
-  if (!recall) return null;
-  const m = recall.confidenceMult;
-  const effect = m < 0.99 ? "confidence reduced" : m > 1.01 ? "confidence reinforced" : "confidence held";
-  const effectColor = m < 0.99 ? AMBER : m > 1.01 ? EMERALD : SUB;
-  return (
-    <div>
-      <p className="text-[13.5px] leading-relaxed" style={{ color: INK }}>
-        {recall.note}
-      </p>
-      {recall.found > 0 && (
-        <p className="mt-1 font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
-          <span style={{ color: EMERALD }}>{recall.wins}W</span>
-          {" / "}
-          <span style={{ color: RED }}>{recall.losses}L</span>
-          {" / "}
-          {recall.abstained}A
-          {" · "}
-          <span style={{ color: effectColor }}>
-            {effect} ×{m.toFixed(2)}
-          </span>
-        </p>
-      )}
-    </div>
-  );
-}
-
-function SpotVerdict({ dec }: { dec: NonNullable<AgentStreamState["decision"]> }) {
-  if (!dec.decided) {
-    // Abstention as a SUCCESS — the operator protected capital.
-    return (
-      <div
-        className="animate-fade-up rounded-md border px-4 py-3.5"
-        style={{ borderColor: EMERALD, background: "rgba(16,185,129,0.07)" }}
-      >
-        <div className="flex items-center gap-2">
-          <span
-            className="flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-white"
-            style={{ background: EMERALD }}
-            aria-hidden
-          >
-            ✓
-          </span>
-          <span className="font-mono text-[12px] uppercase tracking-[0.2em]" style={{ color: "#047857" }}>
-            No trade · Capital protected
-          </span>
-        </div>
-        <p className="mt-2 text-[13.5px] leading-relaxed" style={{ color: INK }}>
-          {dec.verdict}
-        </p>
-      </div>
-    );
-  }
-  const up = dec.direction === "up";
-  return (
-    <div
-      className="animate-fade-up rounded-md border px-4 py-3.5"
-      style={{
-        borderColor: up ? EMERALD : RED,
-        background: up ? "rgba(16,185,129,0.06)" : "rgba(239,68,68,0.05)",
-      }}
-    >
-      <p className="font-mono text-[22px] font-medium tracking-tight" style={{ color: up ? EMERALD : RED }}>
-        ACT — {up ? "UP ▲" : "DOWN ▼"}
-      </p>
-      <p className="mt-1 text-[13px] leading-relaxed" style={{ color: SUB }}>
-        {dec.verdict}
-      </p>
-    </div>
-  );
-}
-
-function ExecutionBody({
-  dec,
-  stream,
-  chainReached,
-}: {
-  dec: NonNullable<AgentStreamState["decision"]>;
-  stream: AgentStreamState;
-  chainReached: boolean;
-}) {
-  if (!dec.decided) {
-    return (
-      <p className="font-mono text-[12px] leading-relaxed" style={{ color: SUB }}>
-        No order placed — DeepBook untouched. The leash never tightened; budget stays whole.
-      </p>
-    );
-  }
-  return chainReached ? (
-    <ChainBlock stream={stream} isSpot />
-  ) : (
-    <p className="font-mono text-[11px] uppercase tracking-[0.18em] op-breathe" style={{ color: AMBER }}>
-      placing order…
-    </p>
-  );
+function recallLine(recall: NonNullable<AgentStreamState["decision"]>["recall"]): string {
+  if (!recall) return "—";
+  if (recall.found === 0) return "First time in conditions like these — recording it.";
+  const effect =
+    recall.confidenceMult < 0.99
+      ? "confidence reduced"
+      : recall.confidenceMult > 1.01
+        ? "confidence reinforced"
+        : "confidence held";
+  return `${recall.found} similar · ${recall.wins}W / ${recall.losses}L → ${effect}`;
 }
 
 function CascadeRow({
