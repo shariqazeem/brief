@@ -525,7 +525,7 @@ function AdoptWizard() {
                   type="button"
                   onClick={onAdopt}
                   disabled={busy || insufficient}
-                  className="w-full bg-emerald-500 px-6 py-4 font-mono text-[12px] uppercase tracking-[0.3em] text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-10"
+                  className="w-full bg-accent px-6 py-4 font-mono text-[12px] uppercase tracking-[0.3em] text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-10"
                 >
                   {busy ? "Awaiting signature…" : `Adopt in ${modeCfg.label} mode — One Signature`}
                 </button>
@@ -608,7 +608,7 @@ function MandateField({
 function SectionLabel({ n, title }: { n: string; title: string }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="font-mono text-[10px] tabular-nums text-muted">{n}</span>
+      <span className="font-mono text-[10px] tabular-nums text-accent">{n}</span>
       <span className="h-px flex-1 bg-line" />
       <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted">{title}</span>
     </div>
@@ -629,7 +629,7 @@ function ModeCard({
       type="button"
       onClick={onPick}
       className={`flex min-h-[210px] flex-col border bg-bg-elev p-4 text-left transition-colors ${
-        selected ? "border-emerald-500" : "border-line hover:border-line-strong"
+        selected ? "border-accent" : "border-line hover:border-line-strong"
       }`}
       style={{ borderWidth: selected ? 2 : 1 }}
     >

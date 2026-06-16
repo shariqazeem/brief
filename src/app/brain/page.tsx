@@ -14,17 +14,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { apiUrl } from "@/lib/api-base";
 import { explorerUrl, momentumLabel } from "@/lib/brief-client";
+import { INK, SUB, MUTED, NAVY, EMERALD, RED, AMBER, BLUE, LINE } from "@/lib/ui";
 import { loadLatestTraderIdentity } from "@/lib/workforce-client";
-
-const INK = "#0A0A0A";
-const SUB = "#525560";
-const MUTED = "#8E8E93";
-const NAVY = "#1a2c4e";
-const EMERALD = "#10B981";
-const RED = "#EF4444";
-const AMBER = "#F59E0B";
-const BLUE = "#4DA2FF";
-const LINE = "#E5E5EA";
 
 type Detail = {
   thesis?: string;

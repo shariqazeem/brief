@@ -397,18 +397,18 @@ export default function OperatorLandingV2() {
           <br />
           The chain holds the leash.
         </h1>
-        <div className="mt-10 flex items-center gap-8 font-mono text-[12px] tracking-[0.02em]">
+        <div className="mt-10 flex items-center gap-7 font-mono text-[12px] tracking-[0.02em]">
+          <a
+            href="/workforce"
+            className="bg-accent px-6 py-3 text-[11px] uppercase tracking-[0.28em] text-white transition-opacity hover:opacity-90"
+          >
+            Adopt an operator →
+          </a>
           <a
             href="#think"
             className="text-[#666666] transition-colors hover:text-[#111111]"
           >
             Watch it think ↓
-          </a>
-          <a
-            href="/workforce"
-            className="text-[#666666] transition-colors hover:text-[#111111]"
-          >
-            Adopt now →
           </a>
         </div>
       </section>

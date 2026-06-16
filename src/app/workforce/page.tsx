@@ -689,7 +689,7 @@ function OperatorChoiceCard({
       onClick={onPick}
       aria-pressed={active}
       style={{
-        borderLeft: active ? "3px solid #10B981" : "3px solid transparent",
+        borderLeft: active ? "3px solid #1a2c4e" : "3px solid transparent",
         animationDelay: `${index * 70}ms`,
       }}
       className={[
@@ -716,7 +716,7 @@ function OperatorChoiceCard({
         <span
           className={[
             "font-mono text-[9.5px] uppercase tracking-[0.22em] transition-colors",
-            active ? "text-emerald-700" : "text-muted group-hover:text-ink",
+            active ? "text-accent" : "text-muted group-hover:text-ink",
           ].join(" ")}
         >
           {active ? "selected — adopt below" : "select →"}

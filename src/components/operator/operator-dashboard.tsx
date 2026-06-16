@@ -19,6 +19,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { explorerUrl, BRIEF_NETWORK, momentumLabel } from "@/lib/brief-client";
+import { INK, SUB, NAVY, EMERALD, RED, AMBER, IDLE } from "@/lib/ui";
 import {
   useOperatorJournal,
   type JournalDecision,
@@ -38,13 +39,6 @@ import {
 import type { TraderPersonality } from "@/lib/workforce-client";
 import { walrusBlobUrl } from "@/lib/work-object";
 
-const INK = "#111111";
-const SUB = "#666666";
-const NAVY = "#1a2c4e";
-const EMERALD = "#10B981";
-const RED = "#EF4444";
-const AMBER = "#F59E0B";
-const IDLE = "#999999";
 
 const OperatorChart = nextDynamic(() => import("./operator-chart"), {
   ssr: false,

@@ -33,6 +33,14 @@ const config: Config = {
 
         // Sui brand accent (used sparingly — status dot, on-chain links)
         sui: "#4DA2FF",
+
+        // Semantic — the operator's language. Mirrors src/lib/ui.ts (the
+        // inline-style source of truth) so className + inline paths agree.
+        success: "#10B981",
+        "success-deep": "#047857",
+        danger: "#EF4444",
+        caution: "#F59E0B",
+        info: "#4DA2FF",
       },
       fontFamily: {
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],

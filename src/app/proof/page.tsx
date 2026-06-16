@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api-base";
 import { BRIEF_NETWORK } from "@/lib/brief-client";
+import { EMERALD, RED } from "@/lib/ui";
 
 // ── verified artifacts (each checked `success`/`failure` on the fullnode) ──
 const DEFAULT_POLICY =
@@ -22,12 +23,6 @@ const OVERBUDGET_TX = "9YqyCqFjF2zgQsvYd1ady1y94EFJ9GoYEG3a4C1swdVw";
 const REVOKE_TX = "4yBvc6qVwoXugmZu1jNgNjHRC8ZtqMtoVefsuQZyB4YL";
 const REVOKED_POLICY =
   "0x60f7e0a4f26401f5911ba9ce8a9516ac1a19dd9748481f568b5d909967e910c8";
-
-const EMERALD = "#10B981";
-const RED = "#EF4444";
-const AMBER = "#F59E0B";
-const INK = "#111111";
-const SUB = "#666666";
 
 const txUrl = (d: string) => `https://suiscan.xyz/testnet/tx/${d}`;
 const objUrl = (id: string) => `https://suiscan.xyz/testnet/object/${id}`;
