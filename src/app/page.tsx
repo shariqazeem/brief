@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { apiUrl } from "@/lib/api-base";
+import { loadLatestTraderIdentity } from "@/lib/workforce-client";
 
 // ── design tokens (brief-exact) ──────────────────────────────────────────
 const INK = "#111111";
@@ -363,6 +364,13 @@ export default function OperatorLandingV2() {
   }, []);
   const stale = cur.lastTs === 0 || now - cur.lastTs > 90_000;
 
+  // Smart CTA: new users go straight to the wizard to adopt; returning users
+  // (an operator saved locally) go to /workforce, which opens it live.
+  const [hasOperator, setHasOperator] = useState(false);
+  useEffect(() => setHasOperator(!!loadLatestTraderIdentity()), []);
+  const ctaHref = hasOperator ? "/workforce" : "/workforce/adopt";
+  const ctaLabel = hasOperator ? "Open your operator →" : "Adopt an operator →";
+
   const circleState: "idle" | "processing" | "act" | "preserve" = stale
     ? "idle"
     : cur.beat === "decision" || cur.beat === "mint" || cur.beat === "delivered"
@@ -399,10 +407,10 @@ export default function OperatorLandingV2() {
         </h1>
         <div className="mt-10 flex items-center gap-7 font-mono text-[12px] tracking-[0.02em]">
           <a
-            href="/workforce"
+            href={ctaHref}
             className="bg-accent px-6 py-3 text-[11px] uppercase tracking-[0.28em] text-white transition-opacity hover:opacity-90"
           >
-            Adopt an operator →
+            {ctaLabel}
           </a>
           <a
             href="#think"
@@ -571,8 +579,8 @@ export default function OperatorLandingV2() {
         </div>
 
         <div className="mt-12 flex items-center gap-8 font-mono text-[12px]">
-          <a href="/workforce" className="text-[#111111] transition-opacity hover:opacity-60">
-            Adopt now →
+          <a href={ctaHref} className="text-[#111111] transition-opacity hover:opacity-60">
+            {hasOperator ? "Open your operator →" : "Adopt now →"}
           </a>
           <a href="/leaderboard" className="text-[#666666] transition-colors hover:text-[#111111]">
             Leaderboard
