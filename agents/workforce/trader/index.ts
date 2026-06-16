@@ -2038,10 +2038,14 @@ async function recordGatedMemory(
 }
 
 /** Read the policy's budget utilization (0–100) — feeds the risk review. */
-async function readPolicyBudgetPct(
+/** The policy's budget in base units (6dp DBUSDC/USDC for spot), plus the
+ *  used %. `remaining` lets the loop pre-check headroom and abstain GRACEFULLY
+ *  at the cap instead of attempting a doomed record_spend that aborts and
+ *  retires the operator. cap=0 means "unreadable" → caller should not gate on it. */
+async function readPolicyBudget(
   ctx: AgentContext,
   policyId: string,
-): Promise<number> {
+): Promise<{ pct: number; cap: number; spent: number; remaining: number }> {
   try {
     const o = await ctx.client.getObject({
       id: policyId,
@@ -2050,9 +2054,10 @@ async function readPolicyBudgetPct(
     const f = (o.data?.content as { fields?: Record<string, unknown> })?.fields;
     const cap = Number(f?.budget_cap ?? 0);
     const spent = Number(f?.spent ?? 0);
-    return cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
+    const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
+    return { pct, cap, spent, remaining: Math.max(0, cap - spent) };
   } catch {
-    return 0;
+    return { pct: 0, cap: 0, spent: 0, remaining: 0 };
   }
 }
 
@@ -2092,13 +2097,13 @@ async function runGatedOperator(
   // Counterargument → Risk → Policy → Execution → Decision). AI reasoning,
   // memory replay and DeepBook execution analysis fold in via opts in later
   // phases; the Move policy gates execution regardless.
-  const budgetUsedPct = await readPolicyBudgetPct(ctx, e.policyId);
+  const budget = await readPolicyBudget(ctx, e.policyId);
   const eng = runDecisionEngine({
     asset: "SUI",
     signals,
     spotUsd: midUsd,
     mode,
-    budgetUsedPct,
+    budgetUsedPct: budget.pct,
   });
   const direction: Direction = eng.direction;
   const reasoning = `${eng.thesis} ${eng.counterargument} → ${eng.verdict}`;
@@ -2143,6 +2148,34 @@ async function runGatedOperator(
   // Decision to act — verify the BM can actually execute before firing.
   const coins = gatedCoinTypes(e.network);
   const isBid = direction === "up";
+
+  // record_spend amount (quote, 6dp): one min-lot of SUI at the current mid.
+  const recordSpendAmount = BigInt(
+    Math.max(1, Math.floor(GATED_BASE_QTY * midUsd * 1e6)),
+  );
+
+  // ---- BUDGET HEADROOM: stay alive at the cap ---------------------------
+  // Hitting the budget cap is a NORMAL end-state, not a failure. If the next
+  // order wouldn't fit, abstain gracefully (capital fully deployed) — never
+  // attempt a doomed record_spend that aborts EBudgetExceeded and retires the
+  // operator. (The on-chain refusal proof comes from the REVOKE kill switch.)
+  if (budget.cap > 0 && Number(recordSpendAmount) > budget.remaining) {
+    const r = `Operator leaned ${direction.toUpperCase()} but its budget is fully deployed — ${(
+      budget.spent / 1e6
+    ).toFixed(2)} of ${(budget.cap / 1e6).toFixed(
+      2,
+    )} spent, less than one min-lot left. No trade; the leash held. Top up the budget to let it keep working.`;
+    emitAgentEvent("mode", {
+      policyId: e.policyId,
+      taskId,
+      asset: "SUI",
+      data: { mode: "simulated", sim_reason: r },
+    });
+    console.log(
+      `[trader-gated] ${e.policyId.slice(0, 10)}… ${direction} budget fully deployed — abstain (alive)`,
+    );
+    return;
+  }
 
   // ---- FUEL: the operator's DEEP tank pays DeepBook fees -----------------
   // SUI/USDC isn't whitelisted, so each order needs DEEP. If the tank is
@@ -2209,9 +2242,6 @@ async function runGatedOperator(
   // Inventory guard: UP buys SUI with quote (USDC/DBUSDC); DOWN sells SUI
   // base. A freshly-adopted BM holds only quote, so it can buy but not yet
   // short — skip honestly instead of aborting on chain.
-  const recordSpendAmount = BigInt(
-    Math.max(1, Math.floor(GATED_BASE_QTY * midUsd * 1e6)),
-  );
   const needType = isBid ? coins.quote : coins.base;
   const needAmount = isBid
     ? recordSpendAmount
