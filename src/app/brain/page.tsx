@@ -211,89 +211,62 @@ function FocusedDecision({
         className="animate-fade-up mt-5 bg-bg-elev px-6 py-8 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-10 sm:py-10"
         style={{ borderTop: `3px solid ${verdictColor}` }}
       >
-        <Section label="What I saw">
-          <Big>
-            {`$${d.mid.toFixed(3)}`} ·{" "}
-            {reg.trend > 0 ? "trending higher" : reg.trend < 0 ? "trending lower" : "flat"}
-          </Big>
-          <Sub>
-            momentum {momentumLabel(reg.rsi).toLowerCase()} ·{" "}
-            {reg.vol < 0.008 ? "low" : reg.vol < 0.02 ? "moderate" : "high"} volatility
-          </Sub>
-        </Section>
+        {/* Five cinematic blocks — watch the intelligence, don't read logs. */}
+        <BigBlock
+          label="What it saw"
+          headline={detail.regimeLabel ?? (reg.trend > 0 ? "Trending higher" : reg.trend < 0 ? "Trending lower" : "Flat tape")}
+          color={regimeColor(detail.regimeLabel, reg.trend)}
+          sub={`$${d.mid.toFixed(3)} · momentum ${momentumLabel(reg.rsi).toLowerCase()} · ${reg.vol < 0.008 ? "low" : reg.vol < 0.02 ? "moderate" : "high"} volatility`}
+        />
 
-        {detail.regimeReview && (
-          <Section label="Regime read">
-            <Big>{detail.regimeLabel ?? "—"}</Big>
-            <Sub>{detail.regimeReview}</Sub>
-          </Section>
+        <BigBlock
+          label="What it remembered"
+          headline={
+            detail.recallFound && detail.recallFound > 0
+              ? `${detail.recallFound} similar situation${detail.recallFound === 1 ? "" : "s"} — ${detail.recallWins ?? 0}W / ${detail.recallLosses ?? 0}L`
+              : "First time in conditions like these"
+          }
+          color={INK}
+          dim={!detail.recallFound}
+          sub={detail.recallFound && detail.recallFound > 0 ? (detail.recallNote ? tail(detail.recallNote) : undefined) : "Recording it so future cycles can recall how it played out."}
+        />
+
+        <BigBlock
+          label="What it feared"
+          headline={detail.counterargument ?? "No strong counter-signal."}
+          color={INK}
+          sub={act ? detail.executionReview ?? undefined : undefined}
+        />
+
+        <BigBlock
+          label="What it did"
+          headline={act ? (up ? "Added to SUI ▲" : "Trimmed SUI ▼") : "Held position"}
+          color={verdictColor}
+          sub={
+            d.targetExposurePct != null
+              ? `Target ${d.targetExposurePct}% SUI · ${100 - d.targetExposurePct}% cash · ${(d.confidence * 100).toFixed(0)}% confidence`
+              : `${(d.confidence * 100).toFixed(0)}% confidence`
+          }
+        />
+
+        <BigBlock
+          label="What happened"
+          headline={oc.headline}
+          color={oc.color}
+          sub={oc.detail}
+          last
+        />
+        {detail.txDigest && (
+          <a
+            href={explorerUrl("txblock", detail.txDigest)}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-block font-mono text-[11px] underline-offset-2 hover:underline"
+            style={{ color: NAVY }}
+          >
+            {short(detail.txDigest, 6)} on Suiscan ↗
+          </a>
         )}
-
-        <Section label="What I remembered">
-          {detail.recallFound && detail.recallFound > 0 ? (
-            <>
-              <Big>
-                {detail.recallFound} similar situation{detail.recallFound === 1 ? "" : "s"}
-              </Big>
-              <Sub>
-                <span style={{ color: EMERALD }}>{detail.recallWins ?? 0} profitable</span>
-                {" · "}
-                <span style={{ color: RED }}>{detail.recallLosses ?? 0} unprofitable</span>
-                {detail.recallNote ? ` — ${tail(detail.recallNote)}` : ""}
-              </Sub>
-            </>
-          ) : (
-            <Big dim>First time in conditions like these — no memory to lean on yet.</Big>
-          )}
-        </Section>
-
-        <Section label="What could go wrong">
-          <Body>{detail.counterargument ?? "—"}</Body>
-        </Section>
-
-        <Section label="Execution quality">
-          <Body mono>
-            {act ? detail.executionReview ?? "—" : "No order intended — execution not evaluated."}
-          </Body>
-        </Section>
-
-        <Section label="Policy check">
-          <Body mono>{detail.policyReview ?? "—"}</Body>
-          {detail.mandateReview && <Body mono>{detail.mandateReview}</Body>}
-        </Section>
-
-        <Section label="Decision">
-          <p className="font-mono text-[26px] font-medium tracking-tight" style={{ color: verdictColor }}>
-            {act ? `${up ? "ADD TO SUI ▲" : "TRIM SUI ▼"}` : "HOLD"}
-            <span className="ml-3 font-sans text-[14px] font-normal" style={{ color: SUB }}>
-              {(d.confidence * 100).toFixed(0)}% confidence
-            </span>
-          </p>
-          {d.targetExposurePct != null && (
-            <Sub>
-              Target allocation: {d.targetExposurePct}% SUI · {100 - d.targetExposurePct}% cash
-            </Sub>
-          )}
-          {detail.verdict && <Sub>{detail.verdict}</Sub>}
-        </Section>
-
-        <Section label="Outcome" last>
-          <p className="font-mono text-[18px]" style={{ color: oc.color }}>
-            {oc.headline}
-          </p>
-          <Sub>{oc.detail}</Sub>
-          {detail.txDigest && (
-            <a
-              href={explorerUrl("txblock", detail.txDigest)}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-block font-mono text-[11px] underline-offset-2 hover:underline"
-              style={{ color: NAVY }}
-            >
-              {short(detail.txDigest, 6)} on Suiscan ↗
-            </a>
-          )}
-        </Section>
       </div>
 
       {/* slim jump rail — recent decisions as dots */}
@@ -317,33 +290,51 @@ function FocusedDecision({
   );
 }
 
-function Section({ label, children, last }: { label: string; children: React.ReactNode; last?: boolean }) {
+// A cinematic block — huge headline, one supporting line. Read in a glance.
+function BigBlock({
+  label,
+  headline,
+  color,
+  sub,
+  dim,
+  last,
+}: {
+  label: string;
+  headline: string;
+  color?: string;
+  sub?: string;
+  dim?: boolean;
+  last?: boolean;
+}) {
   return (
-    <div className={last ? "" : "mb-8"}>
-      <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+    <div className={last ? "" : "mb-9"}>
+      <p className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.28em]" style={{ color: NAVY }}>
         {label}
       </p>
-      {children}
+      <p
+        className="font-sans text-[24px] font-medium leading-[1.14] tracking-tight sm:text-[30px]"
+        style={{ color: dim ? SUB : color ?? INK }}
+      >
+        {headline}
+      </p>
+      {sub && (
+        <p className="mt-2 text-[14px] leading-relaxed" style={{ color: SUB }}>
+          {sub}
+        </p>
+      )}
     </div>
   );
 }
-function Big({ children, dim }: { children: React.ReactNode; dim?: boolean }) {
-  return (
-    <p className="font-sans text-[19px] font-medium leading-snug tracking-tight" style={{ color: dim ? SUB : INK }}>
-      {children}
-    </p>
-  );
+
+function regimeColor(label: string | undefined, trend: number): string {
+  const l = (label ?? "").toLowerCase();
+  if (l.includes("down")) return RED;
+  if (l.includes("up") || l.includes("breakout")) return EMERALD;
+  if (l.includes("mean")) return AMBER;
+  if (l.includes("range")) return SUB;
+  return trend > 0 ? EMERALD : trend < 0 ? RED : INK;
 }
-function Sub({ children }: { children: React.ReactNode }) {
-  return <p className="mt-1.5 text-[13.5px] leading-relaxed" style={{ color: SUB }}>{children}</p>;
-}
-function Body({ children, mono }: { children: React.ReactNode; mono?: boolean }) {
-  return (
-    <p className={`${mono ? "font-mono text-[12.5px]" : "text-[14px]"} leading-relaxed`} style={{ color: mono ? SUB : INK }}>
-      {children}
-    </p>
-  );
-}
+
 
 // ── Educational empty state — the operator is learning, not idle ─────────────
 

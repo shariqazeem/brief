@@ -308,7 +308,21 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
       />
 
       <main className="mx-auto max-w-3xl space-y-6 px-5 py-8 sm:px-8">
-        {/* My operator → my capital → my goal → my progress → what it's doing → why */}
+        {/* YOUR OBJECTIVE first — the operator manages the owner's objective,
+            not the other way around. Then: what it's doing → capital →
+            outcome → the actions → why it's safe → (reasoning below). */}
+        {spot && (
+          <ObjectiveCard
+            goal={goal ?? null}
+            stream={stream}
+            benchmark={benchmark}
+            codename={codename}
+            revoked={revoked}
+            stale={stale}
+            assetLabel={bv.asset}
+          />
+        )}
+
         <OperatorHero
           name={codename}
           objective={objective}
@@ -335,10 +349,6 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         )}
 
         {spot && <OperatorLedgerCard ledger={ledger} now={now} />}
-
-        {spot && (
-          <GoalCard goal={goal ?? null} stream={stream} spanDays={scorecard?.spanDays ?? null} />
-        )}
 
         {spot && <ProtectedBySui policyId={policyId} />}
 
@@ -953,33 +963,65 @@ function PlaybookIntelligence({ playbooks }: { playbooks: PlaybookStat[] }) {
   );
 }
 
-// Goal Progress — "my goal", felt. A grow target shows progress toward the %;
-// a protect mandate shows the drawdown guard. People adopt goals, not strategies.
-function GoalCard({
+// Your Objective — the reframe that matters most: the operator manages the
+// OWNER's objective, not the other way around. Leads the page with the goal +
+// live progress toward it + "Operator [name]: Working". A grow target shows
+// progress to %, a protect mandate shows the drawdown guard, and "beat passive
+// SUI" shows the live margin over simply holding.
+function ObjectiveCard({
   goal,
   stream,
-  spanDays,
+  benchmark,
+  codename,
+  revoked,
+  stale,
+  assetLabel,
 }: {
   goal: OperatorGoal | null;
   stream: AgentStreamState;
-  spanDays: number | null;
+  benchmark: Benchmark | null;
+  codename: string;
+  revoked: boolean;
+  stale: boolean;
+  assetLabel: string;
 }) {
   const dec = stream.decision;
   const m = dec?.mandate ?? null;
   const pnlPct = dec?.portfolio?.pnlPct ?? 0;
-  const days = spanDays != null ? Math.round(spanDays) : null;
+
+  // Operator status — the worker behind the objective.
+  const status = revoked
+    ? { word: "Grounded", color: IDLE }
+    : stream.mode === "live" && !stale
+      ? { word: "Executing", color: EMERALD }
+      : !stale && dec
+        ? { word: "Working", color: NAVY }
+        : { word: "Idle", color: MUTED };
+  const footer = (
+    <div className="mt-4 flex items-center gap-2" style={{ borderTop: "1px solid #E5E5EA", paddingTop: 12 }}>
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${status.word === "Executing" ? "animate-pulse" : ""}`}
+        style={{ background: status.color }}
+        aria-hidden
+      />
+      <span className="font-mono text-[10.5px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
+        Operator {codename}
+      </span>
+      <span className="font-mono text-[10.5px] uppercase tracking-[0.18em]" style={{ color: status.color }}>
+        · {status.word}
+      </span>
+    </div>
+  );
 
   // GROW target → progress toward the %.
   if (goal?.type === "grow" && goal.targetPct) {
     const target = goal.targetPct;
     const pctOfTarget = target > 0 ? Math.max(0, Math.min(100, (pnlPct / target) * 100)) : 0;
-    const remaining =
-      goal.horizonDays != null && days != null ? Math.max(0, goal.horizonDays - days) : null;
     const pnlColor = Math.abs(pnlPct) < 0.05 ? SUB : pnlPct > 0 ? EMERALD : RED;
     return (
-      <GoalShell eyebrow="My goal" title={`Grow ${target}% in ${goal.horizonDays ?? "?"} days`}>
+      <GoalShell eyebrow="Your objective" title={`Grow ${target}% in ${goal.horizonDays ?? "?"} days`} footer={footer}>
         <div className="mt-3 flex items-baseline gap-2.5">
-          <span className="font-sans text-[28px] font-medium tabular-nums leading-none tracking-tight" style={{ color: pnlColor }}>
+          <span className="font-sans text-[32px] font-medium tabular-nums leading-none tracking-tight" style={{ color: pnlColor }}>
             {pnlPct > 0 ? "+" : ""}{pnlPct.toFixed(1)}%
           </span>
           <span className="font-mono text-[12px]" style={{ color: SUB }}>
@@ -989,9 +1031,6 @@ function GoalCard({
         <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full" style={{ background: "#E5E5EA" }}>
           <div className="h-full transition-[width] duration-500" style={{ width: `${pctOfTarget}%`, background: NAVY }} />
         </div>
-        <p className="mt-2 font-mono text-[11px] tabular-nums" style={{ color: MUTED }}>
-          {remaining != null ? `${remaining} day${remaining === 1 ? "" : "s"} remaining` : "open-ended horizon"}
-        </p>
       </GoalShell>
     );
   }
@@ -1003,18 +1042,15 @@ function GoalCard({
     const healthy = !m || !m.breached;
     const fill = maxDD ? Math.max(0, Math.min(100, (curDD / maxDD) * 100)) : 0;
     return (
-      <GoalShell eyebrow="My goal" title="Protect capital">
-        <p className="mt-3 font-mono text-[13px] tabular-nums" style={{ color: SUB }}>
-          {maxDD != null ? (
-            <>
-              Max drawdown {maxDD}% · <span style={{ color: INK }}>current {curDD.toFixed(1)}%</span>
-            </>
-          ) : (
-            <>Current drawdown {curDD.toFixed(1)}%</>
-          )}
-          {" · "}
-          <span style={{ color: healthy ? EMERALD : RED }}>{healthy ? "Healthy" : "Breached"}</span>
-        </p>
+      <GoalShell eyebrow="Your objective" title="Protect my capital" footer={footer}>
+        <div className="mt-3 flex items-baseline gap-2.5">
+          <span className="font-sans text-[32px] font-medium tabular-nums leading-none tracking-tight" style={{ color: healthy ? EMERALD : RED }}>
+            {curDD.toFixed(1)}%
+          </span>
+          <span className="font-mono text-[12px]" style={{ color: SUB }}>
+            drawdown{maxDD != null ? ` · limit ${maxDD}%` : ""} · {healthy ? "healthy" : "breached"}
+          </span>
+        </div>
         {maxDD != null && (
           <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full" style={{ background: "#E5E5EA" }}>
             <div className="h-full transition-[width] duration-500" style={{ width: `${fill}%`, background: healthy ? EMERALD : RED }} />
@@ -1024,17 +1060,39 @@ function GoalCard({
     );
   }
 
-  // EDGE / generic.
+  // EDGE / "beat passive SUI" → live margin over holding.
+  const vsHold = benchmark?.vsHold ?? null;
+  const vsColor = vsHold == null ? SUB : vsHold >= 0 ? EMERALD : RED;
   return (
-    <GoalShell eyebrow="My goal" title={objectiveLabel(goal)}>
-      <p className="mt-3 text-[13px]" style={{ color: SUB }}>
-        Working under your mandate{days != null && days >= 1 ? ` · ${days} day${days === 1 ? "" : "s"} in` : ""}.
-      </p>
+    <GoalShell eyebrow="Your objective" title={`Beat passive ${assetLabel}`} footer={footer}>
+      <div className="mt-3 flex items-baseline gap-2.5">
+        <span className="font-sans text-[32px] font-medium tabular-nums leading-none tracking-tight" style={{ color: vsColor }}>
+          {vsHold == null ? "—" : `${vsHold >= 0 ? "+" : ""}${vsHold.toFixed(1)}%`}
+        </span>
+        <span className="font-mono text-[12px]" style={{ color: SUB }}>
+          vs passive {assetLabel}
+        </span>
+      </div>
+      {benchmark && (
+        <p className="mt-2 font-mono text-[11.5px] tabular-nums" style={{ color: MUTED }}>
+          operator {benchmark.operatorPct >= 0 ? "+" : ""}{benchmark.operatorPct.toFixed(1)}% · holding {benchmark.holdPct >= 0 ? "+" : ""}{benchmark.holdPct.toFixed(1)}%
+        </p>
+      )}
     </GoalShell>
   );
 }
 
-function GoalShell({ eyebrow, title, children }: { eyebrow: string; title: string; children: React.ReactNode }) {
+function GoalShell({
+  eyebrow,
+  title,
+  children,
+  footer,
+}: {
+  eyebrow: string;
+  title: string;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
   return (
     <section
       className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9"
@@ -1043,10 +1101,11 @@ function GoalShell({ eyebrow, title, children }: { eyebrow: string; title: strin
       <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: SUB }}>
         {eyebrow}
       </p>
-      <p className="mt-1.5 font-sans text-[20px] font-medium tracking-tight" style={{ color: INK }}>
+      <p className="mt-1.5 font-sans text-[22px] font-medium tracking-tight" style={{ color: INK }}>
         {title}
       </p>
       {children}
+      {footer}
     </section>
   );
 }
