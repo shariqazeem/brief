@@ -57,6 +57,39 @@ function parseMandate(raw: unknown): Mandate | null {
   };
 }
 
+// GET /api/operators/register?policy_id=0x… — the PUBLIC custody info the
+// withdraw UI needs (BalanceManager id, network, owner). These are all public
+// on-chain objects; no secrets. Returns 404 if the operator isn't registered.
+export async function GET(req: NextRequest) {
+  const policyId = req.nextUrl.searchParams.get("policy_id") ?? "";
+  if (!HEX.test(policyId)) {
+    return NextResponse.json({ ok: false, error: "policy_id must be a 0x… id" }, { status: 400 });
+  }
+  let list: Entry[] = [];
+  try {
+    const raw = await fs.readFile(REGISTRY, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) list = parsed as Entry[];
+  } catch {
+    /* none */
+  }
+  const e = list.find((x) => x.policyId === policyId);
+  if (!e) {
+    return NextResponse.json({ ok: false, error: "operator not found" }, { status: 404 });
+  }
+  return NextResponse.json(
+    {
+      ok: true,
+      policy_id: e.policyId,
+      bm_id: e.bmId,
+      owner: e.owner,
+      network: e.network,
+      revoked: e.revoked,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {

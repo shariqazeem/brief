@@ -51,6 +51,7 @@ import {
   type DecisionRecord,
 } from "@/lib/operator-scorecard";
 import { operatorCodename, objectiveLabel } from "@/lib/operator-identity";
+import { WithdrawFunds } from "./withdraw-funds";
 import {
   useOperatorLedger,
   computeBenchmark,
@@ -351,6 +352,8 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         {spot && <OperatorLedgerCard ledger={ledger} now={now} />}
 
         {spot && <ProtectedBySui policyId={policyId} />}
+
+        {spot && !props.readOnly && <WithdrawFunds policyId={policyId} />}
 
         {/* REASONING — supporting evidence, collapsed by default (outcome > how) */}
         {spot ? (
