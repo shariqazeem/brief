@@ -1,609 +1,516 @@
-Yes.
+Yes. At this stage I would not ask Claude for another redesign.
 
-And I would be extremely specific with Claude here. Not “make it cleaner.” Not “make it more Apple.”
+I would ask for a final Apple-style reduction pass.
 
-Those instructions usually produce random redesigns and destroy good work.
+The goal is not adding features.
 
-You need a surgical UX simplification pass, not a redesign.
+The goal is:
 
-Give Claude something like this:
+Reduce cognitive load until every page communicates ONE idea within 3 seconds.
 
-BRIEF — UX Simplification & Premium Product Pass
+Give Claude this exactly:
 
-IMPORTANT
+Brief — Final Pre-Mainnet UX Tightening Pass
 
 This is NOT a redesign.
 
 Do NOT change:
 
-* visual identity
-* typography system
-* color palette
-* spacing scale
-* card style
-* brand voice
-* navigation structure
-* The Leash animation
+* Brand identity
+* Typography system
+* Color palette
+* Navigation structure
+* Page architecture
+* The Leash concept
 * Proof page structure
+* Existing visual language
 
-The current design language is already correct.
+The product is already visually strong.
 
-The goal is to make Brief feel more premium by reducing cognitive load and increasing clarity.
+This pass is about reducing cognitive load and increasing clarity.
 
-Think:
+Target outcome:
 
-* Apple
-* Linear
-* Mercury
-
-NOT:
-
-* crypto dashboards
-* analytics software
-* enterprise SaaS
-
-Principle:
-
-“Show. Don’t explain.”
-
-Reduce explanation.
-Increase evidence.
-
-⸻
-
-GLOBAL CHANGES
-
-1. Reduce copy across the entire product by 35–50%
-
-Audit every page.
-
-For every paragraph ask:
-
-“Can this be communicated in one sentence?”
-
-If yes, shorten it.
-
-No section should begin with a paragraph longer than 2 lines.
-
-⸻
-
-2. Introduce progressive disclosure
+Every page should communicate one dominant idea instantly.
 
 Current issue:
 
-The product exposes too much information at once.
+The UI is clean, but some pages still feel like “information arranged nicely” rather than “one obvious idea communicated instantly.”
 
-Rules:
+Apple-style design removes everything until only the idea remains.
 
-* Primary information visible.
-* Secondary information collapsed.
-* Expert information expandable.
-
-Move technical detail into:
-
-* expandable sections
-* drawers
-* details panels
-
-Never remove information.
-
-Just hide it behind intent.
+Perform the following changes.
 
 ⸻
 
-3. Create stronger hierarchy
-
-Each page should answer ONE question.
-
-Users should understand that question within 3 seconds.
-
-Examples:
-
-Landing:
-“Why should I trust an autonomous operator?”
-
-Brain:
-“How does it think?”
-
-Evolution:
-“Has it learned?”
-
-Results:
-“Did it work?”
-
-Proof:
-“Can I verify it?”
-
-Dashboard:
-“What is my operator doing right now?”
-
-⸻
-
-LANDING PAGE
+1. Workforce Page
 
 Current problem:
 
-The hero is excellent.
-Below the fold becomes explanation-heavy.
+The page feels visually empty because there is only one operator card.
+
+The large empty area creates the impression that the platform is smaller than it is.
 
 Goal:
 
-Move from explanation → evidence.
+Make the page feel like a platform, not a demo.
 
-⸻
+Changes:
 
-Section: Watch It Think
+Compress hero
 
-Keep.
+Reduce vertical spacing between:
 
-Reduce surrounding explanatory text by 50%.
+* eyebrow
+* headline
+* description
 
-The live decision card should do most of the storytelling.
-
-⸻
-
-Section: The Leash
-
-Current cards are good.
-
-Shorten copy.
+Current spacing is excessive.
 
 Target:
 
-Card title
-1 sentence
-
-No multi-line explanations.
+The operator card should appear much sooner.
 
 ⸻
 
-Section: Platform
+Make operator card dominant
 
-Current headline is strong.
+Increase visual emphasis on:
 
-Reduce supporting paragraph.
+* operator name
+* return
+* status
 
-Current:
+Hierarchy should be:
 
-Several explanatory sentences.
-
-Replace with:
-
-“Halcyon is the first operator. Finance is the proof.”
-
-Nothing more.
-
-⸻
-
-Landing Page Overall
-
-After hero:
-
-Prioritize:
-
-1. Live proof
-2. Live thinking
-3. On-chain enforcement
-
-Move explanations after evidence.
-
-Evidence first.
-Explanation second.
+1. Halcyon
+2. Return
+3. Status
+4. Everything else
 
 ⸻
 
-ADOPTION FLOW
+Add platform future-state
 
-This is the most important flow in the product.
+Below the live operator card add a subtle section:
 
-Judges will actually use it.
+“Future operators”
 
-Current issue:
+Render two inactive placeholder cards:
 
-Too much explanatory copy.
+Atlas
+Coming soon
 
-⸻
+Sentinel
+Coming soon
 
-Goal Selection
+Style:
 
-Keep existing cards.
+* ghost cards
+* low opacity
+* non-interactive
 
-Shorten descriptions.
+Purpose:
 
-Target:
-
-Protect my capital
-“Act only when the edge is clear.”
-
-Grow steadily
-“Balanced cash and SUI allocation.”
-
-Beat passive SUI
-“Higher risk for higher upside.”
-
-Nothing more.
+Make Brief feel like an operator platform rather than a single-agent demo.
 
 ⸻
 
-Budget Section
-
-Current copy:
-
-Too verbose.
-
-Replace with:
-
-“Budget is enforced on-chain. Exceeding it reverts the transaction.”
-
-Single sentence.
-
-⸻
-
-Mandate Section
-
-Current explanation too long.
-
-Replace with:
-
-“Optional objective guardrail stored on Walrus.”
-
-⸻
-
-Deposit Section
-
-Keep custody explanation.
-
-Reduce by ~50%.
-
-Focus on:
-
-* you own funds
-* operator can trade
-* operator cannot withdraw
-
-Only.
-
-⸻
-
-Adoption CTA
-
-Keep.
-
-Strongest element on page.
-
-No changes.
-
-⸻
-
-WORKFORCE PAGE
-
-Current issue:
-
-Feels empty with one operator.
-
-Do not redesign.
-
-Instead:
-
-Increase visual importance of operator card.
-
-Actions:
-
-* slightly increase card size
-* slightly increase performance number size
-* increase operator status visibility
-
-Do NOT add new sections.
-
-This page will naturally improve once multiple operators exist.
-
-⸻
-
-DASHBOARD (MOST IMPORTANT)
+2. Dashboard
 
 Current problem:
 
-Dashboard tries to be:
+The “Operator grounded” block occupies too much vertical space relative to the information it contains.
 
-* portfolio
-* performance
-* ledger
-* proof
-* reasoning
-* custody
-* timeline
+It creates unnecessary visual weight.
 
-all at once.
+Goal:
 
-This creates fatigue.
+Status should be understood immediately.
 
 ⸻
 
-New Structure
+Replace large status section
 
-Only 3 sections above the fold:
+Current:
+
+Large hero card with:
+
+“Operator grounded — past wins still redeem, no new trades.”
+
+Replace with:
+
+Compact status banner.
+
+Example structure:
+
+Status: Grounded
+
+Operator is inactive.
+Past allocations remain redeemable.
+
+Show:
+
+* status
+* last decision
+* confidence
+* budget remaining
+
+in a compact row.
+
+Reduce height significantly.
+
+⸻
+
+Increase visual importance of Capital
+
+Current hierarchy:
+
+Status dominates.
+
+Desired hierarchy:
 
 1. Objective
-
-Large.
-
-Examples:
-
-Beat passive SUI
-
-+1.8%
-
-vs SUI +0.4%
-
-Operator Active
-
-⸻
-
 2. Capital
+3. Performance
 
-Current value
+Capital should visually matter more than status.
 
-Allocation
-
-Drawdown
-
-⸻
-
-3. Latest Decision
-
-Most recent reasoning summary.
-
-Single card.
-
-⸻
-
-Everything else moves below.
-
-⸻
-
-Collapse Sections By Default
-
-Collapse:
-
-* How it thinks
-* Full ledger
-* Timeline
-* Deep reasoning
-* Raw observations
-
-Show only summary.
-
-Expand on click.
+Users care about their money first.
 
 ⸻
 
 Protected by Sui
 
-Keep.
+Current section is improved but still slightly busy.
 
-One of the strongest trust sections.
-
-Reduce copy by 50%.
-
-Use diagram > text.
-
-⸻
-
-Withdraw Section
-
-Keep.
-
-Move higher.
-
-Users care more about custody than reasoning.
-
-Order:
-
-Capital
-Withdraw
-Performance
-
-Not:
-
-Capital
-Reasoning
-Withdraw
-
-⸻
-
-BRAIN PAGE
-
-Strongest page after Proof.
-
-Minimal changes.
-
-⸻
-
-Improve Decision Navigation
-
-Make previous / next more visible.
-
-Users should browse decisions like stories.
-
-Not logs.
-
-⸻
-
-Reduce Statistics Row
-
-Current top metrics distract.
+Reduce secondary descriptions.
 
 Keep:
 
-* decisions
-* capital preserved
+Wallet
+BalanceManager
+TradeCap
+Operator
+DeepBook
 
-Remove or minimize anything that doesn’t help understanding.
+Each row should explain itself in one short sentence.
 
-⸻
+No extra narrative.
 
-Narrative Structure
+Diagram first.
 
-Keep exactly:
-
-What it saw
-
-What it remembered
-
-What it feared
-
-What it did
-
-What happened
-
-This is excellent.
-
-Do not change.
+Explanation second.
 
 ⸻
 
-EVOLUTION PAGE
+3. Brain Page
 
-Keep almost entirely unchanged.
+Current problem:
 
-This page is differentiated and memorable.
+Reasoning competes with conclusions.
 
-⸻
+The page still reads like a report.
 
-Only Change
+Goal:
 
-Reduce introductory paragraph by 50%.
-
-The timeline already tells the story.
-
-Trust the timeline.
+Decision first.
+Reasoning second.
 
 ⸻
 
-RESULTS PAGE
+Increase emphasis on outcomes
 
-Major opportunity.
+Visual hierarchy should become:
 
-Current issue:
+Range-bound
 
-No immediate verdict.
+Held position
 
-Users must interpret.
+Capital protected
 
-⸻
-
-Add Verdict Section At Top
-
-Large statement.
-
-Examples:
-
-“Halcyon outperformed holding SUI.”
-
-or
-
-“Halcyon preserved capital but trailed SUI.”
-
-or
-
-“Halcyon protected capital during volatility.”
-
-One sentence.
-
-One answer.
+Everything else supports those three facts.
 
 ⸻
 
-Comparison Cards
+Reduce explanation density
+
+Example:
+
+Current:
+
+“Tape is flat. 30m ROC 0.00% sits inside ±0.25% band. No trend to ride.”
+
+Preferred:
+
+“No trend detected.”
+
+Allow expansion if needed.
+
+Default view should stay concise.
+
+⸻
+
+Memory block
+
+Current:
+
+“3 similar situations — 0W / 0L”
 
 Keep.
 
-Make them support the verdict.
+Good.
 
-Not replace it.
-
-⸻
-
-Status Card
-
-Keep.
-
-Strong trust signal.
-
-Reduce copy.
+Do not expand further.
 
 ⸻
 
-Big Moments
+Decision card
 
-Move higher.
+Increase size and weight of:
 
-Humans remember moments.
+Held position
 
-Not metrics.
+This should become the most visually dominant element on the page.
+
+The user should immediately understand:
+
+What happened.
+
+Not how it happened.
 
 ⸻
 
-PROOF PAGE
+4. Evolution Page
 
-Best page in the product.
+This page is effectively finished.
 
 Do not redesign.
 
-Do not simplify architecture.
-
-Do not remove evidence.
+Only make minor refinements.
 
 ⸻
 
-Only Change
+Tighten timeline spacing
 
-Reduce explanatory paragraphs.
+Reduce vertical gaps between timeline entries by 10–15%.
 
-Evidence should dominate the page.
+Current spacing is slightly loose.
 
-Proof cards should occupy more visual attention than supporting text.
+Keep everything else.
 
 ⸻
 
-FINAL PRODUCT PRINCIPLE
+Keep lesson card unchanged
 
-Every page should feel like:
+It is already clear.
 
-“I understand this immediately.”
+No redesign required.
 
-Not:
+⸻
 
-“I need to study this.”
+5. Results Page
 
-The current product already looks premium.
+Current problem:
 
-The next step is not adding polish.
+The headline still talks about performance first.
 
-The next step is removing friction.
+The product thesis is not performance.
 
-Remove approximately 40% of visible text.
+The product thesis is constrained autonomy.
 
-Keep 100% of the proof.
+Goal:
 
-Less explanation.
-More evidence.
+The headline should reinforce the moat.
 
-Less documentation.
-More conviction.
+⸻
 
-Do not add features.
+Replace performance-focused headline
 
-Do not add pages.
+Current:
+
+“Halcyon is down, but stayed within its limits.”
+
+Preferred direction:
+
+“The leash worked.”
+
+or
+
+“Capital remained protected.”
+
+or
+
+“Operator stayed within policy.”
+
+The exact copy can vary.
+
+But the headline should reinforce:
+
+Trust
+Control
+Safety
+
+not returns.
+
+⸻
+
+Comparison section
+
+Current comparison is good.
+
+Keep:
+
+Operator
+Held SUI
+Cash
 
 Do not redesign.
 
-Simplify.
-Elevate.
-Clarify.
+⸻
 
-One thing I would add outside this spec:
+Operator Status card
 
-Do not let Claude “Apple-ify” the UI further.
+Reduce paragraph length.
 
-You’re already at the point where another redesign is more likely to hurt than help. The gap between a top-10 submission and a potential winner is no longer visual design. It’s making judges understand the product’s value in 30 seconds instead of 3 minutes. That’s where I’d spend the remaining effort.
+Current:
+
+Still slightly explanatory.
+
+Target:
+
+Maximum two concise sentences.
+
+This card should feel like evidence, not marketing.
+
+⸻
+
+6. Global Simplification Rules
+
+Apply across all pages.
+
+⸻
+
+Remove explanatory duplication
+
+If a section title already explains the concept:
+
+Do not explain it again below.
+
+Example:
+
+Bad:
+
+Protected by Sui
+
+“This section shows how Sui protects…”
+
+Good:
+
+Protected by Sui
+
+[diagram]
+
+⸻
+
+Reduce paragraph length everywhere
+
+Maximum:
+
+2–3 lines per paragraph.
+
+Never more.
+
+⸻
+
+Prefer labels over sentences
+
+Replace:
+
+“The operator can trade but never withdraw.”
+
+with:
+
+TradeCap
+Trade only
+
+Shorter.
+Stronger.
+
+⸻
+
+Increase information density slightly
+
+Reduce unnecessary vertical whitespace by approximately 10%.
+
+Do NOT make the interface crowded.
+
+The goal is:
+
+Premium.
+Calm.
+Dense enough to feel professional.
+
+⸻
+
+Final Rule
+
+When deciding between:
+
+More explanation
+
+or
+
+More confidence
+
+choose confidence.
+
+When deciding between:
+
+More information
+
+or
+
+Clearer hierarchy
+
+choose hierarchy.
+
+When deciding between:
+
+A paragraph
+
+or
+
+A number
+
+choose the number.
+
+The final experience should feel less like a dashboard and more like a financial instrument designed by Apple.
+
+After this pass, I would stop touching the UI entirely. The next leverage is not pixels. It’s:
+
+1. Mainnet validation
+2. Demo video
+3. Submission narrative
+4. Judge experience
+5. Live proof that the leash actually works
+
+Those five things will move your odds far more than a fifth UX iteration.
+
+⸻
+
+7. Landing → Workforce routing (added by Shariq)
+
+The landing CTA should NOT send users straight to the adopt page. Send every
+user to the Workforce page instead. Workforce becomes the single front door for
+both new and returning users:
+
+* Returning user (has an operator) → sees their operator(s) + the "Future
+  operators" ghost cards.
+* New user (no operator) → sees a prominent "Adopt an operator" call-to-action
+  on the Workforce page itself, then proceeds into the adopt flow from there.
+
+This makes Workforce the home of the platform (now and as more operators exist),
+instead of dropping newcomers into a form. Replace the current adaptive landing
+CTA (which points new users at /workforce/adopt) so it always points at
+/workforce; let Workforce own the "adopt" entry point prominently.

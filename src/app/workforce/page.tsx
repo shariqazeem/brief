@@ -1473,18 +1473,18 @@ function useUsdcBalance(address: string): {
 function OperatorsHome({ ops }: { ops: TraderIdentity[] }) {
   return (
     <div className="mx-auto max-w-page">
-      <header className="flex flex-wrap items-end justify-between gap-5">
+      <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
             Brief · autonomous operators
           </p>
-          <h1 className="mt-3 font-sans text-[40px] font-medium leading-[1.04] tracking-tightest text-ink sm:text-[60px]">
+          <h1 className="mt-2 font-sans text-[36px] font-medium leading-[1.04] tracking-tightest text-ink sm:text-[52px]">
             {ops.length === 1 ? "Your operator." : "Your operators."}
           </h1>
-          <p className="mt-3 max-w-prose text-[14px] leading-relaxed text-ink-2">
+          <p className="mt-2 max-w-prose text-[14px] leading-relaxed text-ink-2">
             {ops.length === 1
-              ? "Operator #001 is live and managing capital under your mandate. Each operator is non-custodial, on its own on-chain leash · adopt more, each with a different objective, and compare them here."
-              : `${ops.length} autonomous operators · each with its own objective, return, and on-chain leash. Compare them below.`}
+              ? "Non-custodial, on its own on-chain leash. Adopt more below."
+              : `${ops.length} autonomous operators · compare them below.`}
           </p>
         </div>
         <Link
@@ -1495,10 +1495,51 @@ function OperatorsHome({ ops }: { ops: TraderIdentity[] }) {
         </Link>
       </header>
 
-      <div className="mt-12 grid gap-4 sm:grid-cols-2">
+      <div className="mt-7 grid gap-4 sm:grid-cols-2">
         {ops.map((op) => (
           <OperatorHomeCard key={op.policyId} op={op} />
         ))}
+      </div>
+
+      {/* Future-state · Brief is a platform, not a single-agent demo. */}
+      <p className="mt-10 font-mono text-[10px] uppercase tracking-[0.3em] text-muted">
+        Future operators
+      </p>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <GhostOperatorCard name="Atlas" objective="Treasury operator" />
+        <GhostOperatorCard name="Sentinel" objective="Stablecoin operator" />
+      </div>
+    </div>
+  );
+}
+
+// A non-interactive placeholder · signals the roadmap (more operators coming)
+// without faking data. Low opacity, no link, clearly "coming soon".
+function GhostOperatorCard({ name, objective }: { name: string; objective: string }) {
+  return (
+    <div
+      className="flex flex-col bg-bg-elev p-6 opacity-50 shadow-[0_1px_3px_rgba(0,0,0,0.04)] sm:p-8"
+      style={{ borderTop: "3px solid #D8D8DE" }}
+      aria-hidden
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="font-sans text-[34px] leading-none text-muted">◇</span>
+          <div>
+            <p className="font-sans text-[20px] font-semibold tracking-tight text-ink-2">{name}</p>
+            <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-muted">{objective}</p>
+          </div>
+        </div>
+        <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted">Coming soon</span>
+      </div>
+      <div className="mt-6">
+        <p className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-muted">Objective</p>
+        <div className="mt-2 flex items-baseline gap-3">
+          <span className="font-sans text-[34px] font-semibold tabular-nums leading-none tracking-tight text-muted">
+            —
+          </span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">return</span>
+        </div>
       </div>
     </div>
   );

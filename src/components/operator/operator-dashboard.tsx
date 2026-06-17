@@ -50,7 +50,7 @@ import {
   type RegimeKind,
   type DecisionRecord,
 } from "@/lib/operator-scorecard";
-import { operatorCodename, objectiveLabel } from "@/lib/operator-identity";
+import { operatorCodename } from "@/lib/operator-identity";
 import { WithdrawFunds } from "./withdraw-funds";
 import {
   useOperatorLedger,
@@ -272,7 +272,6 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   const { scorecard, decisions } = useOperatorScorecard(policyId);
   const { ledger, stats } = useOperatorLedger(policyId);
   const codename = operatorCodename(policyId);
-  const objective = objectiveLabel(goal ?? null);
   const currentMid = stream.spotUsd ?? stream.decision?.spotUsd ?? null;
   const benchmark = computeBenchmark(stats, stream.decision?.portfolio?.pnlPct ?? null, currentMid);
 
@@ -326,7 +325,6 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
         <OperatorHero
           name={codename}
-          objective={objective}
           glyph={personality?.glyph ?? "◇"}
           stream={stream}
           revoked={revoked}
@@ -478,7 +476,6 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
 function OperatorHero({
   name,
-  objective,
   glyph,
   stream,
   revoked,
@@ -487,7 +484,6 @@ function OperatorHero({
   bv,
 }: {
   name: string;
-  objective: string;
   glyph: string;
   stream: AgentStreamState;
   revoked: boolean;
@@ -523,15 +519,15 @@ function OperatorHero({
   const budgetRem = bv.cap > 0 ? `${Math.max(0, Math.round(100 - (bv.spent / bv.cap) * 100))}%` : "-";
   return (
     <section
-      className="bg-bg-elev px-6 py-7 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9 sm:py-8"
+      className="bg-bg-elev px-6 py-5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9"
       style={{ borderTop: `3px solid ${status.color}` }}
     >
       <div className="flex items-center gap-2.5">
-        <span className="font-sans text-[22px] leading-none" style={{ color: INK }} aria-hidden>
+        <span className="font-sans text-[20px] leading-none" style={{ color: INK }} aria-hidden>
           {glyph}
         </span>
         <span
-          className="font-sans text-[18px] font-semibold tracking-tight"
+          className="font-sans text-[17px] font-semibold tracking-tight"
           style={{ color: revoked ? IDLE : INK, textDecoration: revoked ? "line-through" : "none" }}
         >
           {name}
@@ -547,22 +543,20 @@ function OperatorHero({
           </span>
         </span>
       </div>
-      <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
-        {objective}
-      </p>
+      {/* Compact status line · the masthead, not a billboard. Capital dominates. */}
       <p
-        className="mt-4 font-sans text-[27px] font-medium leading-[1.15] tracking-tight sm:text-[34px]"
+        className="mt-2.5 font-sans text-[18px] font-medium leading-snug tracking-tight sm:text-[20px]"
         style={{ color: INK }}
       >
         {heroLine}
       </p>
       {allocSub && (
-        <p className="mt-2.5 font-mono text-[12px] tabular-nums" style={{ color: SUB }}>
+        <p className="mt-1.5 font-mono text-[11.5px] tabular-nums" style={{ color: SUB }}>
           {allocSub}
         </p>
       )}
       <div
-        className="mt-6 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-4"
+        className="mt-5 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-4"
         style={{ background: "#E5E5EA" }}
       >
         <HeroStat label="Last decision" value={lastWhen} />

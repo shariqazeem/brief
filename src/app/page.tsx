@@ -518,7 +518,9 @@ export default function OperatorLandingV2() {
   // (an operator saved locally) go to /workforce, which opens it live.
   const [hasOperator, setHasOperator] = useState(false);
   useEffect(() => setHasOperator(!!loadLatestTraderIdentity()), []);
-  const ctaHref = hasOperator ? "/workforce" : "/workforce/adopt";
+  // Workforce is the single front door · new users meet the adopt CTA there,
+  // returning users see their operator(s). Never drop newcomers into a form.
+  const ctaHref = "/workforce";
   const ctaLabel = hasOperator ? "Open your operator →" : "Adopt an operator →";
 
   const circleState: "idle" | "processing" | "act" | "preserve" = stale
