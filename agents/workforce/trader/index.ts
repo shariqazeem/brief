@@ -2479,11 +2479,15 @@ async function runGatedOperator(
   const coins = gatedCoinTypes(e.network);
   const isBid = direction === "up";
 
-  // ---- FUEL: the operator's DEEP tank pays DeepBook fees -----------------
-  // SUI/USDC isn't whitelisted, so each order needs DEEP. If the tank is
-  // empty, the house tops it up via the delegated DepositCap (deposit-not-
-  // withdraw). If it can't (no DepositCap, or the house reserve is dry), the
-  // operator idles with an amber "awaiting fuel" — alive, capital untouched.
+  // ---- FUEL (testnet only) ------------------------------------------------
+  // On testnet we pay DeepBook fees in DEEP (and demo the self-fueling tank).
+  // On MAINNET the gated order pays its fee from the traded asset
+  // (pay_with_deep=false), so the operator needs no DEEP and never idles
+  // "awaiting fuel" — a new user brings only USDC + SUI.
+  if (e.network === "testnet") {
+  // The operator's DEEP tank pays DeepBook fees. If the tank is empty, the
+  // house tops it up via the delegated DepositCap (deposit-not-withdraw). If
+  // it can't, the operator idles with an amber "awaiting fuel".
   let deepBal = await readBmAssetBalance(ctx, e.bmId, coins.deep);
   if (deepBal < FUEL_FLOOR_BASE && e.depositCapId && Date.now() >= houseFuelDryUntilMs) {
     try {
@@ -2540,6 +2544,7 @@ async function runGatedOperator(
     );
     return;
   }
+  } // end testnet-only DEEP fuel gate
 
   // Inventory guard: UP buys SUI with quote (USDC/DBUSDC); DOWN sells SUI
   // base. A freshly-adopted BM holds only quote, so it can buy but not yet

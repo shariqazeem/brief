@@ -179,9 +179,14 @@ export type GatedSpotArgs = {
 
 /** Build the gated spot PTB for a user's own BM via the delegated
  *  TradeCap. record_spend runs first (aborts on revoke/expiry/over-budget/
- *  venue); the market order only executes if the policy allows it. SUI/USDC
- *  is not whitelisted → pay_with_deep (the BM must hold a little DEEP). */
+ *  venue); the market order only executes if the policy allows it.
+ *
+ *  Fee model is per-network for onboarding simplicity: on testnet we keep
+ *  pay_with_deep=true (the BM holds a little DEEP — also demos the fuel
+ *  system); on MAINNET we pay the fee from the traded asset (pay_with_deep
+ *  =false) so a new user only needs USDC + SUI, never DEEP. */
 export function buildGatedSpotTx(ctx: AgentContext, args: GatedSpotArgs): Transaction {
+  const payWithDeep = args.network === "testnet";
   const db = makeGatedDeepBook(ctx, args.network, args.bmId, args.tradeCapId);
   const tx = new Transaction();
   tx.setGasBudget(50_000_000);
@@ -203,7 +208,7 @@ export function buildGatedSpotTx(ctx: AgentContext, args: GatedSpotArgs): Transa
       clientOrderId: String(Date.now()),
       quantity: args.baseQty,
       isBid: args.isBid,
-      payWithDeep: true,
+      payWithDeep,
     }) as unknown as Parameters<Transaction["add"]>[0],
   );
   return tx;
