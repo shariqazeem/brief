@@ -155,9 +155,9 @@ function MilestoneRow({ m, isLast }: { m: Milestone; isLast: boolean }) {
     <div className="relative flex gap-4">
       <div className="flex flex-col items-center pt-1">
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} aria-hidden />
-        {!isLast && <span className="my-1 w-px flex-1" style={{ background: "#E5E5EA", minHeight: 22 }} aria-hidden />}
+        {!isLast && <span className="my-1 w-px flex-1" style={{ background: "#E5E5EA", minHeight: 18 }} aria-hidden />}
       </div>
-      <div className={`flex-1 ${isLast ? "pb-1" : "pb-7"}`}>
+      <div className={`flex-1 ${isLast ? "pb-1" : "pb-6"}`}>
         <p className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: MUTED }}>
           Day {m.day}
         </p>

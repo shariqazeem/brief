@@ -272,6 +272,7 @@ function FocusedDecision({
 
         <BigBlock
           label="What it did"
+          emphasis
           headline={act ? (up ? "Added to SUI ▲" : "Trimmed SUI ▼") : "Held position"}
           color={verdictColor}
           sub={
@@ -349,6 +350,7 @@ function BigBlock({
   sub,
   dim,
   last,
+  emphasis,
 }: {
   label: string;
   headline: string;
@@ -356,6 +358,7 @@ function BigBlock({
   sub?: string;
   dim?: boolean;
   last?: boolean;
+  emphasis?: boolean;
 }) {
   return (
     <div className={last ? "" : "mb-9"}>
@@ -363,7 +366,11 @@ function BigBlock({
         {label}
       </p>
       <p
-        className="font-sans text-[24px] font-medium leading-[1.14] tracking-tight sm:text-[30px]"
+        className={
+          emphasis
+            ? "font-sans text-[32px] font-semibold leading-[1.1] tracking-tight sm:text-[42px]"
+            : "font-sans text-[24px] font-medium leading-[1.14] tracking-tight sm:text-[30px]"
+        }
         style={{ color: dim ? SUB : color ?? INK }}
       >
         {headline}

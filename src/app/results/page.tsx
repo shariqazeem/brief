@@ -110,27 +110,17 @@ function Results() {
               {objective} · running {dayLabel}
             </p>
 
-            {/* The verdict · one sentence, one answer, before any numbers. */}
+            {/* The verdict · one sentence. The thesis is constrained autonomy,
+                not returns, so the headline reinforces the moat first. */}
             {bench && (() => {
               const op = bench.operatorPct;
               const vh = bench.vsHold;
               let line: string;
-              let color: string;
-              if (op >= 0.1 && vh >= 0) {
-                line = `${codename} outperformed holding SUI.`;
-                color = EMERALD;
-              } else if (op >= 0.1) {
-                line = `${codename} grew, but trailed holding SUI.`;
-                color = INK;
-              } else if (op > -0.1) {
-                line = `${codename} preserved capital${worstDD <= 3 ? " through the swings" : ""}.`;
-                color = EMERALD;
-              } else {
-                line = `${codename} is down, but stayed within its limits.`;
-                color = worstDD > 5 ? AMBER : INK;
-              }
+              if (op >= 0.1 && vh >= 0) line = "Beat holding SUI, under on-chain law.";
+              else if (op >= 0.1) line = "Grew, every move within policy.";
+              else line = "The leash held. Capital protected.";
               return (
-                <p className="mt-7 font-sans text-[26px] font-medium leading-snug tracking-tight sm:text-[32px]" style={{ color }}>
+                <p className="mt-7 font-sans text-[26px] font-medium leading-snug tracking-tight sm:text-[32px]" style={{ color: INK }}>
                   {line}
                 </p>
               );
@@ -206,9 +196,8 @@ function Results() {
                 <span><span style={{ color: EMERALD }}>0</span> custody incidents</span>
               </div>
               <p className="mt-3 text-[13.5px] leading-relaxed" style={{ color: SUB }}>
-                Reliability is already solved · non-custodial execution, on-chain budget
-                enforcement, and revocation have run {dayLabel} on testnet without a single
-                violation. <span style={{ color: INK }}>Ready for mainnet capital.</span>
+                {dayLabel} on testnet, zero violations.{" "}
+                <span style={{ color: INK }}>Ready for mainnet capital.</span>
               </p>
               <div className="mt-4 grid gap-px overflow-hidden sm:grid-cols-3" style={{ background: LINE }}>
                 <Phase n="Now" label="Testnet validation" note="Live operators, real DeepBook orders, zero violations" done />
