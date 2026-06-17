@@ -21,6 +21,10 @@ export type MarketSpec = {
   // DeepBook spot-specific
   spotPoolKey?: string;
   spotPoolId?: string;
+  /** DeepBook v3 package id for this pool's network (pool::mid_price etc.
+   *  moveCall target). Omit on testnet markets → falls back to the testnet
+   *  default; mainnet markets set the live mainnet DeepBook package. */
+  deepbookPackage?: string;
   baseCoinType?: string;
   baseScalar?: number; // base coin smallest-unit per 1 unit (e.g. 1e9 for SUI)
   quoteCoinType?: string;
@@ -40,6 +44,30 @@ const PREDICT_OBJECT =
 
 export const DBUSDC_TYPE =
   "0xf7152c05930480cd740d7311b5b8b45c6f488e3a53a11c3f74a6fac36a52e0d7::DBUSDC::DBUSDC";
+
+export const MAINNET_USDC_TYPE =
+  "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
+
+/** The SUI spot market on MAINNET (real SUI/USDC DeepBook v3 pool). The
+ *  testnet SUI market below trades the DBUSDC mock pool; this one trades the
+ *  canonical mainnet pool · used by the non-custodial gated operator path. */
+export const SUI_MAINNET_MARKET: MarketSpec = {
+  asset: "SUI",
+  display: "SUI",
+  venue: "deepbook-spot",
+  spotPoolKey: "SUI_USDC",
+  spotPoolId:
+    "0xe05dafb5133bcffb8d59f4e12465dc0e9faeaa05e3e342a08fe135800e3e4407",
+  deepbookPackage:
+    "0xf48222c4e057fa468baf136bff8e12504209d43850c5778f76159292a96f621e",
+  baseCoinType: "0x2::sui::SUI",
+  baseScalar: 1_000_000_000,
+  quoteCoinType: MAINNET_USDC_TYPE,
+  quoteScalar: 1_000_000,
+  minOrderQty: 1.0,
+  pythFeedId:
+    "0x23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744",
+};
 
 export const MARKETS: Record<string, MarketSpec> = {
   BTC: {
@@ -100,6 +128,14 @@ export function getMarket(asset: string): MarketSpec {
   const m = MARKETS[asset.toUpperCase()];
   if (!m) throw new Error(`unknown market asset: ${asset}`);
   return m;
+}
+
+/** The SUI spot market for the gated (non-custodial) path, per network:
+ *  mainnet → real SUI/USDC pool; testnet → the DBUSDC mock pool. The gated
+ *  loop + execution analysis use THIS (not getMarket) so a mainnet operator
+ *  reads the mainnet pool's mid + book, never the testnet pool. */
+export function getGatedSuiMarket(network: "mainnet" | "testnet"): MarketSpec {
+  return network === "mainnet" ? SUI_MAINNET_MARKET : MARKETS.SUI;
 }
 
 /** Bundles users can pick when adopting a trader. */

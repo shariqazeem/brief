@@ -43,7 +43,7 @@ import {
   walrusEnabled,
 } from "../../lib/walrus.js";
 import { consolidateSuiCoins } from "../../lib/sui-coin-consolidate.js";
-import { getMarket, type MarketSpec } from "../lib/markets.js";
+import { getMarket, getGatedSuiMarket, type MarketSpec } from "../lib/markets.js";
 import { closeSpot, openSpot, readSpotExecution, readSpotMid } from "./spot-handler.js";
 import {
   buildFuelDepositTx,
@@ -1888,7 +1888,15 @@ function startAutoCloseSpotLoop(ctx: AgentContext): void {
 // existing operator dashboard renders the autonomous loop unchanged.
 
 const OPERATOR_REGISTRY_PATH = ".cursors/operator-registry.json";
-const GATED_LOOP_POLL_MS = 45_000;
+// Operator decision cadence · respects BRIEF_OPERATOR_CYCLE_MS (the demo
+// cadence) so the dashboard's live "active state" refreshes every cycle, with
+// a 10s floor to stay friendly to public RPCs. Each cycle emits a decision
+// event the SSE wire pushes to the dashboard, so a snappier cycle = a more
+// alive operator (no manual reload needed).
+const GATED_LOOP_POLL_MS = Math.max(
+  10_000,
+  Number(process.env.BRIEF_OPERATOR_CYCLE_MS) || 45_000,
+);
 // --- Fuel (DEEP for DeepBook fees; scalar = 1e6 on both networks) ---
 // SUI/USDC isn't a whitelisted pool, so every order pays its fee in DEEP.
 // The operator keeps a small DEEP "fuel tank" in the user's BM, topped up
@@ -1924,8 +1932,6 @@ const GATED_VENUE = "spot-sui";
 /** Operators retired this process (revoked/expired/budget/venue) · never
  *  retried until restart (and the registry flag makes it durable). */
 const gatedSkip = new Set<string>();
-/** Mainnet operators we've already logged as "awaiting publish" once. */
-const loggedMainnetSkip = new Set<string>();
 
 type OperatorRegistryEntry = {
   policyId: string;
@@ -2290,7 +2296,7 @@ async function runGatedOperator(
   if (rebalanceSide) {
     const execA = await readSpotExecution(
       ctx,
-      getMarket("SUI"),
+      getGatedSuiMarket(e.network),
       rebalanceSide === "up" ? "buy" : "sell",
       GATED_BASE_QTY,
       midUsd,
@@ -2664,36 +2670,6 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
   );
   if (registry.length === 0) return;
 
-  // Mainnet operators wait for the mainnet trader context (set up after the
-  // mainnet publish wires a mainnet client + package). Log once each.
-  for (const e of registry.filter((x) => x.network === "mainnet")) {
-    if (!loggedMainnetSkip.has(e.policyId)) {
-      console.log(
-        `[trader-gated] mainnet operator ${e.policyId.slice(0, 10)}… awaiting mainnet publish + context · skipping`,
-      );
-      loggedMainnetSkip.add(e.policyId);
-    }
-  }
-  const testnetOps = registry.filter((e) => e.network === "testnet");
-  if (testnetOps.length === 0) return;
-
-  // Observe the SUI pool ONCE per tick (same mid for every testnet
-  // operator); warm the rolling history; compute the shared signal bundle.
-  let midUsd: number;
-  try {
-    midUsd = await readSpotMid(ctx, getMarket("SUI"));
-  } catch (err) {
-    console.warn(
-      "[trader-gated] SUI mid read failed this tick:",
-      String((err as Error)?.message ?? err).slice(0, 120),
-    );
-    return;
-  }
-  if (!Number.isFinite(midUsd) || midUsd <= 0) return;
-  await appendPoint("SUI", { ts: Date.now(), price: midUsd });
-  const history = await loadHistory("SUI");
-  const signals = computeSignals(history, Date.now());
-
   // Consolidate the operator wallet's SUI once before signing across BMs -
   // many gated orders from one wallet fragment gas otherwise.
   try {
@@ -2710,9 +2686,42 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
     );
   }
 
-  for (const e of testnetOps) {
+  // The SUI mid + signal bundle are per-NETWORK (mainnet trades the real
+  // SUI/USDC pool; testnet the DBUSDC mock). Read once per network per tick
+  // and share across operators on that network. mainnet & testnet operators
+  // can run side by side from this one loop.
+  const perNet = new Map<"mainnet" | "testnet", { mid: number; signals: SignalBundle } | null>();
+  async function netCtx(network: "mainnet" | "testnet") {
+    if (perNet.has(network)) return perNet.get(network);
+    let mid: number;
     try {
-      await runGatedOperator(ctx, e, midUsd, signals);
+      mid = await readSpotMid(ctx, getGatedSuiMarket(network));
+    } catch (err) {
+      console.warn(
+        `[trader-gated] ${network} SUI mid read failed this tick:`,
+        String((err as Error)?.message ?? err).slice(0, 120),
+      );
+      perNet.set(network, null);
+      return null;
+    }
+    if (!Number.isFinite(mid) || mid <= 0) {
+      perNet.set(network, null);
+      return null;
+    }
+    const key = network === "mainnet" ? "SUI-mainnet" : "SUI";
+    await appendPoint(key, { ts: Date.now(), price: mid });
+    const history = await loadHistory(key);
+    const signals = computeSignals(history, Date.now());
+    const v = { mid, signals };
+    perNet.set(network, v);
+    return v;
+  }
+
+  for (const e of registry) {
+    try {
+      const nc = await netCtx(e.network);
+      if (!nc) continue;
+      await runGatedOperator(ctx, e, nc.mid, nc.signals);
     } catch (err) {
       if (isTerminalPolicyAbort(err)) {
         gatedSkip.add(e.policyId);
@@ -2945,29 +2954,44 @@ async function main(): Promise<void> {
     `[trader] active · reg=${reg.id.slice(0, 10)}… capabilities=[${reg.capabilities.join(", ")}]`,
   );
 
-  // Self-healing recovery scan, mirroring the other specialists.
-  await recoverStuckTasks(ctx, {
-    capabilityFilter: "predict-btc",
-    label: "trader-recovery",
-    onTask: (notice) => handleTask(ctx, managerId, notice),
-  });
+  // The Predict path + Agent-Commerce task inbox are TESTNET-only (the
+  // mainnet package ships only the non-custodial gated_spot + operator_policy
+  // primitives · no predict module). On mainnet we run ONLY the gated loop,
+  // so a mainnet run doesn't thrash RPCs polling for testnet predict objects.
+  const testnetServices = env.network === "testnet";
 
-  // Spin up the auto-redeem service (runs forever in parallel with inbox).
-  startAutoRedeemLoop(ctx, managerId);
-  // Warm the rolling price history every minute for BTC + each spot
-  // pool, so when a task fires the signals already reflect ~10–60
-  // minutes of real action. Strategies degrade gracefully when the
-  // history hasn't yet reached a given lookback window.
-  startPriceHistoryLoop(ctx, managerId);
-  // Spin up the spot auto-close service (mirrors auto-redeem for spot
-  // positions · closes settle at the position's horizon).
-  startAutoCloseSpotLoop(ctx);
+  if (testnetServices) {
+    // Self-healing recovery scan, mirroring the other specialists.
+    await recoverStuckTasks(ctx, {
+      capabilityFilter: "predict-btc",
+      label: "trader-recovery",
+      onTask: (notice) => handleTask(ctx, managerId, notice),
+    });
+
+    // Spin up the auto-redeem service (runs forever in parallel with inbox).
+    startAutoRedeemLoop(ctx, managerId);
+    // Warm the rolling price history every minute for BTC + each spot
+    // pool, so when a task fires the signals already reflect ~10–60
+    // minutes of real action. Strategies degrade gracefully when the
+    // history hasn't yet reached a given lookback window.
+    startPriceHistoryLoop(ctx, managerId);
+    // Spin up the spot auto-close service (mirrors auto-redeem for spot
+    // positions · closes settle at the position's horizon).
+    startAutoCloseSpotLoop(ctx);
+  }
+
   // Autonomous non-custodial operators · the always-on engine that trades
   // each adopted user's OWN BalanceManager via its delegated TradeCap,
-  // gated by their OperatorPolicy. This is the "alive" loop for the mainnet
-  // product: testnet operators trade now; mainnet operators light up once
-  // the mainnet publish wires a mainnet trader context.
+  // gated by their OperatorPolicy. The "alive" loop for the product · runs
+  // on both networks (per-operator network resolved inside the loop).
   startGatedSpotLoop(ctx);
+
+  if (!testnetServices) {
+    console.log(
+      "[trader] mainnet mode · gated_spot operators only (predict/inbox services are testnet-only)",
+    );
+    return;
+  }
 
   await startTaskInbox({
     ctx,

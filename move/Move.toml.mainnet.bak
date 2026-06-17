@@ -1,0 +1,42 @@
+[package]
+name = "Brief"
+version = "0.4.0"
+edition = "2024.beta"
+authors = ["Shariq Shaukat <shariq@brief.xyz>"]
+# ──────────────────────────────────────────────────────────────────────────
+# MAINNET build (Path A — fresh publish on Sui mainnet).
+#
+# Mirrors the proven testnet config (which built + traded), with mainnet revs:
+#   • Sui / MoveStdlib pinned to framework/mainnet.
+#   • DeepBook v3 mainnet source (v8.0.0) as an explicit git dep, address left
+#     as the 0x0 placeholder — the Sui CLI injects DeepBook's live mainnet
+#     published id at publish time (DeepBook is a CLI-known package, resolved
+#     per active environment). Do NOT add `deepbook` to [addresses]; that
+#     causes an address-redefinition conflict.
+#
+# The testnet deploy (v3, 0xe550…) is preserved on chain and untouched; this
+# is a SEPARATE mainnet package.
+#
+# MAINNET DEPLOY (LIVE):
+#   package-id  = 0x60daa61dbcf925f431b1fb89cac27d6be55cb2a1c686509ec7801d78e3702210
+#   UpgradeCap  = 0x5c41c4eff6da3b90b7e1309399a046d9b8afe73a9d0eb42b918a74c78878fec2
+#   publish tx  = Bjnfwk19krahg74wVPw2GZxuob5LwEhXUuY7op9zvCsG
+#   publisher   = 0xa9f24640… (agent/treasury key, also policy.agent)
+#   gas         = ~0.085 SUI
+#
+# To UPGRADE this mainnet package later: set brief = "0x60daa61d…",
+# add `published-at = "0x60daa61d…"`, switch CLI to mainnet env + the
+# keen-quartz address (UpgradeCap owner), then `sui client upgrade`.
+# ──────────────────────────────────────────────────────────────────────────
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet", override = true }
+MoveStdlib = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "framework/mainnet", override = true }
+deepbook = { git = "https://github.com/MystenLabs/deepbookv3.git", subdir = "packages/deepbook", rev = "v8.0.0" }
+
+[addresses]
+brief = "0x0"
+
+[dev-dependencies]
+
+[dev-addresses]

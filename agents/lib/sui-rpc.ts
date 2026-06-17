@@ -190,7 +190,14 @@ export function resolveRpcUrls(primary: string): string[] {
     .split(",")
     .map((u) => u.trim())
     .filter((u) => u.length > 0);
-  const mystenFallback = "https://fullnode.testnet.sui.io:443";
+  // Last-resort Mysten fullnode · MUST match the active network. A testnet
+  // fallback on a mainnet run silently serves wrong-network state (and vice
+  // versa), so pick it off NEXT_PUBLIC_SUI_NETWORK.
+  const network = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet").trim();
+  const mystenFallback =
+    network === "mainnet"
+      ? "https://fullnode.mainnet.sui.io:443"
+      : "https://fullnode.testnet.sui.io:443";
   const all = [primary, ...fallbacks, mystenFallback];
   return Array.from(new Set(all));
 }

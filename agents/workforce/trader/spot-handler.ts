@@ -26,6 +26,8 @@ import {
 } from "../lib/deepbook-spot.js";
 import type { MarketSpec } from "../lib/markets.js";
 
+// Testnet DeepBook v3 package · the default when a market doesn't carry its
+// own (mainnet markets set `deepbookPackage` to the live mainnet package).
 const DEEPBOOK_PACKAGE_ID =
   "0x22be4cade64bf2d02412c7e8d0e8beea2f78828b948118d46735315409371a3c";
 
@@ -42,9 +44,10 @@ export async function readSpotMid(
   if (!market.spotPoolId || !market.baseCoinType || !market.quoteCoinType) {
     throw new Error(`readSpotMid: ${market.asset} missing spot config`);
   }
+  const dbPkg = market.deepbookPackage ?? DEEPBOOK_PACKAGE_ID;
   const tx = new Transaction();
   tx.moveCall({
-    target: `${DEEPBOOK_PACKAGE_ID}::pool::mid_price`,
+    target: `${dbPkg}::pool::mid_price`,
     arguments: [tx.object(market.spotPoolId), tx.object(SUI_CLOCK_OBJECT_ID)],
     typeArguments: [market.baseCoinType, market.quoteCoinType],
   });
@@ -106,12 +109,13 @@ export async function readSpotExecution(
     note: `DeepBook ${side}: live execution check unavailable · proceeding (the chain gates the fill).`,
   };
   if (!market.spotPoolId || !base || !quote) return fallback;
+  const dbPkg = market.deepbookPackage ?? DEEPBOOK_PACKAGE_ID;
   try {
     const tx = new Transaction();
     if (side === "sell") {
       // get_quote_quantity_out(pool, base_quantity, clock): (base_left, quote_out, deep_req)
       tx.moveCall({
-        target: `${DEEPBOOK_PACKAGE_ID}::pool::get_quote_quantity_out`,
+        target: `${dbPkg}::pool::get_quote_quantity_out`,
         arguments: [
           tx.object(market.spotPoolId),
           tx.pure.u64(Math.floor(baseQty * baseScalar)),
@@ -125,7 +129,7 @@ export async function readSpotExecution(
       // above mid); the eff price is the VWAP over what actually fills.
       const quoteIn = Math.floor(mid * baseQty * 1.3 * quoteScalar);
       tx.moveCall({
-        target: `${DEEPBOOK_PACKAGE_ID}::pool::get_base_quantity_out`,
+        target: `${dbPkg}::pool::get_base_quantity_out`,
         arguments: [
           tx.object(market.spotPoolId),
           tx.pure.u64(quoteIn),
