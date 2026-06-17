@@ -1,4 +1,4 @@
-// Trader strategies — deterministic, no LLM in the hot loop. Each
+// Trader strategies · deterministic, no LLM in the hot loop. Each
 // strategy is a pure function over real on-chain signals (price history,
 // vol surface) and produces a decision *or returns null to sit out*.
 // The reasoning string lists the actual numbers it acted on so the
@@ -26,17 +26,17 @@ export type StrategyInput = {
   spotUsd: number;
   /** Bundle of computed signals (rolling ROC, SMA, RSI, realized vol). */
   signals: SignalBundle;
-  /** Recently-settled BTC oracles, newest first — kept as a coarse trend
+  /** Recently-settled BTC oracles, newest first · kept as a coarse trend
    *  proxy for cold-start (when price history hasn't accumulated yet). */
   recentSettled: IndexerOracle[];
-  /** The candidate market for THIS bet — for BTC Predict, the strike
+  /** The candidate market for THIS bet · for BTC Predict, the strike
    *  + expiry. For spot the strike is the open-mid (so MA/ROC drives it). */
   market: {
     strikeUsd: number;
     expiryMs: number;
     oracle?: IndexerOracle;
   };
-  /** Live vol surface — only present on BTC Predict bets. The quant
+  /** Live vol surface · only present on BTC Predict bets. The quant
    *  strategy requires it; others ignore it. */
   surface?: SurfaceSnapshot | null;
   /** Goal-calibrated thresholds. Absent → strategies use their hardcoded
@@ -51,7 +51,7 @@ export type StrategyDecision = {
   /** Position size in base units (dUSDC contracts for BTC,
    *  base-asset units for spot). Scaled by conviction. */
   quantity: number;
-  /** 0..1 — how strongly the strategy backs this bet. Drives sizing
+  /** 0..1 · how strongly the strategy backs this bet. Drives sizing
    *  + UI surfacing. */
   conviction: number;
   /** Plain-English reasoning citing the actual signal values used. */
@@ -117,7 +117,7 @@ function conservative(input: StrategyInput): StrategyDecision | null {
   if (above15 !== above60) {
     return null; // disagreement → no trade
   }
-  // RSI guard — if we'd be buying into an overbought tape (RSI > 70) or
+  // RSI guard · if we'd be buying into an overbought tape (RSI > 70) or
   // selling into oversold (RSI < 30), sit out.
   if (direction === "up" && rsi > 70) return null;
   if (direction === "down" && rsi < 30) return null;
@@ -127,13 +127,13 @@ function conservative(input: StrategyInput): StrategyDecision | null {
   return {
     strategy: "conservative",
     direction,
-    quantity: baseQty, // conservative never upsizes — discipline
+    quantity: baseQty, // conservative never upsizes · discipline
     conviction,
     reasoning:
       `Conservative on ${asset}: spot $${fmt(spotUsd)} ` +
       `${direction === "up" ? "above" : "below"} both 15m SMA $${fmt(sma15)} ` +
       `and 60m SMA $${fmt(sma60)} (gap ${pct(gap)}). RSI(60m) ${fmt(rsi, 1)}. ` +
-      `Smallest viable position (${baseQty}) — discipline over conviction. ` +
+      `Smallest viable position (${baseQty}) · discipline over conviction. ` +
       `Sits out when MAs disagree or RSI is at an extreme.`,
   };
 }
@@ -145,7 +145,7 @@ function momentum(input: StrategyInput): StrategyDecision | null {
   const roc30 = signals.roc_30m;
   const sma15 = signals.sma_15m;
   if (sma15 === null) {
-    // Cold start (no history yet) — fall back to the BTC settled-bar
+    // Cold start (no history yet) · fall back to the BTC settled-bar
     // momentum from the indexer so we don't sit out the first cycle.
     return cold_momentum(input);
   }
@@ -243,7 +243,7 @@ function cold_contrarian(input: StrategyInput): StrategyDecision {
   };
 }
 
-/** Quant/Vol — the centerpiece. Computes the market-implied probability
+/** Quant/Vol · the centerpiece. Computes the market-implied probability
  *  of UP at the candidate strike from the SVI surface, derives the
  *  agent's own probability estimate from rolling signals, bets when the
  *  two disagree by more than EDGE_THRESHOLD. Skips otherwise.
@@ -252,7 +252,7 @@ function cold_contrarian(input: StrategyInput): StrategyDecision {
 function quant(input: StrategyInput): StrategyDecision | null {
   const { signals, asset, surface, market, spotUsd } = input;
   if (asset !== "BTC" || !surface) {
-    // For spot assets we fall back to momentum — every personality
+    // For spot assets we fall back to momentum · every personality
     // should produce SOMETHING when no surface exists, otherwise the
     // user "adopted Quant" sits out forever on non-BTC days.
     return momentum(input);
@@ -349,7 +349,7 @@ function countDeltaVotes(
 }
 
 // =============================================================================
-// Operating parameters — the operator's declared thresholds. baselineParams
+// Operating parameters · the operator's declared thresholds. baselineParams
 // mirrors the hardcoded constants each strategy uses above; the manifesto
 // records these to Walrus so the operator's "contract" is verifiable.
 // (Goal-based calibration layers on top later; with no goal these ARE the
@@ -357,13 +357,13 @@ function countDeltaVotes(
 // =============================================================================
 
 export type StrategyParams = {
-  /** Minimum edge to act — quant's edge gate (baseline 0.05). */
+  /** Minimum edge to act · quant's edge gate (baseline 0.05). */
   minEdge: number;
   /** Conviction-scaled position-size ceiling. */
   maxQty: number;
   /** Minimum conviction required to act. At baseline this EQUALS each
    *  strategy's natural conviction floor, so the gate is a no-op until a
-   *  goal raises it — guaranteeing no-goal behaviour is byte-identical. */
+   *  goal raises it · guaranteeing no-goal behaviour is byte-identical. */
   convictionFloor: number;
 };
 
@@ -390,7 +390,7 @@ export function baselineParams(strategy: StrategyId): StrategyParams {
  *  goal. No goal / "edge" → baseline (behaviour byte-identical to a policy
  *  with no goal). "preserve" → tighter (more edge, more conviction, less
  *  size). "grow" → paced to the daily target (slightly looser to act more
- *  often). Pure arithmetic — no LLM, no adaptation, fully verifiable. */
+ *  often). Pure arithmetic · no LLM, no adaptation, fully verifiable. */
 export function calibrateParams(
   strategy: StrategyId,
   goal: OperatorGoal | null | undefined,
@@ -419,10 +419,10 @@ export function calibrateParams(
 }
 
 // =============================================================================
-// Abstention reasoning — when a strategy sits out (returns null) the trader
+// Abstention reasoning · when a strategy sits out (returns null) the trader
 // still delivers an honest "capital preserved" decision. This renders the
 // per-strategy reason in plain English, citing the live numbers, so PRESERVE
-// reads as a deliberate, intelligent choice — not a gap. Pure formatting:
+// reads as a deliberate, intelligent choice · not a gap. Pure formatting:
 // it does not change any decision.
 // =============================================================================
 
@@ -440,20 +440,20 @@ export function abstentionReason(
   switch (strategy) {
     case "conservative": {
       if (sma15 === null || sma60 === null) {
-        return `Sentinel preserved capital on ${asset}: moving averages are still warming up — not enough history to confirm a clean trend. No bet without confirmation.`;
+        return `Sentinel preserved capital on ${asset}: moving averages are still warming up · not enough history to confirm a clean trend. No bet without confirmation.`;
       }
       if (spotUsd > sma15 !== spotUsd > sma60) {
-        return `Sentinel preserved capital on ${asset}: 15m SMA $${fmt(sma15)} and 60m SMA $${fmt(sma60)} disagree on direction (spot $${fmt(spotUsd)}). No clean trend to commit to — discipline over a forced bet.`;
+        return `Sentinel preserved capital on ${asset}: 15m SMA $${fmt(sma15)} and 60m SMA $${fmt(sma60)} disagree on direction (spot $${fmt(spotUsd)}). No clean trend to commit to · discipline over a forced bet.`;
       }
-      return `Sentinel preserved capital on ${asset}: RSI(60m) ${fmt(rsi ?? 50, 1)} is at an extreme against the trend — refusing to chase. Waiting for a calmer entry.`;
+      return `Sentinel preserved capital on ${asset}: RSI(60m) ${fmt(rsi ?? 50, 1)} is at an extreme against the trend · refusing to chase. Waiting for a calmer entry.`;
     }
     case "momentum":
-      return `Momentum preserved capital on ${asset}: 30m ROC ${pct(roc30)} sits inside the ±0.05% flat-tape band — no trend to ride. Capital held until a real move emerges.`;
+      return `Momentum preserved capital on ${asset}: 30m ROC ${pct(roc30)} sits inside the ±0.05% flat-tape band · no trend to ride. Capital held until a real move emerges.`;
     case "contrarian":
-      return `Contrarian preserved capital on ${asset}: RSI(60m) ${fmt(rsi ?? 50, 1)} is in the neutral 30–70 band — no overextension to fade. No crowd to lean against right now.`;
+      return `Contrarian preserved capital on ${asset}: RSI(60m) ${fmt(rsi ?? 50, 1)} is in the neutral 30–70 band · no overextension to fade. No crowd to lean against right now.`;
     case "quant": {
       const edgePct = ((params?.minEdge ?? 0.05) * 100).toFixed(1);
-      return `Quant preserved capital on ${asset}: the signal edge is under the ±${edgePct}% threshold against the live vol surface — not mispriced enough to risk capital. (ROC30m ${pct(roc30)}, RSI ${fmt(rsi ?? 50, 1)}.)`;
+      return `Quant preserved capital on ${asset}: the signal edge is under the ±${edgePct}% threshold against the live vol surface · not mispriced enough to risk capital. (ROC30m ${pct(roc30)}, RSI ${fmt(rsi ?? 50, 1)}.)`;
     }
     default:
       return `${strategy} preserved capital on ${asset}: no signal cleared the threshold.`;

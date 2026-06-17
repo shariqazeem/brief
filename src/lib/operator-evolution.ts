@@ -1,6 +1,6 @@
-// Operator Evolution — the fourth pillar. Not memory, not logs: the story of
+// Operator Evolution · the fourth pillar. Not memory, not logs: the story of
 // the operator getting *better* over time. Everything is derived from the REAL
-// decision archive + ledger + lifetime stats — milestones are real timestamps
+// decision archive + ledger + lifetime stats · milestones are real timestamps
 // and real counts, lessons are real per-regime edges. Nothing is invented; this
 // is what makes the operator feel alive instead of merely smart.
 
@@ -45,7 +45,7 @@ function mostValuableLesson(playbooks: PlaybookStat[]): Evolution["mostValuable"
   if (acted && (acted.avgOutcomePct ?? 0) > 0) {
     return {
       label: acted.label,
-      statement: `${acted.label} regimes reward acting — +${(acted.avgOutcomePct ?? 0).toFixed(1)}% on average over ${acted.wins + acted.losses} settled.`,
+      statement: `${acted.label} regimes reward acting · +${(acted.avgOutcomePct ?? 0).toFixed(1)}% on average over ${acted.wins + acted.losses} settled.`,
       applied: acted.acts,
     };
   }
@@ -57,8 +57,8 @@ function mostValuableLesson(playbooks: PlaybookStat[]): Evolution["mostValuable"
       label: aside.label,
       statement:
         aside.kind === "trending-down"
-          ? "Trending-down regimes are best met by moving to cash — capital protected through the drop."
-          : `${aside.label} regimes are best sat out — no durable edge, so it stands aside and preserves capital.`,
+          ? "Trending-down regimes are best met by moving to cash · capital protected through the drop."
+          : `${aside.label} regimes are best sat out · no durable edge, so it stands aside and preserves capital.`,
       applied: aside.abstentions,
     };
   }
@@ -85,7 +85,7 @@ export function computeEvolution(
       day: 1,
       ts: asc[0].ts,
       title: "Began observing the market",
-      detail: "First read of the tape — no memory to lean on yet. Every cycle since has added to it.",
+      detail: "First read of the tape · no memory to lean on yet. Every cycle since has added to it.",
       kind: "start",
     });
   }
@@ -117,7 +117,7 @@ export function computeEvolution(
     milestones.push({
       day: dayOf(firstMove.ts, launch),
       ts: firstMove.ts,
-      title: firstMove.side === "buy" ? "First allocation — moved into SUI" : "First allocation — moved to cash",
+      title: firstMove.side === "buy" ? "First allocation · moved into SUI" : "First allocation · moved to cash",
       detail: settled
         ? `${firstMove.regimeLabel ?? "Acted"} · ${favor >= 0 ? "+" : ""}${favor.toFixed(1)}% in its favour.`
         : `${firstMove.regimeLabel ?? "Acted"} · committed real capital under the policy.`,

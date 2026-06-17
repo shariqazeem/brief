@@ -9,9 +9,9 @@ export type AgentContext = {
   client: SuiJsonRpcClient;
   keypair: Ed25519Keypair;
   address: string;
-  /** LATEST package id — use for moveCall targets. */
+  /** LATEST package id · use for moveCall targets. */
   packageId: string;
-  /** ORIGINAL publish-at id — use for type filters (StructType, MoveEventType). */
+  /** ORIGINAL publish-at id · use for type filters (StructType, MoveEventType). */
   typeOriginId: string;
 };
 
@@ -39,7 +39,7 @@ export function makeAgentContextFor(env: AgentEnv, role: AgentRole): AgentContex
   const { key, degraded } = resolveSecretKey(env, role);
   if (degraded && role !== "planner") {
     console.warn(
-      `[${role}] DEGRADED MULTI-WALLET MODE — ${role.toUpperCase()}_SECRET_KEY is not set; falling back to AGENT_SECRET_KEY. Run 'npm run workforce:setup' to provision a distinct ${role} wallet.`,
+      `[${role}] DEGRADED MULTI-WALLET MODE · ${role.toUpperCase()}_SECRET_KEY is not set; falling back to AGENT_SECRET_KEY. Run 'npm run workforce:setup' to provision a distinct ${role} wallet.`,
     );
   }
   return buildContext(env, key);

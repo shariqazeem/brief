@@ -2,8 +2,8 @@
 //
 // MUST stay in sync with agents/workforce/trader/strategy.ts
 // (`calibrateParams` / `baselineParams`). The two are deterministic, pure
-// arithmetic; the client copy lets the adoption wizard preview — and the
-// dashboard show — exactly the thresholds the trader will use. The agent
+// arithmetic; the client copy lets the adoption wizard preview · and the
+// dashboard show · exactly the thresholds the trader will use. The agent
 // (a separate build) can't import from src/, hence the small duplication.
 
 import type { StrategyId } from "@/lib/workforce-client";
@@ -60,7 +60,7 @@ export function calibrateParams(
   return base;
 }
 
-/** Smart default goal per personality — the user can override. */
+/** Smart default goal per personality · the user can override. */
 export function defaultGoalFor(strategy: StrategyId): OperatorGoal {
   switch (strategy) {
     case "conservative":

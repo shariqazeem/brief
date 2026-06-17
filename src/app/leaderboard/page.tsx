@@ -1,6 +1,6 @@
 "use client";
 
-// /leaderboard — the live AI-trader competition board.
+// /leaderboard · the live AI-trader competition board.
 //
 // Pulls /api/leaderboard, sorts rows, renders a ranked table with the
 // current user's trader highlighted. The data is real on-chain: every
@@ -52,7 +52,7 @@ type LeaderboardResponse = {
 const WALRUS_AGGREGATOR = "https://aggregator.walrus-testnet.walrus.space/v1/blobs";
 
 function shortAddr(addr: string): string {
-  if (!addr) return "—";
+  if (!addr) return "-";
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
@@ -62,7 +62,7 @@ function fmtUsd(amount: number): string {
 }
 
 function timeAgo(ms: number): string {
-  if (!ms) return "—";
+  if (!ms) return "-";
   const dt = Date.now() - ms;
   if (dt < 60_000) return "just now";
   if (dt < 3_600_000) return `${Math.floor(dt / 60_000)}m ago`;
@@ -70,16 +70,16 @@ function timeAgo(ms: number): string {
   return `${Math.floor(dt / 86_400_000)}d ago`;
 }
 
-// Treasury address — the live trader agent's wallet. Used to detect
+// Treasury address · the live trader agent's wallet. Used to detect
 // rows whose `agent` is "the live demo trader."
 const TRADER_AGENT =
   "0xa9f24640b32f33fcfa8582791e84a542251398acfc3b696f382a08a768b6ddbf";
 
 // A trader is "live on the wire" when its last trade landed within
-// this window — drives the pulsing dot next to the name.
+// this window · drives the pulsing dot next to the name.
 const LIVE_PULSE_MS = 90_000;
 
-// PnlSparkline — tiny inline area chart of the trader's cumulative
+// PnlSparkline · tiny inline area chart of the trader's cumulative
 // realized P&L (from /api/trader/trades). Hand-rolled SVG so the
 // leaderboard stays chart-library-free and first-load light.
 function PnlSparkline({ policyId }: { policyId: string }) {
@@ -97,7 +97,7 @@ function PnlSparkline({ policyId }: { policyId: string }) {
         };
         if (!cancelled && j.pnl_series) setSeries(j.pnl_series);
       } catch {
-        /* sparkline is decorative — fail silent */
+        /* sparkline is decorative · fail silent */
       }
     })();
     return () => {
@@ -180,7 +180,7 @@ function LeaderboardConsole() {
   const myAddress = account?.address ?? null;
   const ranked = useMemo(() => data?.rows ?? [], [data]);
 
-  // Filter out empty rows — policies with zero trades aren't very
+  // Filter out empty rows · policies with zero trades aren't very
   // exciting and clutter the board. Keep them if they're the live
   // trader's, or the user's, so newcomers can see themselves.
   const visible = useMemo(() => {
@@ -228,16 +228,16 @@ function LeaderboardConsole() {
       <section className="mx-auto max-w-5xl px-5 py-10 sm:px-8 sm:py-14">
         <div className="space-y-4">
           <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-            Live · Sui testnet · {data?.rows.length ?? "—"} operators adopted
+            Live · Sui testnet · {data?.rows.length ?? "-"} operators adopted
           </p>
           <h1 className="font-sans text-[34px] font-medium leading-[1.05] tracking-tightest text-ink sm:text-[44px]">
             The operator workforce.
           </h1>
           <p className="max-w-2xl text-[14.5px] leading-relaxed text-ink-2 sm:text-[15.5px]">
-            Brief is a platform for autonomous operators — each one non-custodial,
+            Brief is a platform for autonomous operators · each one non-custodial,
             constrained by Move, and verifiable on chain. Every row here is a real
             adopted operator; every trade and policy spend is on Suiscan. One today,
-            a workforce tomorrow — and the operator that uses its leash most
+            a workforce tomorrow · and the operator that uses its leash most
             carefully climbs.
           </p>
           {yourRowIndex >= 0 && (
@@ -287,7 +287,7 @@ function LeaderboardConsole() {
           )}
           {!error && data && visible.length === 0 && (
             <div className="px-5 py-10 text-center text-[13px] leading-relaxed text-muted">
-              No active operators yet — be the first to adopt one.
+              No active operators yet · be the first to adopt one.
             </div>
           )}
           {visible.map((row, i) => {
@@ -398,7 +398,7 @@ function Row({
       <div className="flex flex-wrap items-center gap-1.5">
         {row.distinct_assets.length === 0 ? (
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-            —
+            -
           </span>
         ) : (
           row.distinct_assets.map((a) => (

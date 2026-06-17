@@ -1,7 +1,7 @@
-// POST /api/workforce/approve — approve a delivered task on behalf of the
+// POST /api/workforce/approve · approve a delivered task on behalf of the
 // poster (the Planner agent). Single-wallet Wk1: the planner's AGENT_SECRET_KEY
 // from .env.local signs the approve_with_policy tx. The connected dApp Kit
-// wallet (the OWNER) doesn't sign — they delegated authority at grant time.
+// wallet (the OWNER) doesn't sign · they delegated authority at grant time.
 //
 // Body: { task_id, policy_id? }
 // Returns: { ok, txDigest?, abortCode?, abortConst?, error? }
@@ -51,7 +51,7 @@ async function runApprove(args: {
       args.taskId,
       // Trader-product tasks are Treasury-posted (== policy.agent), so the
       // approve must be Treasury-signed to clear sender==poster AND
-      // record_spend's sender==agent — and to abort EPolicyRevoked (not
+      // record_spend's sender==agent · and to abort EPolicyRevoked (not
       // ENotAgent) after a revoke.
       "--as",
       "treasury",
@@ -100,7 +100,7 @@ async function runApprove(args: {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  // 10/min per IP — approve is gas-only (cheap) but each attempt is a
+  // 10/min per IP · approve is gas-only (cheap) but each attempt is a
   // real on-chain tx; throttling keeps a runaway client from spamming
   // gas-burns.
   const rl = rateLimit("approve", getClientIp(req), {

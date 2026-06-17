@@ -1,4 +1,4 @@
-// POST /api/workforce/post-verification — post a tiny task under a
+// POST /api/workforce/post-verification · post a tiny task under a
 // revoked policy so the /workforce kill-switch demo always has a
 // DELIVERED task to abort on, even after the judge has watched every
 // previously-delivered task settle to paid.
@@ -74,7 +74,7 @@ async function runPost(args: {
       args.policyId,
       "--deadline-min",
       DEFAULT_DEADLINE_MIN,
-      // Post as Treasury so poster == policy.agent — the Treasury-signed
+      // Post as Treasury so poster == policy.agent · the Treasury-signed
       // approve that follows can then abort EPolicyRevoked on a revoked
       // leash (the kill-switch proof) instead of ENotPoster.
       "--as",
@@ -119,7 +119,7 @@ async function runPost(args: {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  // 3/min per IP — verification posts spend planner SUI, throttle hard.
+  // 3/min per IP · verification posts spend planner SUI, throttle hard.
   const rl = rateLimit("post-verification", getClientIp(req), {
     windowMs: 60_000,
     max: 3,

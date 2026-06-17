@@ -4,9 +4,9 @@
 export type AgentRole = "planner" | "research" | "treasury";
 
 export type AgentEnv = {
-  /** LATEST package id — use for moveCall targets. */
+  /** LATEST package id · use for moveCall targets. */
   packageId: string;
-  /** ORIGINAL publish-at id — use for type filters (StructType, MoveEventType). */
+  /** ORIGINAL publish-at id · use for type filters (StructType, MoveEventType). */
   typeOriginId: string;
   network: "testnet" | "mainnet";
   rpcUrl: string;
@@ -34,7 +34,7 @@ function requireEnv(key: string): string {
   const v = process.env[key];
   if (!v || v.length === 0) {
     throw new Error(
-      `Missing required env var ${key}. Add it to .env.local — see README.md`,
+      `Missing required env var ${key}. Add it to .env.local · see README.md`,
     );
   }
   return v;

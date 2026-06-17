@@ -3,7 +3,7 @@
 // If a specialist process crashed between accepting a task and submitting
 // the deliverable (e.g., a Walrus WAL shortage that escaped the
 // try/catch, an SDK panic, a host reboot), the chain is left with a
-// Task in ACCEPTED status assigned to this specialist — but the inbox
+// Task in ACCEPTED status assigned to this specialist · but the inbox
 // cursor has already advanced past the original TaskPosted event, so it
 // will never be replayed by the normal poll loop.
 //
@@ -73,19 +73,19 @@ export async function recoverStuckTasks(
     ) {
       continue;
     }
-    // A task whose on-chain deadline has passed can never be submitted —
+    // A task whose on-chain deadline has passed can never be submitted -
     // task::submit aborts with EDeadlinePassed (code 4). Without this
     // guard the scan re-drives it on every boot forever: wasted gas,
     // log spam, and stale task_started events on the SSE wire.
     if (t.deadlineMs > 0n && BigInt(Date.now()) > t.deadlineMs) {
       console.log(
-        `[${tag}] skipping task=${t.id.slice(0, 10)}… "${t.title}" — deadline passed ${new Date(Number(t.deadlineMs)).toISOString()}, submit would abort EDeadlinePassed`,
+        `[${tag}] skipping task=${t.id.slice(0, 10)}… "${t.title}" · deadline passed ${new Date(Number(t.deadlineMs)).toISOString()}, submit would abort EDeadlinePassed`,
       );
       continue;
     }
     // Reconstruct enough of the original TaskPosted notice for the
     // handler. txDigest/eventSeq here are from the Accepted event, not
-    // the Posted event — they're only used for logging by the handler.
+    // the Posted event · they're only used for logging by the handler.
     const notice: TaskPostedNotice = {
       taskId: t.id,
       poster: t.poster,

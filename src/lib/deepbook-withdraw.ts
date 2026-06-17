@@ -1,10 +1,10 @@
-// Non-custodial WITHDRAW — the owner pulls their funds back out of the
+// Non-custodial WITHDRAW · the owner pulls their funds back out of the
 // BalanceManager, any time, in one signature.
 //
 // DeepBook's `balance_manager::withdraw_all<T>` is OWNER-GATED: it calls
 // `generate_proof_as_owner`, which asserts the signer is the BM owner (the
 // user). The operator only ever held a TradeCap/DepositCap, so it can never
-// build this proof — withdrawal is the user's alone. `withdraw_all` is safe on
+// build this proof · withdrawal is the user's alone. `withdraw_all` is safe on
 // a zero balance (it returns an empty coin), so we sweep quote + SUI + DEEP in
 // one tx and send everything home.
 
@@ -28,7 +28,7 @@ export type WithdrawArgs = {
   network: DeepBookNetwork;
   /** The user's BalanceManager (shared object). */
   bmId: string;
-  /** Where the coins go — the owner's wallet (must equal the BM owner / signer). */
+  /** Where the coins go · the owner's wallet (must equal the BM owner / signer). */
   owner: string;
 };
 

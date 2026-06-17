@@ -1,9 +1,9 @@
 "use client";
 
-// /results — "Did it work?" The outcome-first page. A judge (or depositor)
+// /results · "Did it work?" The outcome-first page. A judge (or depositor)
 // opens /results?policy=0x… and sees, in one screen: the objective, the return
 // vs the alternatives (hold / cash), the risk taken, and the big moments that
-// produced it — all real, from the on-chain ledger + persisted stats. No live
+// produced it · all real, from the on-chain ledger + persisted stats. No live
 // wallet needed; this is the page the demo ends on.
 
 import Link from "next/link";
@@ -28,7 +28,7 @@ export default function ResultsPage() {
 }
 
 function short(s: string | null | undefined, n = 6): string {
-  if (!s) return "—";
+  if (!s) return "-";
   return s.length > 2 * n + 2 ? `${s.slice(0, n + 2)}…${s.slice(-n)}` : s;
 }
 
@@ -56,7 +56,7 @@ function Results() {
   const worstDD = stats?.worstDrawdownPct ?? 0;
   const objective = objectiveFromMode(stats?.mode);
 
-  // Big moments — the allocation events that produced the result.
+  // Big moments · the allocation events that produced the result.
   const moments = (ledger ?? []).filter((e) => e.outcome !== "pending").slice(0, 6);
 
   return (
@@ -110,7 +110,7 @@ function Results() {
               {objective} · running {dayLabel}
             </p>
 
-            {/* The headline — the comparison IS the story: what would have
+            {/* The headline · the comparison IS the story: what would have
                 happened if you'd done nothing? */}
             {bench && (
               <p className="mt-8 font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
@@ -129,7 +129,7 @@ function Results() {
                 <span style={{ color: bench.vsHold >= 0 ? EMERALD : RED, fontWeight: 600 }}>
                   {bench.vsHold >= 0 ? "+" : ""}{bench.vsHold.toFixed(1)}% vs holding SUI
                 </span>{" "}
-                — the operator {bench.vsHold >= 0 ? "beat" : "trailed"} simply holding, and{" "}
+                · the operator {bench.vsHold >= 0 ? "beat" : "trailed"} simply holding, and{" "}
                 {bench.vsCash >= 0 ? "grew" : "lost"} {Math.abs(bench.vsCash).toFixed(1)}% vs sitting in cash.
               </p>
             )}
@@ -163,7 +163,7 @@ function Results() {
               )}
             </div>
 
-            {/* Mainnet readiness — reliability already solved on testnet */}
+            {/* Mainnet readiness · reliability already solved on testnet */}
             <div className="mt-6 border px-5 py-5" style={{ borderColor: LINE, background: "#FBFCFE" }}>
               <div className="flex items-center justify-between">
                 <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
@@ -180,7 +180,7 @@ function Results() {
                 <span><span style={{ color: EMERALD }}>0</span> custody incidents</span>
               </div>
               <p className="mt-3 text-[13.5px] leading-relaxed" style={{ color: SUB }}>
-                Reliability is already solved — non-custodial execution, on-chain budget
+                Reliability is already solved · non-custodial execution, on-chain budget
                 enforcement, and revocation have run {dayLabel} on testnet without a single
                 violation. <span style={{ color: INK }}>Ready for mainnet capital.</span>
               </p>
@@ -197,7 +197,7 @@ function Results() {
             </h2>
             {moments.length === 0 ? (
               <p className="mt-3 text-[14px] leading-relaxed" style={{ color: SUB }}>
-                No settled allocation moves yet — the operator has mostly held through
+                No settled allocation moves yet · the operator has mostly held through
                 its regimes. Every hold and move is in the{" "}
                 <Link href={`/workforce?policy=${policyId}`} className="underline underline-offset-2" style={{ color: NAVY }}>
                   ledger
@@ -293,7 +293,7 @@ function Moment({ m }: { m: LedgerEvent }) {
           {headline}
         </p>
         <p className="text-[12.5px]" style={{ color: SUB }}>
-          {m.regimeLabel ?? "—"}
+          {m.regimeLabel ?? "-"}
         </p>
       </div>
       <div className="shrink-0 text-right">

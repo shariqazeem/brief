@@ -1,7 +1,7 @@
-// MindPriceChart — the agent's 60-minute world: live spot, the two
+// MindPriceChart · the agent's 60-minute world: live spot, the two
 // SMAs its strategies compare, and the strike line the bet lives or
 // dies on. Every series comes from the same .cursors price history the
-// trader computed its signals from — nothing here is decorative.
+// trader computed its signals from · nothing here is decorative.
 
 "use client";
 
@@ -20,7 +20,7 @@ import {
 import type { SeriesPoint, TradeDecision } from "@/lib/use-mind-data";
 import { C, MONO_TICK, fmtClock, fmtUsd } from "./theme";
 
-// Decision marker — a real past decision plotted at (ts, spot). Up bets
+// Decision marker · a real past decision plotted at (ts, spot). Up bets
 // are emerald ▲ at the price, down bets red ▼, honest abstentions a
 // hollow ○ in muted. Custom ReferenceDot shape so it renders inside the
 // LineChart; native <title> gives hover detail without touching the
@@ -156,7 +156,7 @@ export function MindPriceChart({
     return (
       <div className="flex h-[240px] items-center justify-center border border-line bg-bg-elev-2/40">
         <p className="px-6 text-center font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
-          {asset} history warming up — the first points land within a minute
+          {asset} history warming up · the first points land within a minute
         </p>
       </div>
     );
@@ -171,11 +171,11 @@ export function MindPriceChart({
           {asset} · last hour the agent saw
         </p>
         <p className="font-mono text-[10px] tracking-[0.04em] text-muted">
-          <span className="text-ink">— spot</span>
+          <span className="text-ink">- spot</span>
           {"  "}
-          <span style={{ color: C.sui }}>— sma15</span>
+          <span style={{ color: C.sui }}>- sma15</span>
           {"  "}
-          <span style={{ color: C.accent }}>— sma60</span>
+          <span style={{ color: C.accent }}>- sma60</span>
           {markers.length > 0 && (
             <>
               {"  "}

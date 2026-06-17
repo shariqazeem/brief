@@ -1,8 +1,8 @@
-// Heavy zkLogin pipeline — dynamically imported.
+// Heavy zkLogin pipeline · dynamically imported.
 //
 // Every dependency that pulls in @mysten/sui/zklogin (Poseidon, BCS,
 // the address machinery) OR the Ed25519 keypair primitive lives here.
-// Nothing in the eager bundle imports this file statically — only the
+// Nothing in the eager bundle imports this file statically · only the
 // dynamic `import("./flow")` calls from state.tsx (signIn / OAuth
 // callback) and signer.ts (transaction signing) reach it, so a
 // visitor who doesn't engage Google never pays for these bytes.
@@ -31,7 +31,7 @@ import {
 } from "./session";
 
 // Ephemeral key + nonce + maxEpoch horizon. Two epochs is what the
-// docs recommend — long enough for the OAuth round-trip and a few
+// docs recommend · long enough for the OAuth round-trip and a few
 // grant/revoke clicks, short enough that a leaked ephemeral key
 // expires fast.
 const MAX_EPOCH_HORIZON = 2;
@@ -76,7 +76,7 @@ export async function completeOAuthCallback({
   claims: { sub: string; aud: string; email?: string };
   pre: ZkLoginPreSession;
 }): Promise<ZkLoginSession> {
-  // 1) Salt — deterministic per user (server HMAC).
+  // 1) Salt · deterministic per user (server HMAC).
   const saltR = await fetch(apiUrl("/api/zklogin/salt"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -92,10 +92,10 @@ export async function completeOAuthCallback({
   }
   const salt = saltJ.salt;
 
-  // 2) Address — derived from JWT + salt.
+  // 2) Address · derived from JWT + salt.
   const address = jwtToAddress(jwt, salt, false);
 
-  // 3) Proof — call Mysten's testnet prover via our proxy.
+  // 3) Proof · call Mysten's testnet prover via our proxy.
   const ephemeral = Ed25519Keypair.fromSecretKey(pre.ephemeralSecret);
   const extendedEpk = getExtendedEphemeralPublicKey(ephemeral.getPublicKey());
   const proveR = await fetch(apiUrl("/api/zklogin/prove"), {
@@ -119,7 +119,7 @@ export async function completeOAuthCallback({
     throw new Error(proveJ.error ?? "prover failed");
   }
 
-  // 4) addressSeed — the prover doesn't return this; compute it
+  // 4) addressSeed · the prover doesn't return this; compute it
   //    client-side so getZkLoginSignature has every BCS field it needs.
   const addressSeed = genAddressSeed(
     BigInt(salt),

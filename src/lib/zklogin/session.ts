@@ -1,4 +1,4 @@
-// zkLogin session — the long-lived state we need to sign a transaction
+// zkLogin session · the long-lived state we need to sign a transaction
 // as a zkLogin user. Persisted to sessionStorage so a refresh during
 // the grant→watch→revoke arc doesn't drop the user back to the sign-in
 // screen, but cleared whenever maxEpoch passes.
@@ -27,7 +27,7 @@ export type ZkLoginPreSession = {
   /** Random salt used in the nonce. */
   randomness: string;
   maxEpoch: number;
-  /** Nonce we sent to Google — used to validate the returning JWT. */
+  /** Nonce we sent to Google · used to validate the returning JWT. */
   nonce: string;
 };
 
@@ -52,7 +52,7 @@ export type ZkLoginSession = {
   ephemeralSecret: string;
   maxEpoch: number;
   address: string;
-  /** Display name from the JWT, if available — e.g. the user's Google email. */
+  /** Display name from the JWT, if available · e.g. the user's Google email. */
   email?: string;
   /** The aud (Google client id) the JWT was issued for. */
   aud?: string;
@@ -94,7 +94,7 @@ export function loadSession(): ZkLoginSession | null {
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as ZkLoginSession;
-    // Sanity-check the shape — an older build stored proofs without
+    // Sanity-check the shape · an older build stored proofs without
     // the addressSeed field, which BCS-fails at signing time. Drop
     // those so the user gets a clean re-auth on refresh.
     if (

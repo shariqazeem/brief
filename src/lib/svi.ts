@@ -1,11 +1,11 @@
-// SVI vol-surface math shared by the web tier — mirrors the agent's
+// SVI vol-surface math shared by the web tier · mirrors the agent's
 // agents/workforce/trader/vol-surface.ts so the smile the dashboard
 // draws is bit-identical to the one the trader priced against.
 //
 //   w(k) = a + b · ( ρ·(k − m) + √((k − m)² + σ²) )      (total variance)
 //   d₂   = (−k − ½·w(k)) / √w(k),  Pr(F_T > K) = N(d₂)
 //
-// Pure math — safe in both the browser bundle and API routes.
+// Pure math · safe in both the browser bundle and API routes.
 
 export type SviSurface = {
   a: number;

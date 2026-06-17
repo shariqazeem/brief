@@ -1,8 +1,8 @@
-// Operator Ledger + Benchmark — proving the intelligence, not explaining it.
+// Operator Ledger + Benchmark · proving the intelligence, not explaining it.
 //
 // The ledger is the permanent decision → action → outcome record (every buy/sell
 // with its reason and realized result). The benchmark answers the only question
-// a "+1.4%" can't on its own: compared to WHAT? — buy-and-hold SUI, and cash.
+// a "+1.4%" can't on its own: compared to WHAT? · buy-and-hold SUI, and cash.
 // All real: ledger from the trader's on-chain actions, benchmark from the launch
 // price + live mark.
 
@@ -77,7 +77,7 @@ export function computeBenchmark(
   };
 }
 
-/** Benchmark computed purely from persisted stats — for the public Results
+/** Benchmark computed purely from persisted stats · for the public Results
  *  page (no live SSE). operator = value vs deposit; hold = lastMid vs launchMid. */
 export function benchmarkFromStats(stats: OperatorStats | null): Benchmark | null {
   if (!stats) return null;

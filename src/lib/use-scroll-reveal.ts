@@ -1,4 +1,4 @@
-// Scroll-driven reveal hooks — IntersectionObserver-backed, CSS-only motion.
+// Scroll-driven reveal hooks · IntersectionObserver-backed, CSS-only motion.
 //
 // Two primitives:
 //

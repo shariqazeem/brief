@@ -1,4 +1,4 @@
-// MindRSIGauge — the contrarian's compass. A horizontal 0–100 rail
+// MindRSIGauge · the contrarian's compass. A horizontal 0–100 rail
 // with the oversold/overbought zones shaded the way the strategies
 // read them; the needle eases to each new reading so the user can
 // watch momentum build toward a fade signal.
@@ -44,7 +44,7 @@ export function MindRSIGauge({ rsi }: { rsi: number | null }) {
         key={rsi === null ? "na" : Math.round(rsi)}
         className={`mt-2 font-sans text-[40px] font-medium leading-none tabular-nums tracking-tighter ${valueColor} animate-value-tick`}
       >
-        {rsi === null ? "—" : rsi.toFixed(1)}
+        {rsi === null ? "-" : rsi.toFixed(1)}
       </p>
 
       <div className="mt-4">

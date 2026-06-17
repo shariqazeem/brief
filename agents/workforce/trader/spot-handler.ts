@@ -12,7 +12,7 @@
 //
 // The trader's existing redemption loop is extended (separately) to scan
 // `dueSpotPositions(now)` and call `closeSpotPosition` when each horizon
-// elapses. Close has no policy gate — closes must survive a revoke.
+// elapses. Close has no policy gate · closes must survive a revoke.
 
 import { Transaction } from "@mysten/sui/transactions";
 import { bcs } from "@mysten/sui/bcs";
@@ -29,7 +29,7 @@ import type { MarketSpec } from "../lib/markets.js";
 const DEEPBOOK_PACKAGE_ID =
   "0x22be4cade64bf2d02412c7e8d0e8beea2f78828b948118d46735315409371a3c";
 
-/** Default close horizon — short enough to settle within a demo, long
+/** Default close horizon · short enough to settle within a demo, long
  *  enough to capture meaningful price drift. */
 export const DEFAULT_SPOT_HORIZON_MS = 60 * 60 * 1000; // 1h
 
@@ -82,7 +82,7 @@ const MAX_SLIPPAGE_PCT = 1.5;
 /** Pre-trade DeepBook execution analysis: simulate the actual order against the
  *  live book (devInspect, no signing) and report real slippage + DEEP fee +
  *  whether the fill quality clears the bar. Fail-safe: a read error never
- *  blocks — the on-chain order + Move policy remain the true gate. */
+ *  blocks · the on-chain order + Move policy remain the true gate. */
 export async function readSpotExecution(
   ctx: AgentContext,
   market: MarketSpec,
@@ -103,7 +103,7 @@ export async function readSpotExecution(
     deepReq: 0,
     depthOk: true,
     approved: true,
-    note: `DeepBook ${side}: live execution check unavailable — proceeding (the chain gates the fill).`,
+    note: `DeepBook ${side}: live execution check unavailable · proceeding (the chain gates the fill).`,
   };
   if (!market.spotPoolId || !base || !quote) return fallback;
   try {
@@ -164,7 +164,7 @@ export async function readSpotExecution(
         ? `DeepBook ${side}: depth ${
             approved ? "healthy" : "thin"
           } · slippage ${slippagePct.toFixed(2)}% · ${deepReq.toFixed(3)} DEEP fee → ${
-            approved ? "execution approved" : "execution declined — slippage over the bar"
+            approved ? "execution approved" : "execution declined · slippage over the bar"
           }.`
         : `DeepBook ${side}: order book too thin to fill a ${baseQty}-lot cleanly → execution declined.`;
     return { side, baseQty, effPrice, midPrice: mid, slippagePct, deepReq, depthOk, approved, note };
@@ -249,7 +249,7 @@ export type CloseSpotResult = {
 };
 
 /** Close a spot position by running the opposite-side market order.
- *  No policy gate — closes must succeed even after revoke. */
+ *  No policy gate · closes must succeed even after revoke. */
 export async function closeSpot(args: {
   ctx: AgentContext;
   market: MarketSpec;
@@ -274,7 +274,7 @@ export async function closeSpot(args: {
   if (res.effects?.status?.status !== "success") {
     throw new Error(`closeSpot: ${res.effects?.status?.error ?? "unknown"}`);
   }
-  // Parse the OrderFilled event for the exact quote_quantity — more
+  // Parse the OrderFilled event for the exact quote_quantity · more
   // robust than diffing BM balance reads, which depend on a fragile
   // dynamic-field lookup that's been wrong for non-SUI coin types.
   const filled = (res.events ?? []).find((e: { type?: string }) =>

@@ -1,6 +1,6 @@
 // Polling hooks for the Mind canvas's chart feeds. Both poll our own
 // cached API routes (not the fullnode), so cost-per-dashboard is one
-// HTTP GET against an in-memory cache — safe at 100 concurrent users.
+// HTTP GET against an in-memory cache · safe at 100 concurrent users.
 
 "use client";
 
@@ -169,7 +169,7 @@ export function useVolSurface(
   return state;
 }
 
-// Trade history for one adopted trader — the agent's actual decisions
+// Trade history for one adopted trader · the agent's actual decisions
 // (direction, strike, mode, abstention) from /api/trader/trades. Feeds
 // the chart's decision markers and the memory timeline. Polls every 20s.
 export type TradeDecision = {

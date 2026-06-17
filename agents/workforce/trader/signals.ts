@@ -144,7 +144,7 @@ export function normCdf(x: number): number {
 }
 
 /** Bundle of signals the strategies act on. Each field is null when the
- *  history doesn't reach back far enough — strategies treat null as
+ *  history doesn't reach back far enough · strategies treat null as
  *  "no signal, sit out." */
 export type SignalBundle = {
   spot: number | null;

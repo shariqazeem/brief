@@ -1,7 +1,7 @@
 // Helpers for the operator_policy Move module: build TXs for create / revoke
 // / extend / record_spend, fetch + decode the OperatorPolicy shared object.
 //
-// The on-chain policy is the trust anchor of the pivot — the AI is not
+// The on-chain policy is the trust anchor of the pivot · the AI is not
 // trusted, the policy is. Any agent action that wants to spend must call
 // `record_spend` in the same PTB as its trade; a violated invariant aborts
 // the whole transaction.
@@ -9,7 +9,7 @@
 import { Transaction } from "@mysten/sui/transactions";
 import type { AgentContext } from "./sui.js";
 
-/** Subset of SuiObjectResponse we read — kept structural and permissive
+/** Subset of SuiObjectResponse we read · kept structural and permissive
  *  so we don't bind to the SDK's internal type-module layout. */
 type SuiObjectLite = {
   data?: {
@@ -113,7 +113,7 @@ export function buildExtendTx(args: {
 
 /**
  * Add a `record_spend` Move call to an existing PTB. Use this so the agent
- * can spend + enforce policy in one atomic transaction — if the policy is
+ * can spend + enforce policy in one atomic transaction · if the policy is
  * revoked/expired/over-budget/wrong-venue, the whole PTB aborts.
  */
 export function addRecordSpendCall(

@@ -42,7 +42,7 @@ function windowed(history: PricePoint[], endIdx: number, lookbackMs: number): Pr
   return out.reverse();
 }
 
-// Same definitions as agents/workforce/trader/signals.ts — window
+// Same definitions as agents/workforce/trader/signals.ts · window
 // average and gains/losses RSI over the trailing window at each point.
 function smaAt(history: PricePoint[], endIdx: number, lookbackMs: number): number | null {
   const w = windowed(history, endIdx, lookbackMs);
@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
     const arr = JSON.parse(raw) as PricePoint[];
     if (Array.isArray(arr)) history = arr;
   } catch {
-    /* cold history — return an empty, renderable series */
+    /* cold history · return an empty, renderable series */
   }
 
   const nowMs = Date.now();

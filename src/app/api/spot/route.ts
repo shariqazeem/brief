@@ -2,7 +2,7 @@
 //
 // The single highest-leverage scaling fix: every open dashboard used
 // to devInspect `oracle::spot_price` against the public fullnode every
-// 8 seconds — 100 viewers ≈ 750 RPC calls/min from 100 IPs, which is
+// 8 seconds · 100 viewers ≈ 750 RPC calls/min from 100 IPs, which is
 // how testnet rate limits kill a live demo. This route does that one
 // devInspect server-side and lets every viewer share a 4s cache.
 // useLiveSpot hits this first and falls back to direct devInspect only
@@ -16,7 +16,7 @@ import { bcs } from "@mysten/sui/bcs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Mirrors src/lib/predict-client.ts — keep in sync.
+// Mirrors src/lib/predict-client.ts · keep in sync.
 const PREDICT_PACKAGE =
   "0xf5ea2b3749c65d6e56507cc35388719aadb28f9cab873696a2f8687f5c785138";
 const READ_SENDER =
@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Stale-while-revalidate: if we have ANY prior value, serve it now and
-  // refresh once in the background — no caller blocks on the fullnode.
+  // refresh once in the background · no caller blocks on the fullnode.
   if (hit) {
     void readSpotOnce(oracleId).catch(() => {});
     return NextResponse.json({

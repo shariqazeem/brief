@@ -1,4 +1,4 @@
-// Treasury Agent — places real DeepBook v3 limit orders on the SUI/DBUSDC
+// Treasury Agent · places real DeepBook v3 limit orders on the SUI/DBUSDC
 // pool to probe live market liquidity, then submits a deliverable listing
 // the placed orders and the pool snapshot at the moment of placement.
 //
@@ -53,7 +53,7 @@ const TEST_ORDER_SIZES_SUI = [1.0, 1.0];
 const PRICE_OFFSETS_BPS = [50, 200]; // sells 0.5% and 2% above mid
 const FALLBACK_MID_PRICE = 2.0;
 
-// Sum of TEST_ORDER_SIZES_SUI — the manager needs this much tradable SUI
+// Sum of TEST_ORDER_SIZES_SUI · the manager needs this much tradable SUI
 // before we can place the orders. Anything already deposited counts.
 const PLANNED_TOTAL_SUI = TEST_ORDER_SIZES_SUI.reduce((a, b) => a + b, 0);
 
@@ -135,7 +135,7 @@ function composeOrderPlan(
       clientOrderId: `${baseNonce}${i.toString().padStart(2, "0")}`,
       price: Number(price.toFixed(6)),
       quantitySui: TEST_ORDER_SIZES_SUI[i],
-      isBid: false, // sell SUI for DBUSDC — test asks
+      isBid: false, // sell SUI for DBUSDC · test asks
       offsetBps: offset,
     });
   }
@@ -161,7 +161,7 @@ type ModeDecision = {
    *  releases that collateral back into the manager's free balance
    *  inside the same atomic PTB, so it's available for the new orders. */
   recoverableSui: number;
-  /** Number of existing open orders we'll cancel — non-zero means the
+  /** Number of existing open orders we'll cancel · non-zero means the
    *  PTB starts with a cancel_all_orders step. */
   openOrders: number;
   /** Fresh SUI we need to pull from the wallet into the manager. 0 when
@@ -170,7 +170,7 @@ type ModeDecision = {
 };
 
 async function readManagerSui(dbCtx: DeepBookCtx): Promise<number> {
-  // Best-effort — if the simulation fails (RPC blip, manager just
+  // Best-effort · if the simulation fails (RPC blip, manager just
   // created and not indexed yet) we treat it as 0 so the agent errs on
   // the side of "deposit the plan and run live."
   try {
@@ -215,7 +215,7 @@ async function chooseMode(
   const openOrders = await readOpenOrderCount(dbCtx);
   // Each resting order from a prior run was sized 1 SUI (see
   // TEST_ORDER_SIZES_SUI). Cancelling them in the same PTB releases
-  // that collateral *before* the new orders consume it — so it counts
+  // that collateral *before* the new orders consume it · so it counts
   // toward what the manager can back this run. This is what lets a
   // single 3 SUI wallet top-up sustain many back-to-back live runs:
   // cancel + re-place recycles the same ~PLANNED_TOTAL_SUI of
@@ -328,7 +328,7 @@ function composeDeliverable(args: {
 }
 
 // ---------------------------------------------------------------------------
-// Spec parsing (light — Treasury's instructions live in the agent itself)
+// Spec parsing (light · Treasury's instructions live in the agent itself)
 // ---------------------------------------------------------------------------
 
 type TreasurySpec = {
@@ -407,7 +407,7 @@ async function handleTask(
     t.assignedTo.toLowerCase() === ctx.address.toLowerCase()
   ) {
     console.log(
-      "[treasury] task already accepted by this wallet — resuming to deliver",
+      "[treasury] task already accepted by this wallet · resuming to deliver",
     );
   } else {
     console.log(
@@ -478,7 +478,7 @@ async function handleTask(
       // Optional cancel: if we already have resting orders on this pool
       // from a previous delivery, cancel them first. cancel_all_orders
       // releases the locked collateral back into the manager's free
-      // balance *inside this PTB* — the new orders below then consume
+      // balance *inside this PTB* · the new orders below then consume
       // that recovered balance instead of waiting for a fresh deposit.
       if (openOrders > 0) {
         dbCtx.db.deepBook.cancelAllOrders(

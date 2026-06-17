@@ -1,4 +1,4 @@
-// Shared DeepBook Predict helpers — used by the Trader agent's task
+// Shared DeepBook Predict helpers · used by the Trader agent's task
 // handler and its auto-redeem service.
 //
 // All identifiers are pinned to the `predict-testnet-4-16` branch of
@@ -32,7 +32,7 @@ export const INDEXER_BASE =
   process.env.PREDICT_INDEXER_URL ??
   "https://predict-server.testnet.mystenlabs.com";
 
-/** 1e9 — both strike and spot/settlement are scaled by this. */
+/** 1e9 · both strike and spot/settlement are scaled by this. */
 export const PRICE_SCALAR = 1_000_000_000;
 /** dUSDC has 6 decimals; 1 dUSDC = 1_000_000 base units. */
 export const DUSDC_DECIMALS = 6;
@@ -149,7 +149,7 @@ export async function readManagerDusdcBalance(
   }
 }
 
-/** Strike helpers — round a spot price to the nearest valid tick within
+/** Strike helpers · round a spot price to the nearest valid tick within
  *  the oracle's grid. min_strike + tick * k for some k ∈ [0, 100_000]. */
 export function nearestTickStrike(
   spot: bigint,
@@ -222,7 +222,7 @@ export function buildGatedMintTx(args: GatedMintArgs): Transaction {
   return tx;
 }
 
-/** Build the permissionless redeem PTB. No policy gate — permissionless
+/** Build the permissionless redeem PTB. No policy gate · permissionless
  *  redeem must work even after the policy is revoked (the kill switch
  *  blocks new mints, not the user's right to claim what was already won). */
 export function buildRedeemPermissionlessTx(args: {

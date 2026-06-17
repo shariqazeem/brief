@@ -1,4 +1,4 @@
-// React context for the zkLogin session. Lightweight — none of the
+// React context for the zkLogin session. Lightweight · none of the
 // `@mysten/sui/zklogin` crypto or the Ed25519 keypair primitive lives
 // in this module's eager imports. The crypto-heavy work (signIn,
 // completing the OAuth callback, signing a tx) is reached via
@@ -35,7 +35,7 @@ import {
 
 type ZkLoginPhase =
   | { kind: "idle" }
-  | { kind: "starting" } // building OAuth URL — flow.ts is loading
+  | { kind: "starting" } // building OAuth URL · flow.ts is loading
   | { kind: "callback" } // returned from Google, completing the flow
   | { kind: "error"; msg: string };
 
@@ -74,7 +74,7 @@ export function ZkLoginProvider({
   const [session, setSession] = useState<ZkLoginSession | null>(null);
   const [phase, setPhase] = useState<ZkLoginPhase>({ kind: "idle" });
 
-  // Restore from sessionStorage on mount. Cheap — no crypto.
+  // Restore from sessionStorage on mount. Cheap · no crypto.
   // Then validate the session's maxEpoch against the live testnet epoch;
   // an expired session would produce a "Groth16 proof verify failed"
   // error the moment the user tries to sign, so we wipe it here and
@@ -91,11 +91,11 @@ export function ZkLoginProvider({
           setSession(null);
           setPhase({
             kind: "error",
-            msg: "Your Google sign-in expired — please continue with Google again.",
+            msg: "Your Google sign-in expired · please continue with Google again.",
           });
         }
       } catch {
-        /* RPC blip — keep the session, signing will throw a clearer
+        /* RPC blip · keep the session, signing will throw a clearer
          * error if the proof is actually invalid. */
       }
     })();
@@ -121,7 +121,7 @@ export function ZkLoginProvider({
       if (!pre) {
         setPhase({
           kind: "error",
-          msg: "We came back from Google but the ephemeral session was gone — try again.",
+          msg: "We came back from Google but the ephemeral session was gone · try again.",
         });
         return;
       }
@@ -133,7 +133,7 @@ export function ZkLoginProvider({
       if (claims.nonce && claims.nonce !== pre.nonce) {
         setPhase({
           kind: "error",
-          msg: "Google returned a JWT whose nonce doesn't match the session — refusing it.",
+          msg: "Google returned a JWT whose nonce doesn't match the session · refusing it.",
         });
         return;
       }
@@ -189,7 +189,7 @@ export function ZkLoginProvider({
   }, []);
 
   // Public testnet zkLogin proofs from prover-dev.mystenlabs.com don't
-  // verify against the testnet on-chain Groth16 verifier — that prover
+  // verify against the testnet on-chain Groth16 verifier · that prover
   // serves devnet only, and Mysten gates the testnet/mainnet prover
   // behind Enoki. Until we add Enoki, we keep the OAuth + address-
   // derivation work in the bundle (so the AccountChip and leaderboard

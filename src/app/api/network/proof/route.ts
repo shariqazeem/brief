@@ -2,9 +2,9 @@
 //
 // Network-wide trust signal for the homepage above-the-fold proof strip: how
 // many operators are live, how many decisions they've made, how much capital
-// they manage — and the two numbers that ARE the pitch: 0 policy violations,
+// they manage · and the two numbers that ARE the pitch: 0 policy violations,
 // 0 custody incidents. Aggregated from the real registry + per-operator stats.
-// No fabrication — every number is summed from what operators actually recorded.
+// No fabrication · every number is summed from what operators actually recorded.
 
 import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";

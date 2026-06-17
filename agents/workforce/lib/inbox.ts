@@ -1,4 +1,4 @@
-// Workforce inbox — polls TaskPosted events filtered by either the agent's
+// Workforce inbox · polls TaskPosted events filtered by either the agent's
 // own assigned_to address OR a target capability label. Cursor-persisted,
 // fast-forwards to head on first start to avoid replaying the v3 backlog
 // the first time a freshly-deployed agent boots.
@@ -80,7 +80,7 @@ export async function startTaskInbox(opts: TaskInboxOptions): Promise<void> {
           `[${tag}] fast-forwarded cursor to ${cursor.txDigest.slice(0, 8)}…/${cursor.eventSeq}`,
         );
       } else {
-        console.log(`[${tag}] no TaskPosted events on chain yet — starting from head`);
+        console.log(`[${tag}] no TaskPosted events on chain yet · starting from head`);
       }
     } catch (e) {
       console.warn(

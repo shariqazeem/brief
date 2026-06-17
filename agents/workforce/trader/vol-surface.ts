@@ -47,7 +47,7 @@ export type RawSurfaceSnapshot = {
   expiryMs: bigint;
 };
 
-/** Decoded surface in real units — easier to reason about and to
+/** Decoded surface in real units · easier to reason about and to
  *  serialize into the Walrus reasoning blob. */
 export type SurfaceSnapshot = {
   a: number;
@@ -143,7 +143,7 @@ export function sviTotalVariance(s: SurfaceSnapshot, k: number): number {
 
 /** Market-implied probability Pr(F_T > strike) under the SVI surface.
  *  Returns 0..1. Returns null when the surface is degenerate (negative
- *  variance) or inputs are invalid — the strategy treats this as "no
+ *  variance) or inputs are invalid · the strategy treats this as "no
  *  market signal, sit out." */
 export function impliedProbUp(
   s: SurfaceSnapshot,

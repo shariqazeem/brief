@@ -1,6 +1,6 @@
 "use client";
 
-// /proof — the verification artifact. A skeptical judge lands here and
+// /proof · the verification artifact. A skeptical judge lands here and
 // verifies EVERY claim on Suiscan + Walrus without trusting us. Five
 // sections, each a card with a left-border colour (emerald = enacted,
 // red = refused/revoked, amber = pending) and a one-line fact + a link.
@@ -30,7 +30,7 @@ const addrUrl = (a: string) => `https://suiscan.xyz/testnet/account/${a}`;
 const blobUrl = (b: string) =>
   `https://aggregator.walrus-testnet.walrus.space/v1/blobs/${b}`;
 const short = (s: string, h = 6, t = 4) =>
-  !s ? "—" : s.length <= h + t + 1 ? s : `${s.slice(0, h)}…${s.slice(-t)}`;
+  !s ? "-" : s.length <= h + t + 1 ? s : `${s.slice(0, h)}…${s.slice(-t)}`;
 const fmtTime = (ms: number) =>
   ms
     ? new Date(ms).toLocaleString(undefined, {
@@ -39,7 +39,7 @@ const fmtTime = (ms: number) =>
         hour: "2-digit",
         minute: "2-digit",
       })
-    : "—";
+    : "-";
 
 type Spend = { amount: number; new_spent: number; venue: string | null; ms: number; tx: string };
 type ProofData = {
@@ -133,7 +133,7 @@ export default function ProofPage() {
           </h1>
           <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-ink-2">
             Every claim on this page is a live on-chain artifact. Each link goes to
-            Suiscan or Walrus — check it yourself. The budget cap, the authorized
+            Suiscan or Walrus · check it yourself. The budget cap, the authorized
             trades, the refused over-budget trade, the revocation, and the
             operator&apos;s reasoning are all enforced by the protocol, not our
             backend.
@@ -156,7 +156,7 @@ export default function ProofPage() {
           <div className="mt-10 border-l-[3px] border-[#EF4444] bg-red-50/40 px-4 py-3">
             <p className="font-mono text-[12px] text-[#EF4444]">
               {err === "policy not found"
-                ? `No operator with id ${short(policyId, 8, 6)} on testnet — the id may be incomplete.`
+                ? `No operator with id ${short(policyId, 8, 6)} on testnet · the id may be incomplete.`
                 : err}
             </p>
             {policyId !== DEFAULT_POLICY && (
@@ -180,7 +180,7 @@ export default function ProofPage() {
               accent={p.revoked ? RED : EMERALD}
               n="01"
               title="Your leash is a Move contract."
-              line="The budget cap lives on-chain. Our backend doesn't enforce it — the protocol does."
+              line="The budget cap lives on-chain. Our backend doesn't enforce it · the protocol does."
             >
               <div className="mt-4 space-y-3">
                 <div>
@@ -199,7 +199,7 @@ export default function ProofPage() {
                     />
                   </div>
                   <p className="mt-2 font-mono text-[10.5px] text-ink-2">
-                    {(budget - spent).toFixed(3)} {unit} still authorized — the chain
+                    {(budget - spent).toFixed(3)} {unit} still authorized · the chain
                     stops the rest.
                   </p>
                 </div>
@@ -222,11 +222,11 @@ export default function ProofPage() {
               accent={EMERALD}
               n="02"
               title="Every authorized trade is an on-chain event."
-              line="Each trade was authorized by record_spend before the DeepBook order executed. Atomic — if the policy says no, the trade never happens."
+              line="Each trade was authorized by record_spend before the DeepBook order executed. Atomic · if the policy says no, the trade never happens."
             >
               {data.spends.length === 0 ? (
                 <p className="mt-4 font-mono text-[11px] text-muted">
-                  No authorized trades yet — the operator preserves capital until it
+                  No authorized trades yet · the operator preserves capital until it
                   finds an edge.
                 </p>
               ) : (
@@ -238,7 +238,7 @@ export default function ProofPage() {
                           {(s.amount / 1e6).toFixed(3)} {unit}
                         </span>
                         <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
-                          {s.venue ?? "—"}
+                          {s.venue ?? "-"}
                         </span>
                         <span className="ml-2 font-mono text-[10px] text-ink-2">{fmtTime(s.ms)}</span>
                       </div>
@@ -261,7 +261,7 @@ export default function ProofPage() {
               accent={RED}
               n="03"
               title="When the operator exceeds the cap, the chain says no."
-              line="This failed transaction is the most important one on this page. It proves enforcement isn't a backend promise — it's protocol-level reversion. The order never executed; no funds moved."
+              line="This failed transaction is the most important one on this page. It proves enforcement isn't a backend promise · it's protocol-level reversion. The order never executed; no funds moved."
             >
               <div className="mt-4 flex items-center gap-2">
                 <span
@@ -295,7 +295,7 @@ export default function ProofPage() {
               ) : (
                 <>
                   <p className="mt-4 font-mono text-[10.5px] leading-relaxed text-ink-2">
-                    This operator is active. Revocation is one transaction — here is a
+                    This operator is active. Revocation is one transaction · here is a
                     real one, and the policy it retired forever:
                   </p>
                   <CardLink href={txUrl(REVOKE_TX)}>Revoke transaction on Suiscan →</CardLink>
@@ -309,7 +309,7 @@ export default function ProofPage() {
               accent={EMERALD}
               n="05"
               title="The operator's reasoning is immutable."
-              line="The operator publishes its declared identity + pledge to Walrus. Content-addressed — it can't retroactively change its story."
+              line="The operator publishes its declared identity + pledge to Walrus. Content-addressed · it can't retroactively change its story."
             >
               {blob ? (
                 <>

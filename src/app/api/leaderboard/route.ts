@@ -1,4 +1,4 @@
-// GET /api/leaderboard — chain-aggregated AI-trader competition board.
+// GET /api/leaderboard · chain-aggregated AI-trader competition board.
 //
 // Walks live testnet data and emits per-adopted-trader (per-policy) stats:
 //
@@ -152,7 +152,7 @@ async function aggregate(): Promise<LeaderboardResponse> {
   let scanned = 0;
   // The brief package emits PolicyCreated under
   // `${pkg}::operator_policy::PolicyCreated`. We page through events
-  // newest-first and stop after 200 — enough for the demo and bounded
+  // newest-first and stop after 200 · enough for the demo and bounded
   // for the testnet RPC.
   for (let page = 0; page < 4; page++) {
     let res;
@@ -322,7 +322,7 @@ async function aggregate(): Promise<LeaderboardResponse> {
         const text = new TextDecoder().decode(new Uint8Array(payload));
         deliverableBodies.set(id, JSON.parse(text));
       } catch {
-        /* malformed body — skip */
+        /* malformed body · skip */
       }
     }
   }
@@ -373,7 +373,7 @@ async function aggregate(): Promise<LeaderboardResponse> {
   //
   // The cursor lives on the same VM as the trader process; we read it
   // directly. Every position has the open/close tx digests (verifiable
-  // on Suiscan), the realized P&L base units, and the policy id — so
+  // on Suiscan), the realized P&L base units, and the policy id · so
   // we can attribute closed-bet P&L to the right policy row.
   const positions = await loadSpotPositions();
   for (const p of positions) {
@@ -392,7 +392,7 @@ async function aggregate(): Promise<LeaderboardResponse> {
   void scanned;
   const rows = Array.from(policies.values())
     // Sort: live trades desc, then realized P&L desc, then distinct
-    // assets desc — rewards activity + multi-asset + profitability.
+    // assets desc · rewards activity + multi-asset + profitability.
     .sort((a, b) => {
       if (b.live_count !== a.live_count) return b.live_count - a.live_count;
       if (b.realized_pnl_usd !== a.realized_pnl_usd)
@@ -426,7 +426,7 @@ export async function GET(): Promise<Response> {
   }
   // Stale cache → serve it now, refresh once in the background. No
   // caller waits on the (expensive) on-chain aggregation when we already
-  // have a slightly-old answer — the heart of surviving 100 concurrent.
+  // have a slightly-old answer · the heart of surviving 100 concurrent.
   if (CACHE) {
     void aggregateOnce().catch(() => {});
     return Response.json(CACHE.payload, {

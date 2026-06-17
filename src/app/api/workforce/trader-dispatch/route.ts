@@ -1,4 +1,4 @@
-// POST /api/workforce/trader-dispatch — server-signs a `predict-btc`
+// POST /api/workforce/trader-dispatch · server-signs a `predict-btc`
 // task assigned to the Trader's on-chain wallet (the Treasury key).
 //
 // The user already signed ONE transaction in the frontend: the policy
@@ -43,7 +43,7 @@ type Body = {
   bounty_sui?: number;
   /** Which markets this trader can play. Defaults to "btc_only". */
   markets?: string;
-  /** Goal set at adoption — calibrates the trader's thresholds. */
+  /** Goal set at adoption · calibrates the trader's thresholds. */
   goal?: { type?: string; targetPct?: number; horizonDays?: number };
 };
 

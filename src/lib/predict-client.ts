@@ -1,4 +1,4 @@
-// Read-only DeepBook Predict helpers for the browser. Stays light —
+// Read-only DeepBook Predict helpers for the browser. Stays light -
 // uses the SuiClient already in the bundle via dApp Kit; no extra SDK
 // imports, no signing primitives.
 //
@@ -19,7 +19,7 @@ import { apiUrl } from "@/lib/api-base";
 const PREDICT_PACKAGE =
   "0xf5ea2b3749c65d6e56507cc35388719aadb28f9cab873696a2f8687f5c785138";
 
-// devInspect needs a sender for gas estimation — read-only calls don't
+// devInspect needs a sender for gas estimation · read-only calls don't
 // debit anyone, but the RPC still wants a valid address. The Treasury
 // wallet always exists on chain so it's a safe sentinel.
 const READ_SENDER =
@@ -70,7 +70,7 @@ export function useLiveSpot(
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     // Shared server cache first (one devInspect per 4s for ALL viewers
-    // — the 100-user fix); direct devInspect only as a fallback so the
+    // · the 100-user fix); direct devInspect only as a fallback so the
     // panel stays alive even if the API tier is down.
     async function readSpotRaw(): Promise<bigint> {
       try {
@@ -127,7 +127,7 @@ export function useLiveSpot(
         if (cancelledRef.current) return;
         failuresRef.current += 1;
         setState((prev) => ({
-          // Keep the last known spot visible — the UI label shifts
+          // Keep the last known spot visible · the UI label shifts
           // to "reconnecting" but the user still sees a meaningful
           // value (and the win/loss inference still uses it).
           spotRaw: prev.spotRaw,
@@ -160,13 +160,13 @@ export function useLiveSpot(
   return state;
 }
 
-/** Tiny helper — divide a 1e9 spot/strike to a USD number. */
+/** Tiny helper · divide a 1e9 spot/strike to a USD number. */
 export function rawToUsd(raw: bigint | number | null | undefined): number {
   if (raw === null || raw === undefined) return 0;
   return Number(raw) / 1_000_000_000;
 }
 
-/** DeepBook v3 testnet package — used for the spot mid-price devInspect.
+/** DeepBook v3 testnet package · used for the spot mid-price devInspect.
  *  Mirrors the BTC oracle pattern; the move call is
  *  `pool::mid_price<Base, Quote>(pool, clock)` returning u64. */
 const DEEPBOOK_PACKAGE_ID =

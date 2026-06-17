@@ -1,14 +1,14 @@
 "use client";
 
-// Landing v2 — "Adopt an operator. The chain holds the leash."
+// Landing v2 · "Adopt an operator. The chain holds the leash."
 //
 // Three full-viewport sections (Hook · Watch It Think · The Leash) on the
 // bright white "operator" design system. Everything dynamic is sourced
 // from REAL data: the global agent-events SSE wire, /api/trader/signals
 // (live BTC + sparkline), and /api/policy (live budget burn-down). When
-// the wire is quiet it shows an honest idle state — never fabricated
+// the wire is quiet it shows an honest idle state · never fabricated
 // numbers. PRESERVE CAPITAL is a first-class decision, same visual weight
-// as a trade (amber, confident — not a cautious "no trade").
+// as a trade (amber, confident · not a cautious "no trade").
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -225,7 +225,7 @@ function usePolicyBudget(policyId: string | null) {
   return { pct, revoked };
 }
 
-// Network-wide proof for the above-the-fold trust strip — the single most
+// Network-wide proof for the above-the-fold trust strip · the single most
 // important signal a judge sees in the first 3 seconds. Real, aggregated.
 type NetworkProof = {
   operators: number;
@@ -278,7 +278,7 @@ function Sparkline({ pts, color }: { pts: number[]; color: string }) {
   );
 }
 
-// Typewriter for the thesis line — subtle, fast, reduced-motion safe.
+// Typewriter for the thesis line · subtle, fast, reduced-motion safe.
 function useTyped(text: string | null) {
   const [shown, setShown] = useState("");
   useEffect(() => {
@@ -320,9 +320,9 @@ function ProofStat({ n, l, good }: { n: string; l: string; good?: boolean }) {
 // ── THE LEASH ─────────────────────────────────────────────────────────────
 // The entire company in one animation: a warm-gold autonomous operator moves
 // intelligently inside a thin grey boundary it can never cross. It explores,
-// approaches the edge, the edge quietly resists, it changes course — never
+// approaches the edge, the edge quietly resists, it changes course · never
 // escaping, never stopping. Freedom within rules; intelligence controlled by
-// law. No glow, no crypto, no sci-fi — museum-grade restraint. Reduced-motion
+// law. No glow, no crypto, no sci-fi · museum-grade restraint. Reduced-motion
 // renders a single resting frame.
 const GOLD = "#C49A2C";
 function LeashHero() {
@@ -359,13 +359,13 @@ function LeashHero() {
     function draw(edgeT: number, ang: number) {
       if (!ctx) return;
       ctx.clearRect(0, 0, SIZE, SIZE);
-      // boundary — thin, grey, calm
+      // boundary · thin, grey, calm
       ctx.beginPath();
       ctx.arc(cx, cy, R, 0, Math.PI * 2);
       ctx.strokeStyle = "#E6E6EA";
       ctx.lineWidth = 1;
       ctx.stroke();
-      // the law resists — a faint gold arc only where it's being pushed
+      // the law resists · a faint gold arc only where it's being pushed
       if (edgeT > 0.02) {
         ctx.beginPath();
         ctx.arc(cx, cy, R, ang - 0.42, ang + 0.42);
@@ -373,7 +373,7 @@ function LeashHero() {
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
-      // a whisper of a trail — motion, not glow
+      // a whisper of a trail · motion, not glow
       for (let i = 0; i < trail.length; i++) {
         const p = trail[i];
         const a = (i / trail.length) * 0.09;
@@ -391,13 +391,13 @@ function LeashHero() {
 
     function step() {
       t += 1;
-      // organic intent — layered slow oscillators give non-repeating wander
+      // organic intent · layered slow oscillators give non-repeating wander
       const dir =
         Math.sin(t * 0.0123) * 2.3 + Math.cos(t * 0.0071) * 1.6 + Math.sin(t * 0.0033) * 3.0;
       let ax = Math.cos(dir) * 0.021;
       let ay = Math.sin(dir) * 0.021;
 
-      // the boundary pushes back, harder the closer it gets — never crosses
+      // the boundary pushes back, harder the closer it gets · never crosses
       const dx = x - cx;
       const dy = y - cy;
       const d = Math.hypot(dx, dy) || 1;
@@ -539,7 +539,7 @@ export default function OperatorLandingV2() {
 
   const usd = (n: number | null) =>
     n == null
-      ? "—"
+      ? "-"
       : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   return (
@@ -547,7 +547,7 @@ export default function OperatorLandingV2() {
       className="snap-y snap-mandatory overflow-y-auto bg-[#FAFAFA] font-sans text-[#111111]"
       style={{ height: "100vh" }}
     >
-      {/* ════ SECTION 1 — THE HOOK ════ */}
+      {/* ════ SECTION 1 · THE HOOK ════ */}
       <section className="flex min-h-screen snap-start flex-col items-center justify-center px-6">
         <LeashHero />
         <h1 className="mt-14 max-w-2xl text-center text-[34px] font-medium leading-[1.1] tracking-[-0.02em] sm:text-[52px]">
@@ -575,7 +575,7 @@ export default function OperatorLandingV2() {
           </a>
         </div>
 
-        {/* Above-the-fold proof — the trust signal, no scroll required */}
+        {/* Above-the-fold proof · the trust signal, no scroll required */}
         {proof && proof.operators > 0 && (
           <div className="mt-14 flex flex-wrap items-center justify-center gap-x-6 gap-y-2.5 font-mono text-[11px] tracking-[0.01em]">
             <ProofStat n={`${proof.operators}`} l={proof.operators === 1 ? "operator live" : "operators live"} />
@@ -591,7 +591,7 @@ export default function OperatorLandingV2() {
         )}
       </section>
 
-      {/* ════ SECTION 2 — WATCH IT THINK ════ */}
+      {/* ════ SECTION 2 · WATCH IT THINK ════ */}
       <section
         id="think"
         className="flex min-h-screen snap-start flex-col items-center justify-center bg-white px-6 py-24"
@@ -601,18 +601,18 @@ export default function OperatorLandingV2() {
         </p>
         <div className={`mt-8 w-full max-w-[640px] bg-white ${CARD}`}>
           <div className="px-6 py-4 sm:px-8 sm:py-6">
-            {/* 1 — Observing */}
+            {/* 1 · Observing */}
             <Step active={!stale && cur.beat === "observe"} done={reached("signals")} dot={EMERALD} label="Observing">
               <div className="flex items-center justify-between gap-4">
                 <span className="font-mono text-[18px] tabular-nums text-[#111111]">
-                  {stale ? "—" : usd(liveSpot)}
+                  {stale ? "-" : usd(liveSpot)}
                   <span className="ml-2 text-[10px] text-[#666666]">{cur.asset}</span>
                 </span>
                 <Sparkline pts={pts} color={EMERALD} />
               </div>
             </Step>
 
-            {/* 2 — Thesis */}
+            {/* 2 · Thesis */}
             <Step active={!stale && cur.beat === "decision"} done={reached("mint")} dot={EMERALD} label="Thesis">
               <p className="min-h-[1.4em] text-[14px] leading-relaxed text-[#111111]">
                 {stale
@@ -621,7 +621,7 @@ export default function OperatorLandingV2() {
               </p>
             </Step>
 
-            {/* 3 — Risk */}
+            {/* 3 · Risk */}
             <Step active={!stale && cur.beat === "decision"} done={reached("mint")} dot={EMERALD} label="Risk">
               <p className="font-mono text-[12px] tabular-nums text-[#111111]">
                 {pct != null ? `Budget: ${pct.toFixed(0)}% used` : "Budget: on chain"}
@@ -639,7 +639,7 @@ export default function OperatorLandingV2() {
               </p>
             </Step>
 
-            {/* 4 — Decision (PRESERVE CAPITAL = same weight as a trade) */}
+            {/* 4 · Decision (PRESERVE CAPITAL = same weight as a trade) */}
             <Step active={!stale && (cur.beat === "decision" || cur.beat === "mint")} done={reached("delivered")} dot={circleState === "preserve" ? AMBER : circleState === "act" ? (cur.direction === "down" ? RED : EMERALD) : EMERALD} label="Decision">
               {stale ? (
                 <p className="text-[14px] text-[#666666]">Awaiting the next decision.</p>
@@ -657,14 +657,14 @@ export default function OperatorLandingV2() {
                   className="font-mono text-[22px] font-medium tracking-tight"
                   style={{ color: cur.direction === "down" ? RED : EMERALD }}
                 >
-                  ACT — {cur.direction === "down" ? "DOWN ▼" : "UP ▲"}
+                  ACT · {cur.direction === "down" ? "DOWN ▼" : "UP ▲"}
                 </p>
               ) : (
                 <p className="text-[14px] text-[#666666]">Weighing the edge…</p>
               )}
             </Step>
 
-            {/* 5 — Chain */}
+            {/* 5 · Chain */}
             <Step active={!stale && cur.beat === "delivered"} done={!!cur.deliveredTx} dot={cur.failed ? RED : EMERALD} label="Chain">
               {cur.mintTx ? (
                 <a
@@ -678,11 +678,11 @@ export default function OperatorLandingV2() {
                 </a>
               ) : cur.failed ? (
                 <span className="font-mono text-[12px]" style={{ color: RED }}>
-                  Chain refused — {cur.simReason?.slice(0, 48) ?? "policy gate"}
+                  Chain refused · {cur.simReason?.slice(0, 48) ?? "policy gate"}
                 </span>
               ) : cur.decided === false ? (
                 <span className="font-mono text-[12px] text-[#666666]">
-                  No spend — capital preserved, recorded on chain
+                  No spend · capital preserved, recorded on chain
                 </span>
               ) : (
                 <span className="font-mono text-[12px] text-[#666666]">
@@ -704,7 +704,7 @@ export default function OperatorLandingV2() {
         </div>
       </section>
 
-      {/* ════ SECTION 3 — THE LEASH ════ */}
+      {/* ════ SECTION 3 · THE LEASH ════ */}
       <section className="flex min-h-screen snap-start flex-col items-center justify-center px-6 py-24">
         <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#666666]">
           The leash
@@ -714,7 +714,7 @@ export default function OperatorLandingV2() {
             {
               k: "01",
               h: "You set the rules",
-              b: "Budget cap, allowed venues, expiry — chosen in one signature.",
+              b: "Budget cap, allowed venues, expiry · chosen in one signature.",
             },
             {
               k: "02",
@@ -765,7 +765,7 @@ export default function OperatorLandingV2() {
         </div>
       </section>
 
-      {/* ════ SECTION 4 — THE PLATFORM / MAINNET ════ */}
+      {/* ════ SECTION 4 · THE PLATFORM / MAINNET ════ */}
       <section className="flex min-h-screen snap-start flex-col items-center justify-center bg-white px-6 py-24">
         <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#666666]">
           The platform

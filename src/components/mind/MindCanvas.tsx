@@ -1,10 +1,10 @@
-// MindCanvas — the live trading floor. Owns all three mind feeds
+// MindCanvas · the live trading floor. Owns all three mind feeds
 // (usePriceSeries, useVolSurface, useAgentStream) plus the trade
 // history, and lays them out as two calm zones:
-//   Zone 2 "The Bet"  — the verdict slot (passed in by the position
+//   Zone 2 "The Bet"  · the verdict slot (passed in by the position
 //                        panel) beside the price chart with decision
 //                        markers.
-//   Zone 3 "The Mind" — one tabbed card: Signals · Vol smile · Edge ·
+//   Zone 3 "The Mind" · one tabbed card: Signals · Vol smile · Edge ·
 //                        Wire. Reasoning renders ONLY in the Edge tab.
 // Every number is sourced from chain state or the agent's own files;
 // nothing is fabricated. Lazy-loaded so recharts stays out of first load.
@@ -47,7 +47,7 @@ export default function MindCanvas({
   direction: "up" | "down" | null;
   liveSpotUsd: number | null;
   traderName: string;
-  /** Reasoning text of the last delivered decision — shown in the Edge
+  /** Reasoning text of the last delivered decision · shown in the Edge
    *  tab and mined for edge numbers when SSE hasn't replayed one yet. */
   fallbackReasoning?: string | null;
   /** Zone 2 left column: the bet verdict (live spot, gauge, mode badge),
@@ -106,14 +106,14 @@ export default function MindCanvas({
   const rocWindow = roc30 !== null ? "30m" : "5m";
 
   // A task is "in flight" once events start arriving but delivery hasn't
-  // landed — that's when the Wire tab is the most useful default.
+  // landed · that's when the Wire tab is the most useful default.
   const inFlight =
     state.lastEventTs > 0 && state.steps.delivered.status !== "done";
 
   const [tab, setTab] = useState<TabId>("signals");
   const userPickedRef = useRef(false);
   useEffect(() => {
-    // Auto-focus the Wire while a decision streams — unless the user has
+    // Auto-focus the Wire while a decision streams · unless the user has
     // already chosen a tab themselves.
     if (!userPickedRef.current && inFlight) setTab("wire");
   }, [inFlight]);
@@ -136,7 +136,7 @@ export default function MindCanvas({
   // Guard: if the active tab isn't available for this asset, fall back.
   const activeTab = tabs.some((t) => t.id === tab) ? tab : "signals";
 
-  // "What it's doing now" — the live step label for the waiting state.
+  // "What it's doing now" · the live step label for the waiting state.
   const doingNow = useMemo(() => {
     if (state.lastEventTs === 0)
       return "waiting for the planner to post the job…";
@@ -174,12 +174,12 @@ export default function MindCanvas({
         <div className="flex items-center gap-2 border border-emerald-600/40 bg-emerald-50/70 px-3 py-2 animate-land-in">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600" aria-hidden />
           <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-800">
-            Brief auto-funded the {topup.to} wallet · {topup.amountSui.toFixed(3)} SUI — self-healing gas
+            Brief auto-funded the {topup.to} wallet · {topup.amountSui.toFixed(3)} SUI · self-healing gas
           </p>
         </div>
       )}
 
-      {/* ZONE 2 — The Bet: verdict beside the live chart, one card. */}
+      {/* ZONE 2 · The Bet: verdict beside the live chart, one card. */}
       <div className="border-2 border-ink bg-bg-elev">
         <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2.5 sm:px-5">
           <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
@@ -199,7 +199,7 @@ export default function MindCanvas({
                   </p>
                   <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
                     Every DeepBook spot pool was unreadable this cycle, so the
-                    task closed as <span className="text-ink">simulated</span> —
+                    task closed as <span className="text-ink">simulated</span> -
                     no bet placed, no funds touched. This is testnet pool
                     flakiness, not your leash.
                   </p>
@@ -250,7 +250,7 @@ export default function MindCanvas({
         </div>
       </div>
 
-      {/* ZONE 3 — The Mind: one tabbed card. */}
+      {/* ZONE 3 · The Mind: one tabbed card. */}
       <div className="border-2 border-line bg-bg-elev">
         <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2.5 sm:px-5">
           <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">

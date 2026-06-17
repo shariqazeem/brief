@@ -1,6 +1,6 @@
 // Thin wrapper around the Commonstack chat-completions API (OpenAI-compat)
 // powering DeepSeek v4-flash. Brief uses LLM only as a *reasoning enricher*
-// on top of real DeFiLlama data — the allocations + warnings come from
+// on top of real DeFiLlama data · the allocations + warnings come from
 // real numbers regardless. So if LLM is unavailable, agents fall back to
 // a deterministic template paragraph generated from the same data.
 //
@@ -61,7 +61,7 @@ export function llmMode(env: LlmEnv): "mock" | "llm" {
  * jsonSchemaHint was set, in which case JSON-shaped). Records the call in
  * the in-memory counter so we can audit credits later.
  *
- * Strategy: Commonstack DeepSeek v4-flash by default — fast reasoning model
+ * Strategy: Commonstack DeepSeek v4-flash by default · fast reasoning model
  * with prompt + completion separated. We extract `message.content` (the
  * final answer) and fall back to `reasoning_content` (the thinking trace)
  * if content is empty (which can happen on truncation).

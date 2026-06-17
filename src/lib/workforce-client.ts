@@ -107,7 +107,7 @@ export const WORKFORCE_TEMPLATES: WorkforceTemplate[] = [
       riskTolerance: "medium",
     },
   },
-  // Trader templates — one per personality the adopt wizard offers.
+  // Trader templates · one per personality the adopt wizard offers.
   // The wizard passes every default through explicitly (name, budget,
   // venues), so these entries exist primarily to satisfy
   // `templateById()`'s presence check inside `buildActivateTx`.
@@ -189,7 +189,7 @@ export { buildCreatePolicyTx, suiToMist };
 export type { OperatorPolicyDecoded };
 
 // ---------------------------------------------------------------------------
-// Mission queue — UI POSTs to /api/workforce/missions which appends to a
+// Mission queue · UI POSTs to /api/workforce/missions which appends to a
 // local file. The planner-service (when wired Day 9+) drains the queue.
 // For Wk1 / Day 8 scaffold, the user can also paste the CLI command shown
 // after activation.
@@ -222,7 +222,7 @@ export async function dispatchMission(args: MissionPayload): Promise<{
 // ---------------------------------------------------------------------------
 // Trader (Phase 3): one personality per adoption. Each personality has a
 // stable `strategy` key (the on-chain agent's strategy spec) plus copy
-// describing it in the trader's first-person voice — used on the adopt
+// describing it in the trader's first-person voice · used on the adopt
 // cards and in the dashboard chip. Glyph + tone are small typographic
 // tokens; no emoji or external assets.
 // ---------------------------------------------------------------------------
@@ -231,19 +231,19 @@ export type StrategyId = "conservative" | "momentum" | "contrarian" | "quant";
 
 export type TraderPersonality = {
   strategy: StrategyId;
-  /** Card title — short noun ("Conservative", "Momentum", "Contrarian"). */
+  /** Card title · short noun ("Conservative", "Momentum", "Contrarian"). */
   label: string;
   /** Single ascii glyph used as the personality's stamp ("◇ / ➤ / ⊘"). */
   glyph: string;
-  /** Two-or-three-word temperament — e.g. "Cool, careful, small". */
+  /** Two-or-three-word temperament · e.g. "Cool, careful, small". */
   temperament: string;
   /** One-line operator descriptor for the "Choose Your Operator" cards. */
   tagline: string;
-  /** First-person one-sentence pitch — how the trader thinks about the
+  /** First-person one-sentence pitch · how the trader thinks about the
    *  market. Becomes the headline on the card AND part of the dashboard
    *  Narrator's opening beat. */
   voice: string;
-  /** Card body paragraph — explains the betting rule in plain English. */
+  /** Card body paragraph · explains the betting rule in plain English. */
   blurb: string;
   /** Sensible defaults the leash slider snaps to first. */
   defaultBudgetSui: number;
@@ -261,7 +261,7 @@ export const TRADER_PERSONALITIES: TraderPersonality[] = [
     voice:
       "I keep your stake small. I sit out when MAs disagree or RSI is extreme.",
     blurb:
-      "I only bet when the 15m and 60m moving averages agree on direction and RSI isn't already overextended. I never upsize — discipline beats conviction.",
+      "I only bet when the 15m and 60m moving averages agree on direction and RSI isn't already overextended. I never upsize · discipline beats conviction.",
     defaultBudgetSui: 1.0,
     cadence: "~$1 per bet, only on clean signals.",
   },
@@ -272,7 +272,7 @@ export const TRADER_PERSONALITIES: TraderPersonality[] = [
     temperament: "Trend-following, brave",
     tagline: "Rides the trend. Acts with conviction.",
     voice:
-      "I follow real price action — ROC and the short MA tell me where to lean.",
+      "I follow real price action · ROC and the short MA tell me where to lean.",
     blurb:
       "I compute the 30-minute rate-of-change on real price ticks. If it's clearly positive, I bet UP; clearly negative, DOWN. I sit out when the tape is flat (|ROC30m| under 0.05%).",
     defaultBudgetSui: 1.0,
@@ -287,7 +287,7 @@ export const TRADER_PERSONALITIES: TraderPersonality[] = [
     voice:
       "I fade overextended moves. If RSI(60m) is past 70 or under 30, I bet the snap-back.",
     blurb:
-      "When the 60-minute RSI shows the tape is overbought or oversold, I take the opposite side. If the tape is sitting between 30 and 70 — no extension — I do nothing.",
+      "When the 60-minute RSI shows the tape is overbought or oversold, I take the opposite side. If the tape is sitting between 30 and 70 · no extension · I do nothing.",
     defaultBudgetSui: 1.0,
     cadence: "~$2 per bet, only when extended.",
   },
@@ -332,7 +332,7 @@ export async function dispatchTraderTask(args: {
   /** Which markets this trader is allowed to play. Defaults to BTC for
    *  backward compatibility with existing adopt flows. */
   markets?: TraderMarketBundle;
-  /** Goal the user set at adoption — travels in the task spec so the
+  /** Goal the user set at adoption · travels in the task spec so the
    *  trader can calibrate its thresholds. Absent → baseline. */
   goal?: OperatorGoal;
 }): Promise<TraderDispatchResult> {
@@ -369,7 +369,7 @@ export type TraderIdentity = {
   name: string;
   strategy: StrategyId;
   adoptedAtMs: number;
-  /** Set true once the owner revokes — hides the floating kill switch. */
+  /** Set true once the owner revokes · hides the floating kill switch. */
   revoked?: boolean;
 };
 
@@ -414,7 +414,7 @@ export function loadTraderIdentity(
   }
 }
 
-/** Most-recently-adopted operator that hasn't been revoked — drives the
+/** Most-recently-adopted operator that hasn't been revoked · drives the
  *  floating kill switch (the leash is always in your hand). */
 export function loadLatestTraderIdentity(): TraderIdentity | null {
   const s = safeStorage();
@@ -432,7 +432,7 @@ export function loadLatestTraderIdentity(): TraderIdentity | null {
   }
 }
 
-/** All adopted operators, newest first — drives the Operators home (fleet). */
+/** All adopted operators, newest first · drives the Operators home (fleet). */
 export function loadAllTraderIdentities(): TraderIdentity[] {
   const s = safeStorage();
   if (!s) return [];
@@ -472,7 +472,7 @@ export function markIdentityRevoked(policyId: string): void {
 export type ActivateArgs = {
   packageId: string;
   /**
-   * The Planner agent's address — this is the `agent` bound into the
+   * The Planner agent's address · this is the `agent` bound into the
    * OperatorPolicy and the wallet that posts sub-tasks. Defaults to
    * BRIEF_OPERATOR_ADDRESS (from env) so the wizard's signer (the
    * connected dApp Kit wallet, the OWNER) doesn't have to match the
@@ -784,7 +784,7 @@ export function useResolvedPolicyId(
           setResolved(created.objectId);
         }
       } catch {
-        /* ignore — tx may still be propagating */
+        /* ignore · tx may still be propagating */
       }
     };
 
@@ -803,7 +803,7 @@ export function useResolvedPolicyId(
 }
 
 // ---------------------------------------------------------------------------
-// Agent registration — for profile cards in the Activity Stream
+// Agent registration · for profile cards in the Activity Stream
 // ---------------------------------------------------------------------------
 
 export type AgentProfile = {
@@ -919,7 +919,7 @@ export function useAgentRegistration(
 }
 
 // ---------------------------------------------------------------------------
-// Deliverable preview — fetch the WorkObject + (if Walrus-backed) its
+// Deliverable preview · fetch the WorkObject + (if Walrus-backed) its
 // markdown / JSON content for inline rendering in the Activity Stream.
 // ---------------------------------------------------------------------------
 
@@ -946,7 +946,7 @@ export type DeliverableContent = {
    *  agent's deliver tx). Lets the UI link a deliverable's contents
    *  back to the underlying transaction on suiscan. */
   deliverTxDigest: string | null;
-  /** DeepBook OrderPlaced events surfaced from the deliver tx — used
+  /** DeepBook OrderPlaced events surfaced from the deliver tx · used
    *  by the Treasury renderer to show real on-chain order IDs that a
    *  judge can click into. Empty when not a Treasury deliverable. */
   placedOrders: DeepBookPlacedOrder[];
@@ -1027,7 +1027,7 @@ export function useDeliverable(
         // For Treasury deliverables: pull the DeepBook OrderPlaced events
         // off the deliver tx so the UI can show real on-chain order IDs.
         // We only do this when the deliver tx digest is known and the
-        // payload looks like JSON (cheap heuristic — saves an RPC call on
+        // payload looks like JSON (cheap heuristic · saves an RPC call on
         // markdown / inline deliverables).
         let placedOrders: DeepBookPlacedOrder[] = [];
         if (deliverTxDigest && bodyKind === "json") {
@@ -1058,7 +1058,7 @@ export function useDeliverable(
 
 // Pull DeepBook `OrderPlaced` events off a deliver tx and normalise them
 // into the shape the Treasury renderer wants. Best-effort: if the RPC
-// hiccups or no events match we just return [] — the deliverable still
+// hiccups or no events match we just return [] · the deliverable still
 // renders cleanly from its inline JSON.
 async function fetchPlacedOrders(
   client: ReturnType<typeof useSuiClient>,
@@ -1131,7 +1131,7 @@ function classify(raw: string): {
 }
 
 // ---------------------------------------------------------------------------
-// Roster + recent activity — drive the always-on /workforce view (renders
+// Roster + recent activity · drive the always-on /workforce view (renders
 // even when the visitor hasn't connected a wallet so the screen never
 // shows an empty state).
 // ---------------------------------------------------------------------------
@@ -1140,7 +1140,7 @@ export type RegisteredAgent = AgentProfile;
 
 /**
  * Walk every AgentRegistered event, dedupe to the most-recent registration
- * per address, and (optionally) exclude one address — typically the
+ * per address, and (optionally) exclude one address · typically the
  * Planner so the roster only shows specialists for hire. Polls every
  * `pollMs`.
  */
@@ -1385,7 +1385,7 @@ export function buildActivateTx(args: ActivateArgs): Transaction {
   const agentAddress = args.agentAddress ?? BRIEF_OPERATOR_ADDRESS;
   if (!agentAddress || !agentAddress.startsWith("0x") || agentAddress === "0x0") {
     throw new Error(
-      "NEXT_PUBLIC_BRIEF_OPERATOR_ADDRESS is not set — the wizard can't grant authority to a missing Planner agent",
+      "NEXT_PUBLIC_BRIEF_OPERATOR_ADDRESS is not set · the wizard can't grant authority to a missing Planner agent",
     );
   }
   const name = args.name ?? t.defaults.name;

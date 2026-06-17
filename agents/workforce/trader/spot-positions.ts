@@ -41,9 +41,9 @@ export type SpotPosition = {
   closeAtMs: number;
   /** Strategy id that drove the decision. */
   strategy: string;
-  /** Status — open until closed; failed only when the OPEN itself reverted. */
+  /** Status · open until closed; failed only when the OPEN itself reverted. */
   status: "open" | "closed" | "failed";
-  /** Set on close — close tx digest. */
+  /** Set on close · close tx digest. */
   closeTxDigest?: string;
   /** Quote received on close (UP) or spent on close (DOWN). */
   closeQuoteBase?: string;
@@ -66,7 +66,7 @@ export async function saveSpotPositions(xs: SpotPosition[]): Promise<void> {
   await fs.writeFile(SPOT_POSITIONS_PATH, JSON.stringify(xs, null, 2));
 }
 
-/** Append a new open position. Idempotent on taskId — if a position
+/** Append a new open position. Idempotent on taskId · if a position
  *  already exists for this task we don't double-write. */
 export async function appendSpotPosition(p: SpotPosition): Promise<void> {
   const all = await loadSpotPositions();

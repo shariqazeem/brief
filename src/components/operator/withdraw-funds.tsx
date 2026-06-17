@@ -10,7 +10,7 @@ import { buildWithdrawAllTx } from "@/lib/deepbook-withdraw";
 import type { DeepBookNetwork } from "@/lib/deepbook-adopt";
 import { useAccountSigner } from "@/lib/zklogin/signer";
 
-// Withdraw funds — the non-custodial guarantee made tangible. The owner pulls
+// Withdraw funds · the non-custodial guarantee made tangible. The owner pulls
 // USDC + SUI + DEEP out of their BalanceManager, to their wallet, in one
 // signature. Owner-gated on-chain (the operator literally cannot do this), so
 // the button only ever appears for the connected owner.
@@ -80,7 +80,7 @@ export function WithdrawFunds({ policyId }: { policyId: string | null }) {
             Withdrawn to your wallet.
           </p>
           <p className="mt-1.5 text-[13px] leading-relaxed" style={{ color: SUB }}>
-            All USDC, SUI, and DEEP swept out of your BalanceManager — proof that
+            All USDC, SUI, and DEEP swept out of your BalanceManager · proof that
             custody was always yours.
           </p>
           {tx && (
@@ -98,13 +98,13 @@ export function WithdrawFunds({ policyId }: { policyId: string | null }) {
       ) : (
         <>
           <p className="mt-2 text-[13px] leading-relaxed" style={{ color: SUB }}>
-            Your capital lives in <span style={{ color: INK }}>your own BalanceManager</span> —
+            Your capital lives in <span style={{ color: INK }}>your own BalanceManager</span> -
             withdraw it to your wallet any time, in one signature. The operator can trade it
             but can never withdraw it.
           </p>
           {!isOwner ? (
             <p className="mt-3 font-mono text-[11px]" style={{ color: MUTED }}>
-              Connected wallet isn&apos;t the owner — only the owner can withdraw.
+              Connected wallet isn&apos;t the owner · only the owner can withdraw.
             </p>
           ) : confirm ? (
             <div className="mt-3">
@@ -115,7 +115,7 @@ export function WithdrawFunds({ policyId }: { policyId: string | null }) {
                   disabled={phase === "withdrawing"}
                   className="bg-[#1a2c4e] px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.22em] text-white transition-opacity hover:opacity-90 disabled:opacity-60"
                 >
-                  {phase === "withdrawing" ? "Withdrawing…" : "Confirm — withdraw all"}
+                  {phase === "withdrawing" ? "Withdrawing…" : "Confirm · withdraw all"}
                 </button>
                 <button
                   type="button"

@@ -1,9 +1,9 @@
-// Research Agent — accepts tasks with primary_capability="research",
+// Research Agent · accepts tasks with primary_capability="research",
 // fetches the target Move package's normalized module surface from Sui RPC,
 // passes it to the LLM, and produces a multi-section markdown deliverable
 // covering project research + Move audit + a recommendation. The deliverable
 // is uploaded to Walrus (when enabled) and minted as a Deliverable
-// WorkObject in the same PTB that calls task::submit — atomically.
+// WorkObject in the same PTB that calls task::submit · atomically.
 //
 // Boot: register self in the agent_registry (idempotent), then start the
 // task inbox filtered by assigned_to=self.address.
@@ -31,7 +31,7 @@ const CURSOR_PATH = ".cursors/research-workforce.json";
 const SCHEMA_VERSION = 1n;
 
 // ---------------------------------------------------------------------------
-// Spec parsing — accepts either inline JSON or a Walrus blob id (heuristic:
+// Spec parsing · accepts either inline JSON or a Walrus blob id (heuristic:
 // leading "{" means inline; otherwise it's treated as a blob id and fetched).
 // ---------------------------------------------------------------------------
 
@@ -150,7 +150,7 @@ function summarizeSurfaceForLlm(surface: ModuleSurface): string {
       out += `**Functions (${m.functions.length}):**\n`;
       for (const f of m.functions) {
         const tag = f.isEntry ? "entry" : f.visibility;
-        out += `- \`${f.name}\` — ${tag}, ${f.paramCount} params, ${f.returnCount} returns\n`;
+        out += `- \`${f.name}\` · ${tag}, ${f.paramCount} params, ${f.returnCount} returns\n`;
       }
       out += "\n";
     }
@@ -210,13 +210,13 @@ function templateDeliverable(args: {
         })
         .join(
           "\n",
-        )}\n\nNo deep static analysis is performed in template mode — recommend running this report through LLM mode for a substantive audit pass.`
+        )}\n\nNo deep static analysis is performed in template mode · recommend running this report through LLM mode for a substantive audit pass.`
     : "Audit not possible without a target package id.";
 
   const recommendation =
     surface && surface.modules.length > 0
       ? `Approve with conditions: require an LLM-augmented re-run of this deliverable with deeper static analysis before final disbursement. Surface is well-formed and consistent.`
-      : `Reject — task spec did not include a target package id, so no contract was inspected.`;
+      : `Reject · task spec did not include a target package id, so no contract was inspected.`;
 
   return {
     task_title: notice.title,
@@ -305,9 +305,9 @@ function renderMarkdown(d: Deliverable): string {
       : "",
     `**Produced by:** \`${d.metadata.produced_by}\` (mode: ${d.metadata.llm_mode})\n`,
     `\n---\n`,
-    `\n## §1 — Project Research\n\n${d.sections.project_research}\n`,
-    `\n## §2 — Move Contract Audit\n\n${d.sections.move_audit}\n`,
-    `\n## §3 — Recommendation\n\n${d.sections.recommendation}\n`,
+    `\n## §1 · Project Research\n\n${d.sections.project_research}\n`,
+    `\n## §2 · Move Contract Audit\n\n${d.sections.move_audit}\n`,
+    `\n## §3 · Recommendation\n\n${d.sections.recommendation}\n`,
   ]
     .filter(Boolean)
     .join("");
@@ -326,7 +326,7 @@ async function handleTask(
     `[research] task ${notice.taskId.slice(0, 10)}… "${notice.title}" bounty=${notice.bountyAmount}`,
   );
 
-  // Confirm on-chain state — protects against double-process if the
+  // Confirm on-chain state · protects against double-process if the
   // cursor lags or the chain rewinds. Recoverable: if the task is
   // already in ACCEPTED status AND we are the assigned agent, we
   // proceed straight to work+submit (the previous run crashed
@@ -358,12 +358,12 @@ async function handleTask(
             ) {
               return "done";
             }
-            // Or status moved past accept entirely — we're past this step.
+            // Or status moved past accept entirely · we're past this step.
             if (cur.status === "delivered" || cur.status === "approved") {
               return "done";
             }
           } catch {
-            /* chain unreachable — fall through to retry */
+            /* chain unreachable · fall through to retry */
           }
           return null;
         },
@@ -379,7 +379,7 @@ async function handleTask(
     t.assignedTo.toLowerCase() === ctx.address.toLowerCase()
   ) {
     console.log(
-      "[research] task already accepted by this wallet — resuming to deliver",
+      "[research] task already accepted by this wallet · resuming to deliver",
     );
   } else {
     console.log(
@@ -414,7 +414,7 @@ async function handleTask(
 
   const markdown = renderMarkdown(deliverable);
 
-  // 3) Walrus (when enabled) — store the markdown payload.
+  // 3) Walrus (when enabled) · store the markdown payload.
   //
   // Pre-flight WAL coin check: Walrus' writeBlob pays for storage in WAL,
   // and the SDK throws from a nested async chain on insufficient balance.
@@ -427,7 +427,7 @@ async function handleTask(
     const funded = await hasWalrusFunding(ctx.client, ctx.address);
     if (!funded) {
       console.warn(
-        `[research] Walrus is enabled but ${ctx.address.slice(0, 10)}… has no WAL coins — falling back to inline storage on this deliverable.`,
+        `[research] Walrus is enabled but ${ctx.address.slice(0, 10)}… has no WAL coins · falling back to inline storage on this deliverable.`,
       );
     } else {
       try {
@@ -452,7 +452,7 @@ async function handleTask(
 
   // 4) Mint Deliverable WorkObject + submit task in one PTB
   const inlinePayload = walrusBlobId
-    ? new Uint8Array() // stored on Walrus — leave inline empty
+    ? new Uint8Array() // stored on Walrus · leave inline empty
     : payloadBytes;
 
   console.log("[research] submitting deliverable…");

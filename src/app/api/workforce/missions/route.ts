@@ -1,5 +1,5 @@
-// POST /api/workforce/missions — append a mission to the queue.
-// GET  /api/workforce/missions?policy_id=… — fetch missions for a policy.
+// POST /api/workforce/missions · append a mission to the queue.
+// GET  /api/workforce/missions?policy_id=… · fetch missions for a policy.
 //
 // Wk1 implementation: file-backed JSON queue at .brief/missions.json.
 // The planner-service (added Day 9+) tails this file and runs decompose
@@ -66,7 +66,7 @@ function saveQueue(q: Mission[]): void {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  // 4/min per IP — enough for a judge to dispatch a few briefs but not
+  // 4/min per IP · enough for a judge to dispatch a few briefs but not
   // enough for a script to spam the planner.
   const rl = rateLimit("missions", getClientIp(req), {
     windowMs: 60_000,

@@ -1,8 +1,8 @@
-// Multi-asset market registry — one entry per asset the trader can bet on.
+// Multi-asset market registry · one entry per asset the trader can bet on.
 //
 // Two execution venues exist:
-//   - `predict`        — DeepBook Predict (binary up/down at expiry, dUSDC quote)
-//   - `deepbook-spot`  — DeepBook v3 spot pool (directional buy/sell, USDC quote)
+//   - `predict`        · DeepBook Predict (binary up/down at expiry, dUSDC quote)
+//   - `deepbook-spot`  · DeepBook v3 spot pool (directional buy/sell, USDC quote)
 //
 // Adding a new asset is a single entry here; the trader branches on `venue`
 // and the UI reads the same metadata.
@@ -11,7 +11,7 @@ export type ExecutionVenue = "predict" | "deepbook-spot";
 
 export type MarketSpec = {
   asset: string; // "BTC" | "SUI" | "WAL" | "DEEP" | …
-  display: string; // e.g. "BTC" — what we show on the dashboard
+  display: string; // e.g. "BTC" · what we show on the dashboard
   venue: ExecutionVenue;
 
   // Predict-specific

@@ -1,18 +1,18 @@
 // DeepBook v3 spot directional-bet helpers.
 //
 // Trader-level usage:
-//   - `openSpotPosition`  — atomic PTB:
+//   - `openSpotPosition`  · atomic PTB:
 //       [A] operator_policy::record_spend(policy, amount, venue, clock)
 //       [B] pool::place_market_order(pool, bm, proof, ...)
 //     Direction maps to `isBid` on the pool:
-//       UP   = isBid=true  (buy base with quote)   — long the asset
-//       DOWN = isBid=false (sell base for quote)    — short the asset
+//       UP   = isBid=true  (buy base with quote)   · long the asset
+//       DOWN = isBid=false (sell base for quote)    · short the asset
 //
-//   - `closeSpotPosition` — single-leg PTB that runs the opposite market
+//   - `closeSpotPosition` · single-leg PTB that runs the opposite market
 //     order to realize P&L. No policy gate: the close must survive a
 //     revoke (mirrors `predict::redeem_permissionless`).
 //
-//   - `readBmAssetBalance` — durable BM-balance inspection so the trader
+//   - `readBmAssetBalance` · durable BM-balance inspection so the trader
 //     can compute realized P&L (closing-quote - opening-quote) from
 //     on-chain deltas rather than trusting any cached state.
 //
@@ -59,10 +59,10 @@ export function makeDeepBook(
 // NON-CUSTODIAL gated spot (mainnet product path)
 //
 // Unlike makeDeepBook above (house BM, owner proof, testnet-pinned), this
-// trades a USER's OWN BalanceManager via a DELEGATED TradeCap — the SDK
+// trades a USER's OWN BalanceManager via a DELEGATED TradeCap · the SDK
 // registers `{ address, tradeCap }`, which makes it generate the trade
 // proof AS TRADER (operator can trade, can never withdraw). Network-aware.
-// Additive — the house path above is untouched.
+// Additive · the house path above is untouched.
 // ===========================================================================
 
 export type GatedNetwork = "mainnet" | "testnet";
@@ -135,7 +135,7 @@ export type FuelDepositArgs = {
 
 /** Build the "fuel" deposit: the house (signer) deposits DEEP into the
  *  USER's own BalanceManager via the delegated DepositCap. The DEEP becomes
- *  the user's (they can withdraw it) — non-custodial; the operator can
+ *  the user's (they can withdraw it) · non-custodial; the operator can
  *  deposit fuel but never withdraw. This is what makes "your operator comes
  *  with fuel" real: SUI/USDC isn't whitelisted, so trades pay fees in DEEP,
  *  and the operator keeps a small DEEP tank topped up here. */
@@ -182,7 +182,7 @@ export type GatedSpotArgs = {
  *  venue); the market order only executes if the policy allows it.
  *
  *  Fee model is per-network for onboarding simplicity: on testnet we keep
- *  pay_with_deep=true (the BM holds a little DEEP — also demos the fuel
+ *  pay_with_deep=true (the BM holds a little DEEP · also demos the fuel
  *  system); on MAINNET we pay the fee from the traded asset (pay_with_deep
  *  =false) so a new user only needs USDC + SUI, never DEEP. */
 export function buildGatedSpotTx(ctx: AgentContext, args: GatedSpotArgs): Transaction {
@@ -244,7 +244,7 @@ export function buildOpenSpotTx(
   }
   const db = makeDeepBook(ctx, args.balanceManagerId);
   const tx = new Transaction();
-  // [A] Policy gate — aborts EPolicyRevoked / over-budget before the trade.
+  // [A] Policy gate · aborts EPolicyRevoked / over-budget before the trade.
   tx.moveCall({
     target: `${args.briefPackage}::operator_policy::record_spend`,
     arguments: [
@@ -275,12 +275,12 @@ export type CloseSpotArgs = {
   market: MarketSpec;
   /** Was the original bet UP or DOWN? Close runs the opposite side. */
   originalDirection: "up" | "down";
-  /** Base quantity to close — same as what was opened. */
+  /** Base quantity to close · same as what was opened. */
   baseQty: number;
   balanceManagerId: string;
 };
 
-/** Build the close PTB. No policy gate — closes must work after revoke
+/** Build the close PTB. No policy gate · closes must work after revoke
  *  (the kill switch blocks NEW bets, not the user's right to realize
  *  what's already on the book).
  *

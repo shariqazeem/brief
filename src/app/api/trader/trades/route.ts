@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
       mint_tx: e.execution?.mintTxDigest ?? null,
       strike_usd: e.market?.strike ? e.market.strike / 1e9 : null,
       spot_usd: e.market?.spotAtDecision ? e.market.spotAtDecision / 1e9 : null,
-      // Additive: the journal already records these — exposing them lets
+      // Additive: the journal already records these · exposing them lets
       // the dashboard show the past thesis and compute real settlement
       // (did spot cross the strike in the called direction by expiry).
       expiry_ms: e.market?.expiryMs ?? null,
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
     }))
     .reverse();
 
-  // Cumulative realized P&L from closed spot positions (dUSDC, 6dp) —
+  // Cumulative realized P&L from closed spot positions (dUSDC, 6dp) -
   // same conversion the leaderboard uses.
   const closed = positions
     .filter((p) => p.policyId === policyId && p.status === "closed" && p.realizedPnlBase)

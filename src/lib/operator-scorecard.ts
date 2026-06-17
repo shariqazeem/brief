@@ -1,11 +1,11 @@
-// Operator Scorecard + Playbook Intelligence — the operator's track record and
+// Operator Scorecard + Playbook Intelligence · the operator's track record and
 // its learned behavior, computed from the Walrus-anchored decision archive
-// (/api/operators/decisions). Every number here is REAL — derived from settled
+// (/api/operators/decisions). Every number here is REAL · derived from settled
 // outcomes the operator actually recorded; nothing is invented.
 //
 // This answers the only question a judge (or a depositor) actually asks:
 //   "Why should I trust this thing with money?"
-// — with a measurable record, not an agent count.
+// · with a measurable record, not an agent count.
 
 "use client";
 
@@ -124,24 +124,24 @@ function statFor(recs: DecisionRecord[], kind: RegimeKind): PlaybookStat {
   else if (winRate != null && winRate >= 55) bestAction = "act";
   else bestAction = "stand-aside";
 
-  // The learned behavior, in plain English — adaptive: where there's settled
+  // The learned behavior, in plain English · adaptive: where there's settled
   // evidence, it states the realized EDGE (acting vs sitting in cash = 0%).
   let learned: string;
   if (inReg.length === 0) {
     learned = "Not seen yet.";
   } else if (!TRADEABLE[kind]) {
-    learned = "Best action: hold — no directional edge.";
+    learned = "Best action: hold · no directional edge.";
   } else if (bestAction === "act" && avgOutcomePct != null) {
     const verb = avgOutcomePct >= 0 ? "beat cash by" : "trailed cash by";
     learned = `Acting ${verb} ${Math.abs(avgOutcomePct).toFixed(1)}% on average over ${settled.length} settled.`;
   } else if (bestAction === "act") {
     const where = preferredExposurePct != null && preferredExposurePct > 0 ? `~${preferredExposurePct}% SUI` : "take exposure";
-    learned = `Best action: ${where} — building the track record.`;
+    learned = `Best action: ${where} · building the track record.`;
   } else {
     learned =
       kind === "trending-down"
         ? "Best action: move to cash."
-        : "Best action: stand aside — edge unproven here.";
+        : "Best action: stand aside · edge unproven here.";
   }
 
   return {
@@ -202,11 +202,11 @@ export function computeScorecard(recs: DecisionRecord[]): Scorecard {
   };
 }
 
-// ── Regime → Allocation Matrix — the visible brain ───────────────────────────
+// ── Regime → Allocation Matrix · the visible brain ───────────────────────────
 // The operator's allocation POLICY, derived from the deterministic engine:
 // each mode has a max SUI appetite (MODE_CFG.maxExposure); a bullish tradeable
 // regime targets up to that ceiling (scaled by conviction), a bearish regime
-// goes to cash, and a non-tradeable regime holds. This mirrors the engine — it
+// goes to cash, and a non-tradeable regime holds. This mirrors the engine · it
 // is not a separate claim.
 
 export type MatrixMode = "protect" | "grow" | "aggressive";
@@ -216,7 +216,7 @@ export const MODE_LABEL: Record<MatrixMode, string> = {
   grow: "Grow",
   aggressive: "Aggressive",
 };
-/** Max SUI exposure ceiling per mode (%) — mirrors agent MODE_CFG.maxExposure. */
+/** Max SUI exposure ceiling per mode (%) · mirrors agent MODE_CFG.maxExposure. */
 export const MODE_CEILING: Record<MatrixMode, number> = {
   protect: 30,
   grow: 55,

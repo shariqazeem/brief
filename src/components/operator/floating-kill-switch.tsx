@@ -15,9 +15,9 @@ const txUrl = (d: string) => `https://suiscan.xyz/testnet/tx/${d}`;
 
 // The "chain holds the leash" thesis as UI: a floating REVOKE button in the
 // bottom-right of every operator surface, so the owner can yank the leash at
-// any moment — not only from the dashboard. Signs operator_policy::revoke;
+// any moment · not only from the dashboard. Signs operator_policy::revoke;
 // the agent's next gated trade then aborts EPolicyRevoked on chain. No
-// backend call, no API-key rotation — a transaction.
+// backend call, no API-key rotation · a transaction.
 export function FloatingKillSwitch() {
   const signer = useAccountSigner();
   const [op, setOp] = useState<TraderIdentity | null>(null);
@@ -37,13 +37,13 @@ export function FloatingKillSwitch() {
 
   if (!signer.address) return null;
 
-  // Post-revoke receipt — proves the kill happened on-chain.
+  // Post-revoke receipt · proves the kill happened on-chain.
   if (phase === "revoked") {
     return (
       <div className="fixed bottom-5 right-5 z-[60] w-[300px] animate-fade-up border border-[#EF4444] bg-bg-elev p-4 font-mono shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
         <p className="text-[12px] font-medium text-ink">Operator revoked.</p>
         <p className="mt-2 text-[11px] leading-relaxed text-ink-2">
-          The chain enforced the kill — no backend call. Your funds stay in your
+          The chain enforced the kill · no backend call. Your funds stay in your
           BalanceManager; withdraw anytime.
         </p>
         {revokedTx && (
@@ -95,7 +95,7 @@ export function FloatingKillSwitch() {
         <div className="w-[280px] animate-fade-up border border-[#EF4444] bg-bg-elev p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
           <p className="text-[12px] leading-relaxed text-ink">
             Revoke <span className="font-sans font-medium">{op.name}</span>? The chain
-            stops it on its very next trade — instantly, no matter where it is.
+            stops it on its very next trade · instantly, no matter where it is.
           </p>
           <p className="mt-2 text-[10px] leading-relaxed text-muted">
             Your funds stay in your BalanceManager. Only new trades are blocked.

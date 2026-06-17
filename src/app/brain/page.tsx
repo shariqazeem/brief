@@ -1,10 +1,10 @@
 "use client";
 
-// /brain — the Operator Brain. The centerpiece surface: one decision at a
+// /brain · the Operator Brain. The centerpiece surface: one decision at a
 // time, read like a pilot's black box. What I Saw → What I Remembered → What
 // Could Go Wrong → Execution Quality → Policy Check → Decision → Outcome.
 //
-// Read-only and public (no wallet) — a judge opens /brain?policy=0x… and reads
+// Read-only and public (no wallet) · a judge opens /brain?policy=0x… and reads
 // the mind of a financial operator, with the outcome attributed. Same
 // Walrus-anchored experience the operator recalls from. Huge whitespace, navy
 // section headers, white institutional aesthetic.
@@ -122,7 +122,7 @@ function Brain() {
           Read the operator&apos;s mind.
         </h1>
         <p className="mt-3 text-[14px] leading-relaxed" style={{ color: SUB }}>
-          Every decision, as the operator reasoned it — and how it turned out.
+          Every decision, as the operator reasoned it · and how it turned out.
           Nothing hidden.
         </p>
 
@@ -153,7 +153,7 @@ function Brain() {
   );
 }
 
-// ── The focused, one-at-a-time decision — the black-box readout ──────────────
+// ── The focused, one-at-a-time decision · the black-box readout ──────────────
 
 function FocusedDecision({
   d,
@@ -224,7 +224,7 @@ function FocusedDecision({
           ← older
         </button>
         <span className="font-mono text-[11px] tabular-nums" style={{ color: MUTED }}>
-          Decision #{d.seq ?? "—"} · {relTime(d.ts, now)}
+          Decision #{d.seq ?? "-"} · {relTime(d.ts, now)}
         </span>
         <button
           type="button"
@@ -243,7 +243,7 @@ function FocusedDecision({
         className="animate-fade-up mt-5 bg-bg-elev px-6 py-8 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-10 sm:py-10"
         style={{ borderTop: `3px solid ${verdictColor}` }}
       >
-        {/* Five cinematic blocks — watch the intelligence, don't read logs. */}
+        {/* Five cinematic blocks · watch the intelligence, don't read logs. */}
         <BigBlock
           label="What it saw"
           headline={detail.regimeLabel ?? (reg.trend > 0 ? "Trending higher" : reg.trend < 0 ? "Trending lower" : "Flat tape")}
@@ -255,7 +255,7 @@ function FocusedDecision({
           label="What it remembered"
           headline={
             detail.recallFound && detail.recallFound > 0
-              ? `${detail.recallFound} similar situation${detail.recallFound === 1 ? "" : "s"} — ${detail.recallWins ?? 0}W / ${detail.recallLosses ?? 0}L`
+              ? `${detail.recallFound} similar situation${detail.recallFound === 1 ? "" : "s"} · ${detail.recallWins ?? 0}W / ${detail.recallLosses ?? 0}L`
               : "First time in conditions like these"
           }
           color={INK}
@@ -300,7 +300,7 @@ function FocusedDecision({
           </a>
         )}
 
-        {/* On-demand narration — plain English, in a click */}
+        {/* On-demand narration · plain English, in a click */}
         <div className="mt-8" style={{ borderTop: `1px solid ${LINE}`, paddingTop: 16 }}>
           {narration ? (
             <p className="text-[15px] leading-relaxed" style={{ color: INK }}>
@@ -320,7 +320,7 @@ function FocusedDecision({
         </div>
       </div>
 
-      {/* slim jump rail — recent decisions as dots */}
+      {/* slim jump rail · recent decisions as dots */}
       <div className="mt-5 flex flex-wrap items-center gap-1.5">
         {decisions.slice(0, 24).map((dd, i) => {
           const c = outcomeView(dd).color;
@@ -329,7 +329,7 @@ function FocusedDecision({
               key={dd.seq ?? `${dd.ts}-${i}`}
               type="button"
               onClick={() => onJump(i)}
-              title={`Decision #${dd.seq ?? "—"}`}
+              title={`Decision #${dd.seq ?? "-"}`}
               className="h-2 w-2 rounded-full transition-transform hover:scale-150"
               style={{ background: i === index ? NAVY : c, outline: i === index ? `2px solid ${NAVY}` : "none", outlineOffset: 2 }}
               aria-label={`decision ${dd.seq}`}
@@ -341,7 +341,7 @@ function FocusedDecision({
   );
 }
 
-// A cinematic block — huge headline, one supporting line. Read in a glance.
+// A cinematic block · huge headline, one supporting line. Read in a glance.
 function BigBlock({
   label,
   headline,
@@ -387,7 +387,7 @@ function regimeColor(label: string | undefined, trend: number): string {
 }
 
 
-// ── Educational empty state — the operator is learning, not idle ─────────────
+// ── Educational empty state · the operator is learning, not idle ─────────────
 
 function LearningState({ policyId }: { policyId: string | null }) {
   const ramp = [
@@ -410,7 +410,7 @@ function LearningState({ policyId }: { policyId: string | null }) {
       </p>
       <p className="mt-2 text-[13.5px] leading-relaxed" style={{ color: SUB }}>
         Every cycle it records what it saw and what it decided. As that memory
-        grows, it starts recalling similar past situations — and their outcomes
+        grows, it starts recalling similar past situations · and their outcomes
         reshape its confidence. Here&apos;s how it ramps:
       </p>
 
@@ -426,7 +426,7 @@ function LearningState({ policyId }: { policyId: string | null }) {
       </div>
 
       <p className="mt-6 font-mono text-[10.5px] leading-relaxed" style={{ color: MUTED }}>
-        Experience accumulates on Walrus — verifiable, and the same memory the
+        Experience accumulates on Walrus · verifiable, and the same memory the
         operator reasons from. First decision usually lands within a minute.
       </p>
       {!policyId && (
@@ -451,7 +451,7 @@ function EvolveBar({ stats }: { stats: ReturnType<typeof computeStats> }) {
     <div className="mt-8 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-4" style={{ background: LINE }}>
       <Stat label="Decisions" value={String(stats.total)} />
       <Stat label="Capital preserved" value={`${stats.preservedPct.toFixed(0)}%`} color={AMBER} />
-      <Stat label="Win rate" value={stats.winRate == null ? "—" : `${stats.winRate.toFixed(0)}%`} color={stats.winRate != null && stats.winRate >= 50 ? EMERALD : INK} />
+      <Stat label="Win rate" value={stats.winRate == null ? "-" : `${stats.winRate.toFixed(0)}%`} color={stats.winRate != null && stats.winRate >= 50 ? EMERALD : INK} />
       <Stat
         label="Evolving"
         value={evolving ? `${stats.priorWinRate!.toFixed(0)}→${stats.recentWinRate!.toFixed(0)}%` : "building"}
@@ -488,7 +488,7 @@ function computeStats(ds: Decision[]) {
 }
 
 function outcomeView(d: Decision): { headline: string; detail: string; color: string } {
-  if (!d.decided) return { headline: "Capital protected", detail: "No trade — discipline, not inaction.", color: AMBER };
+  if (!d.decided) return { headline: "Capital protected", detail: "No trade · discipline, not inaction.", color: AMBER };
   if (d.outcome === "pending") return { headline: "Settling", detail: "Acted on chain. Outcome settling against later price.", color: BLUE };
   if (d.outcome === "win")
     return { headline: d.outcomePct != null ? `+${(d.outcomePct * 100).toFixed(2)}%` : "Won", detail: "The directional call landed.", color: EMERALD };

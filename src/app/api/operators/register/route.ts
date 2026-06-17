@@ -22,17 +22,17 @@ type Entry = {
   policyId: string;
   bmId: string;
   tradeCapId: string;
-  /** Delegated DepositCap — lets the operator keep its DEEP fuel tank
+  /** Delegated DepositCap · lets the operator keep its DEEP fuel tank
    *  topped up (deposit-not-withdraw). Optional: pre-fuel adoptions lack it. */
   depositCapId: string | null;
   owner: string;
   personality: string;
-  /** Operator mode — the engine's calibration (Protect/Grow/Aggressive).
+  /** Operator mode · the engine's calibration (Protect/Grow/Aggressive).
    *  The decision engine reads this directly; personality/goal are legacy
    *  labels kept for the journal + manifesto. */
   mode: string;
   goal: Goal;
-  /** Optional user investment mandate — objective + drawdown guard. */
+  /** Optional user investment mandate · objective + drawdown guard. */
   mandate?: Mandate | null;
   network: "mainnet" | "testnet";
   revoked: boolean;
@@ -57,7 +57,7 @@ function parseMandate(raw: unknown): Mandate | null {
   };
 }
 
-// GET /api/operators/register?policy_id=0x… — the PUBLIC custody info the
+// GET /api/operators/register?policy_id=0x… · the PUBLIC custody info the
 // withdraw UI needs (BalanceManager id, network, owner). These are all public
 // on-chain objects; no secrets. Returns 404 if the operator isn't registered.
 export async function GET(req: NextRequest) {

@@ -1,4 +1,4 @@
-// The Brief Operator's Experience Engine — memory, not logs.
+// The Brief Operator's Experience Engine · memory, not logs.
 //
 // Before every decision the operator recalls structurally SIMILAR past
 // situations and lets their outcomes reshape its confidence:
@@ -10,7 +10,7 @@
 // the operator's working memory (fast local read); a snapshot is anchored on
 // Walrus by the loop so the memory is verifiable, not just claimed.
 //
-// This is deliberately NOT a bag of indicators — it is recall over the same
+// This is deliberately NOT a bag of indicators · it is recall over the same
 // real signals the engine already reasons on. The engine consumes the recall
 // via `opts.memory`; the Move policy still gates execution.
 
@@ -33,7 +33,7 @@ export type RegimeFingerprint = {
 
 export type DecisionOutcome = "win" | "loss" | "abstained" | "pending";
 
-/** The full, replayable story of one decision — what the operator saw,
+/** The full, replayable story of one decision · what the operator saw,
  *  remembered, feared, and concluded. Drives the Brain / Decision Replay page. */
 export type ExperienceDetail = {
   regimeLabel?: string;
@@ -90,7 +90,7 @@ export type ExperienceStats = {
   abstained: number;
   /** Settled win rate over all acts (0–100), or null if none settled. */
   winRate: number | null;
-  /** Win rate of the most recent settled acts vs the prior block — the
+  /** Win rate of the most recent settled acts vs the prior block · the
    *  "operator evolves" signal. null when not enough settled history. */
   recentWinRate: number | null;
   priorWinRate: number | null;
@@ -119,10 +119,10 @@ export function experienceStats(recs: ExperienceRecord[], block = 10): Experienc
   };
 }
 
-// ── Playbooks — experience aggregated BY regime ──────────────────────────────
+// ── Playbooks · experience aggregated BY regime ──────────────────────────────
 // Memory becomes an operating procedure: "in a Breakout-down regime I've stood
 // aside 12 of 17 times; the 5 acts went 3W/2L." The operator isn't just
-// remembering — it has a learned policy per regime, surfaced to the user and
+// remembering · it has a learned policy per regime, surfaced to the user and
 // fed alongside the live decision. Every number is real, derived from settled
 // outcomes; nothing is fabricated.
 
@@ -189,7 +189,7 @@ export function playbookFor(recs: ExperienceRecord[], kind: RegimeKind): Playboo
   const settledNote = settled.length ? ` (${wins}W/${losses}L, ${Math.round(winRate ?? 0)}%)` : "";
   const note = inReg.length
     ? `Seen ${inReg.length}× · stood aside ${stoodAside} · acted ${acts.length}${settledNote}.`
-    : "No experience in this regime yet — this cycle starts the record.";
+    : "No experience in this regime yet · this cycle starts the record.";
 
   return {
     kind,
@@ -206,7 +206,7 @@ export function playbookFor(recs: ExperienceRecord[], kind: RegimeKind): Playboo
   };
 }
 
-/** All non-empty playbooks, most-seen first — the operator's full procedure set. */
+/** All non-empty playbooks, most-seen first · the operator's full procedure set. */
 export function buildPlaybooks(recs: ExperienceRecord[]): Playbook[] {
   const kinds: RegimeKind[] = [
     "trending-up",
@@ -270,7 +270,7 @@ export async function saveExperience(
   recs: ExperienceRecord[],
 ): Promise<void> {
   await fs.mkdir(DIR, { recursive: true });
-  // Keep the most recent 2000 — ample for recall + playbook stats, still
+  // Keep the most recent 2000 · ample for recall + playbook stats, still
   // bounded on disk. Allocation events live in the permanent ledger separately.
   await fs.writeFile(fileFor(policyId), JSON.stringify(recs.slice(-2000), null, 2));
 }
@@ -308,7 +308,7 @@ export function recallSimilar(
   if (matches.length === 0) {
     return {
       matches: [],
-      note: "First time in conditions like these — recording it so future cycles can recall how it played out.",
+      note: "First time in conditions like these · recording it so future cycles can recall how it played out.",
       confidenceMult: 1,
       found: 0,
       wins: 0,
@@ -320,7 +320,7 @@ export function recallSimilar(
   let confidenceMult = 1;
   let verdict: string;
   if (settled === 0) {
-    verdict = "none settled yet — confidence held";
+    verdict = "none settled yet · confidence held";
   } else if (losses > wins) {
     confidenceMult = losses >= 2 * Math.max(1, wins) ? 0.7 : 0.85;
     verdict = `${losses} of ${settled} settled against → confidence reduced`;
@@ -365,7 +365,7 @@ export function settlePending(
   return { history: out, settled };
 }
 
-/** Human-readable experience log for the Walrus snapshot — the verifiable
+/** Human-readable experience log for the Walrus snapshot · the verifiable
  *  memory anyone can audit. `mandateLine` (optional) anchors the user's
  *  investment mandate alongside the operator's track record. */
 export function experienceMarkdown(
@@ -390,13 +390,13 @@ export function experienceMarkdown(
           : r.outcome === "abstained"
             ? "abstained"
             : `${r.outcome}${r.outcomePct != null ? ` (${(r.outcomePct * 100).toFixed(2)}%)` : ""}`;
-      return `${i + 1}. ${when} — [${reg}] → ${act} @ $${r.mid.toFixed(3)} · conf ${(
+      return `${i + 1}. ${when} · [${reg}] → ${act} @ $${r.mid.toFixed(3)} · conf ${(
         r.confidence * 100
       ).toFixed(0)}% · ${out}`;
     })
     .join("\n");
   return [
-    `# Brief Operator — Experience`,
+    `# Brief Operator · Experience`,
     `policy: ${policyId}`,
     mandateLine ? `mandate: ${mandateLine}` : `mandate: (none set)`,
     `decisions: ${recs.length} · wins ${wins} · losses ${losses} · abstained ${abst}`,

@@ -1,4 +1,4 @@
-// Append-only NDJSON event log — the cross-process bridge between the
+// Append-only NDJSON event log · the cross-process bridge between the
 // trader (pm2 background process) and the web tier's SSE endpoint.
 //
 // The trader emits one line per lifecycle beat (observe → signals →
@@ -61,7 +61,7 @@ async function rotateIfNeeded(): Promise<void> {
     await fs.writeFile(tmp, kept);
     await fs.rename(tmp, FILE);
   } catch {
-    /* missing file or transient fs error — never escalate */
+    /* missing file or transient fs error · never escalate */
   }
 }
 
@@ -93,6 +93,6 @@ export function emitAgentEvent(
       if (seq % 50 === 0) await rotateIfNeeded();
     })
     .catch(() => {
-      /* swallow — events are best-effort */
+      /* swallow · events are best-effort */
     });
 }

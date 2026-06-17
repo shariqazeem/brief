@@ -1,4 +1,4 @@
-// MindDecisionWaterfall — the agent's thought process, step by step,
+// MindDecisionWaterfall · the agent's thought process, step by step,
 // lighting up live as SSE events land. Each row maps to one real
 // lifecycle event the trader emitted (no theater: a step only lights
 // when the corresponding thing actually happened on the wire).
@@ -63,7 +63,7 @@ function stepCopy(
           }
         : {
             title: "Decision: sat out",
-            detail: `${s.decision.strategy} saw no edge — honest abstention`,
+            detail: `${s.decision.strategy} saw no edge · honest abstention`,
           };
     }
     case "mint":
@@ -152,14 +152,14 @@ export function MindDecisionWaterfall({
       {state.failure && (
         <p className="mt-3 inline-flex items-center gap-1.5 border border-red-500/50 bg-red-50/70 px-2 py-1 font-mono text-[9.5px] uppercase tracking-[0.18em] text-red-700 animate-land-in">
           <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-red-600" />
-          infra hiccup — closed honestly as simulated
+          infra hiccup · closed honestly as simulated
         </p>
       )}
 
       {idle ? (
         <p className="mt-4 font-sans text-[14px] italic leading-relaxed text-muted">
           The wire is quiet. Dispatch a task and watch the agent think
-          here — observe, compute, price, decide — as it happens.
+          here · observe, compute, price, decide · as it happens.
         </p>
       ) : (
         <ol className="relative mt-4 space-y-0">

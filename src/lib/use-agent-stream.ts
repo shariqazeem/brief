@@ -1,4 +1,4 @@
-// useAgentStream — live feed of the trader's lifecycle events over SSE.
+// useAgentStream · live feed of the trader's lifecycle events over SSE.
 //
 // Connects to /api/agent-events?policy_id=… and reduces the event
 // stream into one renderable state object: the latest signals bundle,
@@ -64,17 +64,17 @@ export type StreamDecision = {
   executionReview: string | null;
   verdict: string | null;
   aiReasoned: boolean;
-  // Market regime — classified before deciding.
+  // Market regime · classified before deciding.
   regimeKind: string | null;
   regimeLabel: string | null;
   regimeReview: string | null;
   regimeTradeable: boolean;
-  // Allocation — the capital-manager view: where money should live vs where it is.
+  // Allocation · the capital-manager view: where money should live vs where it is.
   allocation: string | null;
   targetExposurePct: number | null;
   currentExposurePct: number | null;
   rebalance: "buy" | "sell" | "hold" | null;
-  // Playbook — the operator's learned procedure for the current regime.
+  // Playbook · the operator's learned procedure for the current regime.
   playbook: {
     label: string;
     occurrences: number;
@@ -85,14 +85,14 @@ export type StreamDecision = {
     preferredExposurePct: number | null;
     note: string;
   } | null;
-  // Live portfolio mark — what the capital is worth right now.
+  // Live portfolio mark · what the capital is worth right now.
   portfolio: {
     value: number;
     deposit: number;
     pnlPct: number;
     budgetRemainingPct: number;
   } | null;
-  // User mandate — objective + live drawdown guard (null when none set).
+  // User mandate · objective + live drawdown guard (null when none set).
   mandateReview: string | null;
   mandate: {
     summary: string;
@@ -101,7 +101,7 @@ export type StreamDecision = {
     maxDrawdownPct: number;
     breached: boolean;
   } | null;
-  // Experience Engine — similar past situations recalled before deciding.
+  // Experience Engine · similar past situations recalled before deciding.
   recall: {
     note: string;
     found: number;
@@ -141,26 +141,26 @@ export type AgentStreamState = {
   mintTx: string | null;
   walrusReasoningBlobId: string | null;
   walrusJournalBlobId: string | null;
-  /** The operator's manifesto blob — published once per policy, out of
+  /** The operator's manifesto blob · published once per policy, out of
    *  band from the per-decision lifecycle. */
   walrusManifestoBlobId: string | null;
-  /** The operator's Experience snapshot blob — its memory, anchored on
+  /** The operator's Experience snapshot blob · its memory, anchored on
    *  Walrus and refreshed as it learns. */
   walrusExperienceBlobId: string | null;
   journalEntries: number | null;
   deliveredTx: string | null;
   steps: Record<WaterfallStep, { status: StepStatus; ts: number | null }>;
   events: AgentStreamEvent[];
-  /** Last self-healing gas top-up (global event) — drives the quiet
+  /** Last self-healing gas top-up (global event) · drives the quiet
    *  "Brief auto-funded the trader" toast. */
   wardenTopup: { ts: number; from: string; to: string; amountSui: number } | null;
   /** Set when the trader rotated off an unreadable pool, e.g.
    *  "WAL pool unavailable → SUI". Cleared on the next task. */
   fallbackNote: string | null;
-  /** Set when a task closed on an infra failure — drives the honest
+  /** Set when a task closed on an infra failure · drives the honest
    *  "infra hiccup, dispatch again" state. */
   failure: { error: string } | null;
-  /** The operator's DEEP fuel tank (covers DeepBook fees) — drives the
+  /** The operator's DEEP fuel tank (covers DeepBook fees) · drives the
    *  fuel gauge. level: ok (green) / low (amber) / empty (awaiting fuel). */
   fuel: { deepHuman: number; level: "ok" | "low" | "empty"; ts: number } | null;
 };
@@ -394,14 +394,14 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
       next.steps.walrus = { status: "active", ts: null };
       return next;
     case "walrus_uploaded":
-      // The manifesto is published out-of-band (once per policy) — record
+      // The manifesto is published out-of-band (once per policy) · record
       // the blob but DON'T advance the per-decision waterfall.
       if (d.kind === "manifesto") {
         next.walrusManifestoBlobId = str(d.blob_id);
         return next;
       }
       if (d.kind === "experience") {
-        // Memory snapshot — record the blob; don't touch the per-decision
+        // Memory snapshot · record the blob; don't touch the per-decision
         // waterfall (it's published out of band).
         next.walrusExperienceBlobId = str(d.blob_id);
         return next;
@@ -419,7 +419,7 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
       next.deliveredTx = str(d.tx);
       next.mode = (str(d.mode) as "live" | "simulated" | null) ?? next.mode;
       next.steps.delivered = { status: "done", ts: e.ts };
-      // Walrus may have been unfunded — close out the step honestly.
+      // Walrus may have been unfunded · close out the step honestly.
       if (next.steps.walrus.status === "active") {
         next.steps.walrus = { status: "skipped", ts: e.ts };
       }
@@ -451,7 +451,7 @@ export function useAgentStream(policyId: string | null | undefined): {
       try {
         dispatch(JSON.parse(msg.data) as AgentStreamEvent);
       } catch {
-        /* malformed line — ignore */
+        /* malformed line · ignore */
       }
     };
     return () => {

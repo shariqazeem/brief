@@ -3,8 +3,8 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 // NOTE: the dApp Kit provider is NO LONGER in the root layout. It lived
-// here wrapped in `ssr: false`, which forced EVERY route — including the
-// wallet-free marketing landing — to bail out of SSR and paint blank
+// here wrapped in `ssr: false`, which forced EVERY route · including the
+// wallet-free marketing landing · to bail out of SSR and paint blank
 // until hydration. It now lives in <WalletBoundary> (src/components/
 // wallet-boundary.tsx), used only by the routes that need a wallet
 // (/workforce, /leaderboard). The landing now server-renders fully.
@@ -22,9 +22,9 @@ const jetbrains = JetBrains_Mono({
 });
 
 const SITE_URL = "https://brief.xyz";
-const TITLE = "Brief — Adopt an operator. The chain holds the leash.";
+const TITLE = "Brief · Adopt an operator. The chain holds the leash.";
 const DESCRIPTION =
-  "Adopt an autonomous financial operator on Sui. It manages capital on DeepBook Predict + DeepBook v3 spot, thinks in public, remembers on Walrus — every action gated by a Move OperatorPolicy you can revoke in one tap.";
+  "Adopt an autonomous financial operator on Sui. It manages capital on DeepBook Predict + DeepBook v3 spot, thinks in public, remembers on Walrus · every action gated by a Move OperatorPolicy you can revoke in one tap.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

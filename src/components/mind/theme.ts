@@ -1,4 +1,4 @@
-// Shared chart constants for the Mind canvas — every Recharts color
+// Shared chart constants for the Mind canvas · every Recharts color
 // maps to the Tailwind design tokens (tailwind.config.ts) so the
 // charts read as native Brief surfaces, not a bolted-on library.
 

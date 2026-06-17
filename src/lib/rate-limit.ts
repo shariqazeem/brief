@@ -118,7 +118,7 @@ export function rateLimitedResponse(retryAfterSec: number, hint?: string): Respo
   return Response.json(
     {
       error: "rate_limited",
-      message: hint ?? `Too many requests — retry in ${retryAfterSec}s.`,
+      message: hint ?? `Too many requests · retry in ${retryAfterSec}s.`,
       retry_after_sec: retryAfterSec,
     },
     {

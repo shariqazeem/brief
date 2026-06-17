@@ -1,7 +1,7 @@
-// SystemHealthDot — one honest dot for "can Brief trade right now?".
+// SystemHealthDot · one honest dot for "can Brief trade right now?".
 // Polls /api/system/health (warden status + feed freshness) every 30s.
 // Green: everything live. Amber: degraded, with the reason on hover
-// and beside the dot — we surface problems, never hide them.
+// and beside the dot · we surface problems, never hide them.
 
 "use client";
 

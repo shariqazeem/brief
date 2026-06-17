@@ -1,4 +1,4 @@
-// MindROCTicker — momentum at a glance: the headline rate-of-change
+// MindROCTicker · momentum at a glance: the headline rate-of-change
 // number plus a bar strip of short-window ROC across the last hour,
 // so "the tape is heating up" is visible before the agent acts on it.
 
@@ -19,7 +19,7 @@ export function MindROCTicker({
   roc: number | null;
   rocWindow: string;
 }) {
-  // Per-point 5-minute ROC over the series — the strip under the number.
+  // Per-point 5-minute ROC over the series · the strip under the number.
   const bars = useMemo(() => {
     const out: Array<{ ts: number; roc: number }> = [];
     for (let i = 0; i < points.length; i++) {
@@ -56,7 +56,7 @@ export function MindROCTicker({
         key={pct === null ? "na" : pct.toFixed(3)}
         className={`mt-2 font-sans text-[40px] font-medium leading-none tabular-nums tracking-tighter ${tone} animate-value-tick`}
       >
-        {pct === null ? "—" : `${pct >= 0 ? "+" : ""}${pct.toFixed(3)}%`}
+        {pct === null ? "-" : `${pct >= 0 ? "+" : ""}${pct.toFixed(3)}%`}
       </p>
 
       <div className="mt-4 h-[56px] w-full">

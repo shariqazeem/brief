@@ -1,13 +1,13 @@
-// Operator identity — a memorable codename + a human objective line.
+// Operator identity · a memorable codename + a human objective line.
 //
-// "Grow Operator 87" is a row in a table. "Atlas — grows capital steadily"
+// "Grow Operator 87" is a row in a table. "Atlas · grows capital steadily"
 // is something you adopt and root for. The codename is deterministic from the
 // policy id (stable across sessions, no storage), so the same operator is
 // always the same name everywhere it's shown.
 
 import type { OperatorGoal } from "@/lib/operator-goal";
 
-// Celestial / mythic — short, memorable, neutral.
+// Celestial / mythic · short, memorable, neutral.
 const CODENAMES = [
   "Atlas",
   "Orion",
@@ -44,7 +44,7 @@ export function operatorCodename(policyId: string | null | undefined): string {
   return CODENAMES[h % CODENAMES.length];
 }
 
-/** Objective from the operator mode — used where only the mode is known
+/** Objective from the operator mode · used where only the mode is known
  *  (Results page, fleet comparison) rather than the full goal. */
 export function objectiveFromMode(mode: string | null | undefined): string {
   if (mode === "protect") return "Protect capital";
@@ -53,7 +53,7 @@ export function objectiveFromMode(mode: string | null | undefined): string {
   return "Manage capital under mandate";
 }
 
-/** A human objective line from the user's goal — what this operator is FOR. */
+/** A human objective line from the user's goal · what this operator is FOR. */
 export function objectiveLabel(goal: OperatorGoal | null | undefined): string {
   if (!goal) return "Manage capital under your mandate";
   if (goal.type === "preserve") return "Protect capital";

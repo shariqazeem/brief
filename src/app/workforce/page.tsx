@@ -77,7 +77,7 @@ import { WalletBoundary } from "@/components/wallet-boundary";
 
 
 // =============================================================================
-// /workforce — single-step hire + live console.
+// /workforce · single-step hire + live console.
 //
 // The judge's 30-second story: open the page → see a living agent economy
 // (real specialists, real reputation, real recent work); connect → write
@@ -94,19 +94,19 @@ type ActivationResult = {
   brief: string;
   budgetSui: number;
   allowedVenues: string[];
-  /** Phase-3 trader product — set when the adoption flow created the
+  /** Phase-3 trader product · set when the adoption flow created the
    *  policy. The workforce path leaves these undefined. */
   traderName?: string;
   traderStrategy?: StrategyId;
   /** Which market bundle the user picked at adoption. Drives the spec
    *  the Planner posts to the trader's inbox. */
   traderMarkets?: "btc_only" | "sui_ecosystem" | "all";
-  /** Goal the user set at adoption — calibrates the trader's thresholds. */
+  /** Goal the user set at adoption · calibrates the trader's thresholds. */
   traderGoal?: OperatorGoal;
 };
 
 /** Map a market bundle to the OperatorPolicy `allowed_venues` list.
- *  Always includes predict-btc for backward compat — even SUI-ecosystem
+ *  Always includes predict-btc for backward compat · even SUI-ecosystem
  *  picks can still legally accept a BTC mint if the trader chooses one. */
 function venuesForBundle(
   markets: "btc_only" | "sui_ecosystem" | "all",
@@ -164,7 +164,7 @@ function WorkforceConsole() {
       ) : (
         <Disconnected />
       )}
-      {/* The leash is always in your hand — floating revoke on every
+      {/* The leash is always in your hand · floating revoke on every
           operator surface (shows when you have an active operator). */}
       <FloatingKillSwitch />
     </main>
@@ -251,7 +251,7 @@ function Header({
   );
 }
 
-// AccountChip — collapsed it reads as a small status pill (Google ·
+// AccountChip · collapsed it reads as a small status pill (Google ·
 // 0x12…ab); clicking expands a panel with the FULL address (copyable),
 // the live SUI balance, a suiscan link, and Sign Out for zkLogin. Same
 // component for both auth paths so the affordance is consistent.
@@ -270,7 +270,7 @@ function AccountChip({
   const [copied, setCopied] = useState(false);
   const [balanceSui, setBalanceSui] = useState<number | null>(null);
 
-  // Live balance polling — visible whether the panel is open or not so
+  // Live balance polling · visible whether the panel is open or not so
   // there's never a "did the funds land?" mystery.
   useEffect(() => {
     let cancelled = false;
@@ -312,13 +312,13 @@ function AccountChip({
       setCopied(true);
       setTimeout(() => setCopied(false), 1400);
     } catch {
-      /* ignore — fallback below shows the address selectable */
+      /* ignore · fallback below shows the address selectable */
     }
   }
 
   const balLabel =
     balanceSui === null
-      ? "—"
+      ? "-"
       : balanceSui < 0.001
         ? "0 SUI"
         : `${balanceSui.toFixed(3)} SUI`;
@@ -418,7 +418,7 @@ function AccountChip({
               </p>
               {balanceSui !== null && balanceSui < 0.05 && (
                 <p className="mt-1 text-[12px] leading-relaxed text-ink-2">
-                  Need testnet SUI? Tap a mission card — we&apos;ll
+                  Need testnet SUI? Tap a mission card · we&apos;ll
                   auto-fund the first time. If the public faucet is
                   rate-limited, copy the address above and send any
                   amount of testnet SUI from another wallet.
@@ -456,12 +456,12 @@ function Mark() {
 }
 
 // =============================================================================
-// Disconnected — personality-first hero, then the connect prompt
+// Disconnected · personality-first hero, then the connect prompt
 // =============================================================================
 
 // Cross-mount preselect: a card click on the disconnected screen stores
 // the chosen strategy so the post-connect TraderGallery can pre-open its
-// adoption panel on it. sessionStorage survives BOTH paths — the in-app
+// adoption panel on it. sessionStorage survives BOTH paths · the in-app
 // wallet re-render AND the zkLogin OAuth redirect (which reloads the page).
 const PRESELECT_KEY = "brief:preselect-strategy";
 
@@ -469,7 +469,7 @@ function setPreselectedStrategy(s: StrategyId): void {
   try {
     if (typeof window !== "undefined") sessionStorage.setItem(PRESELECT_KEY, s);
   } catch {
-    /* storage blocked — preselect is a nicety, not required */
+    /* storage blocked · preselect is a nicety, not required */
   }
 }
 
@@ -484,7 +484,7 @@ function takePreselectedStrategy(): StrategyId | null {
   }
 }
 
-// Live signal read per mode — the real SUI market the operator trades,
+// Live signal read per mode · the real SUI market the operator trades,
 // from /api/trader/signals?asset=SUI. Cold feed → honest "warming up".
 // Shown as a qualitative "would act / would hold" hint, never a raw number.
 type DisconnectedSignals = {
@@ -548,7 +548,7 @@ function useDisconnectedSignals(): DisconnectedSignals {
 
 // What this operator would *likely* do right now, read live from the
 // public SUI signals feed. It's a hint (conditional phrasing in the UI),
-// not a promise — emerald = would act, amber = would preserve capital,
+// not a promise · emerald = would act, amber = would preserve capital,
 // gray = still reading the tape. Mirrors each strategy's real gate.
 type OperatorStatus = "act" | "preserve" | "idle";
 
@@ -583,7 +583,7 @@ function operatorStatus(
 }
 
 // ONE operator, THREE modes. The mode sets the decision engine's
-// confidence/trend bars (Protect/Grow/Aggressive) — not a different bot.
+// confidence/trend bars (Protect/Grow/Aggressive) · not a different bot.
 // Each maps to a legacy personality + goal under the hood so the proven
 // adoption plumbing is untouched; the engine recovers the mode from the goal.
 type WfMode = "protect" | "grow" | "aggressive";
@@ -634,7 +634,7 @@ function modeGoal(id: WfMode): OperatorGoal {
       : { type: "edge" };
 }
 
-// The "Choose a mode" grid — one operator, three modes, 24px gutter.
+// The "Choose a mode" grid · one operator, three modes, 24px gutter.
 // Used on the disconnected screen AND (when no preselect survives) right
 // after connect. Pure white cards, sharp corners, breathing glyph.
 function OperatorChoiceGrid({
@@ -722,7 +722,7 @@ function OperatorChoiceCard({
             active ? "text-accent" : "text-muted group-hover:text-ink",
           ].join(" ")}
         >
-          {active ? "selected — adopt below" : "select →"}
+          {active ? "selected · adopt below" : "select →"}
         </span>
         <span
           className="inline-flex items-center gap-1.5"
@@ -771,7 +771,7 @@ function Disconnected() {
           </Link>
         </p>
 
-        {/* Operator-first hero — choose before you connect; the choice
+        {/* Operator-first hero · choose before you connect; the choice
             carries through the wallet step via sessionStorage. */}
         <OperatorChoiceGrid picked={picked} onPick={onPick} />
 
@@ -815,7 +815,7 @@ function Disconnected() {
           <p className="mt-4 max-w-prose text-[12.5px] leading-relaxed text-muted">
             <span className="text-ink">Heads-up:</span> Google sign-in
             (zkLogin) needs an Enoki API key to verify proofs on Sui
-            testnet — for now, please connect a Sui wallet (Slush, Suiet,
+            testnet · for now, please connect a Sui wallet (Slush, Suiet,
             etc.) to adopt an operator.
           </p>
         )}
@@ -839,7 +839,7 @@ function Disconnected() {
 
 function GoogleGlyph() {
   // A small Google G mark in mono colour so it sits naturally alongside
-  // the ink button. Designed to be unobtrusive — the button copy carries
+  // the ink button. Designed to be unobtrusive · the button copy carries
   // the brand recognition.
   return (
     <svg
@@ -879,7 +879,7 @@ function RosterAndActivity() {
 }
 
 // =============================================================================
-// Roster — live registered specialists (excluding the Planner)
+// Roster · live registered specialists (excluding the Planner)
 // =============================================================================
 
 function Roster() {
@@ -900,7 +900,7 @@ function Roster() {
       <div className="mt-3 space-y-3">
         {!loading && agents.length === 0 && (
           <EmptyHint>
-            No specialist has registered on chain yet — start the workforce
+            No specialist has registered on chain yet · start the workforce
             and the roster fills in within seconds.
           </EmptyHint>
         )}
@@ -964,7 +964,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 // =============================================================================
-// Recent on-chain activity — every visitor sees the agent economy moving
+// Recent on-chain activity · every visitor sees the agent economy moving
 // =============================================================================
 
 function RecentActivityPanel() {
@@ -1044,10 +1044,10 @@ function titleFromCapability(cap: string, kind: "posted" | "approved"): string {
 }
 
 // =============================================================================
-// Connected — single-step hire form OR live console
+// Connected · single-step hire form OR live console
 // =============================================================================
 
-// Read-only operator view (?policy=<id>) — mounts the live dashboard for
+// Read-only operator view (?policy=<id>) · mounts the live dashboard for
 // ANY operator by id: the decision cascade, fuel gauge, Walrus journal and
 // policy, all driven by the same SSE stream + on-chain reads. No wallet
 // funds touched; only the owner can revoke (from their own session). This
@@ -1090,19 +1090,19 @@ function Connected({ address }: { address: string }) {
   // the first time a leash mints, then hand off to the live dashboard.
   const [booted, setBooted] = useState(false);
   // Default surface for Phase-3 is the Trader product. The workforce
-  // engine + UI are preserved verbatim and accessible via ?legacy=1 —
+  // engine + UI are preserved verbatim and accessible via ?legacy=1 -
   // keep the path live so we can re-enable it instantly.
   const legacy =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("legacy") === "1";
   // The non-custodial DeepBook deposit flow is the primary product. The
   // testnet Predict path (house-funded, no deposit) stays as ?predict=1
-  // practice — instant, no test-USDC needed.
+  // practice · instant, no test-USDC needed.
   const predict =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("predict") === "1";
 
-  // Your operators home — the fleet. /workforce shows every operator you've
+  // Your operators home · the fleet. /workforce shows every operator you've
   // adopted; click one to open it live. Adoption lives in the wizard.
   const [ops, setOps] = useState<TraderIdentity[]>([]);
   useEffect(() => setOps(loadAllTraderIdentities()), []);
@@ -1158,7 +1158,7 @@ function Connected({ address }: { address: string }) {
   );
 }
 
-// Boot ceremony — the single beat between "leash minted" and the live
+// Boot ceremony · the single beat between "leash minted" and the live
 // dashboard. The operator's card settles (scale 1.02 → 1), its glyph
 // turns emerald, and "your operator is live" fades in. ~1.7s, then the
 // dashboard takes over and runs its own first-decision sequence.
@@ -1220,7 +1220,7 @@ function BootCeremony({
 }
 
 // =============================================================================
-// Phase-3 product — Adopt-a-trader. Reuses the policy/zkLogin/cold-start
+// Phase-3 product · Adopt-a-trader. Reuses the policy/zkLogin/cold-start
 // substrate; the on-chain action becomes a DeepBook Predict BTC up/down
 // mint signed by the same OperatorPolicy the user grants.
 // =============================================================================
@@ -1234,13 +1234,13 @@ function TraderIntro() {
       <h1 className="mt-3 font-sans text-[28px] font-medium leading-[1.12] tracking-tightest text-ink sm:text-[40px]">
         Name it, set the budget, release it.{" "}
         <span className="text-ink-2">
-          Three steps to put an autonomous operator on chain — then watch
+          Three steps to put an autonomous operator on chain · then watch
           it win or lose. You hold the leash, the blockchain enforces it.
         </span>
       </h1>
       <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-muted">
-        Your operator takes BTC up/down positions on DeepBook Predict —
-        and, if you open the floor, directional SUI/WAL/DEEP spot — all
+        Your operator takes BTC up/down positions on DeepBook Predict -
+        and, if you open the floor, directional SUI/WAL/DEEP spot · all
         within a chain-enforced budget. One signature adopts. One tap
         yanks the leash.
       </p>
@@ -1249,7 +1249,7 @@ function TraderIntro() {
 }
 
 // ---------------------------------------------------------------------------
-// Trader Gallery — three personalities → name → leash → adopt in one PTB
+// Trader Gallery · three personalities → name → leash → adopt in one PTB
 // ---------------------------------------------------------------------------
 
 type AdoptPhase =
@@ -1272,7 +1272,7 @@ const TYPICAL_QTY_BY_STRATEGY: Record<StrategyId, number> = {
   quant: 4,
 };
 const TRADER_DEFAULT_BUDGET_SUI = 1;
-// Operators live for the demo window, not 12h — long enough that the owner (or
+// Operators live for the demo window, not 12h · long enough that the owner (or
 // a judge) can come back tomorrow and find it still working, not expired.
 const TRADER_EXPIRY_HOURS = 24 * 14; // 14 days
 const TRADER_FAUCET_TIMEOUT_MS = 15_000;
@@ -1313,7 +1313,7 @@ function useTraderLauncher({
     }) => {
       void (async () => {
         const name = traderName.trim().slice(0, 32) || personality.label;
-        // 1) Cold-start funding — identical to the mission launcher.
+        // 1) Cold-start funding · identical to the mission launcher.
         try {
           setPhase({ kind: "checking-balance" });
           const b = await client.getBalance({ owner: address });
@@ -1336,7 +1336,7 @@ function useTraderLauncher({
               setPhase({
                 kind: "error",
                 msg: isRateLimit
-                  ? `The public testnet faucet is cooling down — open the account chip (top right) to copy your address and send any amount of testnet SUI, or wait ~30 min.`
+                  ? `The public testnet faucet is cooling down · open the account chip (top right) to copy your address and send any amount of testnet SUI, or wait ~30 min.`
                   : (j.message ?? "Faucet failed."),
               });
               return;
@@ -1358,7 +1358,7 @@ function useTraderLauncher({
             if (!funded) {
               setPhase({
                 kind: "error",
-                msg: "Faucet sent the SUI but it hasn't settled — try again in a few seconds.",
+                msg: "Faucet sent the SUI but it hasn't settled · try again in a few seconds.",
               });
               return;
             }
@@ -1388,7 +1388,7 @@ function useTraderLauncher({
             expiryHours: TRADER_EXPIRY_HOURS,
             riskTolerance: "low",
             // Bind the leash's agent to the Treasury trader wallet that
-            // signs the gated mint — otherwise record_spend aborts
+            // signs the gated mint · otherwise record_spend aborts
             // ENotAgent and every adopted bet falls back to simulated.
             // owner stays the connected user (they hold the kill switch).
             agentAddress: BRIEF_TRADER_ADDRESS,
@@ -1432,7 +1432,7 @@ function useTraderLauncher({
 }
 
 // Live balance of the network's capital coin (USDC on mainnet, DBUSDC on
-// testnet) in the connected wallet — drives the deposit step.
+// testnet) in the connected wallet · drives the deposit step.
 function useUsdcBalance(address: string): {
   usdc: number;
   loaded: boolean;
@@ -1464,11 +1464,11 @@ function useUsdcBalance(address: string): {
   return { ...state, refetch: () => setNonce((n) => n + 1) };
 }
 
-// Non-custodial deposit adoption — the mainnet (+ testnet-DBUSDC) path.
+// Non-custodial deposit adoption · the mainnet (+ testnet-DBUSDC) path.
 // One signature via buildAdoptTx: the user's own BalanceManager is created
 // + funded, a TradeCap is delegated to the operator (trade-not-withdraw),
 // and the chain-enforced policy is created. The user keeps custody.
-// The fleet home — every operator you've adopted, as premium cards. Click
+// The fleet home · every operator you've adopted, as premium cards. Click
 // one to open it live. This is /workforce when you have 1+ operators.
 function OperatorsHome({ ops }: { ops: TraderIdentity[] }) {
   return (
@@ -1483,8 +1483,8 @@ function OperatorsHome({ ops }: { ops: TraderIdentity[] }) {
           </h1>
           <p className="mt-3 max-w-prose text-[14px] leading-relaxed text-ink-2">
             {ops.length === 1
-              ? "Operator #001 is live and managing capital under your mandate. Each operator is non-custodial, on its own on-chain leash — adopt more, each with a different objective, and compare them here."
-              : `${ops.length} autonomous operators — each with its own objective, return, and on-chain leash. Compare them below.`}
+              ? "Operator #001 is live and managing capital under your mandate. Each operator is non-custodial, on its own on-chain leash · adopt more, each with a different objective, and compare them here."
+              : `${ops.length} autonomous operators · each with its own objective, return, and on-chain leash. Compare them below.`}
           </p>
         </div>
         <Link
@@ -1558,12 +1558,12 @@ function OperatorHomeCard({ op }: { op: TraderIdentity }) {
           </span>
         </span>
       </div>
-      {/* comparison metrics — objective · return · drawdown */}
+      {/* comparison metrics · objective · return · drawdown */}
       <div className="mt-5">
         <p className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-muted">{objective}</p>
         <div className="mt-1.5 flex items-baseline gap-3">
           <span className="font-sans text-[26px] font-medium tabular-nums leading-none tracking-tight" style={{ color: retColor }}>
-            {ret == null ? "—" : `${ret > 0 ? "+" : ""}${ret.toFixed(1)}%`}
+            {ret == null ? "-" : `${ret > 0 ? "+" : ""}${ret.toFixed(1)}%`}
           </span>
           <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">return</span>
           {dd != null && (
@@ -1591,7 +1591,7 @@ function OperatorHomeCard({ op }: { op: TraderIdentity }) {
   );
 }
 
-// The connected home when you have NO operator yet — the product offering
+// The connected home when you have NO operator yet · the product offering
 // (the three modes) + one CTA into the wizard. Not a wall of text.
 function FirstOperatorEntry() {
   const isMainnet = BRIEF_NETWORK === "mainnet";
@@ -1609,7 +1609,7 @@ function FirstOperatorEntry() {
         </p>
         <p className="mt-5 max-w-prose text-[15px] leading-relaxed text-ink-2">
           Deposit your {isMainnet ? "USDC" : "test USDC"}, choose how it behaves, and watch
-          it trade on DeepBook — non-custodially. It never holds your funds, can&apos;t
+          it trade on DeepBook · non-custodially. It never holds your funds, can&apos;t
           exceed your budget, and you revoke it in one tap.
         </p>
       </header>
@@ -1661,11 +1661,11 @@ function DepositIntro() {
         Brief · adopt an operator {isMainnet ? "· real USDC on mainnet" : "· testnet practice"}
       </p>
       <h1 className="mt-3 font-sans text-[28px] font-medium leading-[1.12] tracking-tightest text-ink sm:text-[40px]">
-        Deposit. Adopt. Watch it trade — non-custodially.{" "}
+        Deposit. Adopt. Watch it trade · non-custodially.{" "}
         <span className="text-ink-2">
           Your {isMainnet ? "USDC" : "test USDC"} stays in your own DeepBook
           account. The operator trades it within a Move policy you control and
-          can revoke in one tap — it never holds your funds.
+          can revoke in one tap · it never holds your funds.
         </span>
       </h1>
       <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-muted">
@@ -1682,9 +1682,9 @@ function DepositIntro() {
   );
 }
 
-// Non-custodial deposit adoption surface — choose operator → deposit →
+// Non-custodial deposit adoption surface · choose operator → deposit →
 // adopt (one signature) → dashboard. The product/demo flow.
-// A returning user with an active operator lands on the gallery — give them
+// A returning user with an active operator lands on the gallery · give them
 // one click back to their live operator dashboard (the floating kill switch
 // already knows the operator; this is its "view" counterpart).
 function ActiveOperatorResume() {
@@ -1796,7 +1796,7 @@ const MARKET_BUNDLES: Array<{
   {
     id: "all",
     label: "All markets",
-    blurb: "BTC up/down + SUI/WAL/DEEP spot — full multi-asset.",
+    blurb: "BTC up/down + SUI/WAL/DEEP spot · full multi-asset.",
     assets: ["BTC", "SUI", "WAL", "DEEP"],
   },
 ];
@@ -1817,7 +1817,7 @@ function TraderAdoptionPanel({
   ) => void;
   onCancel: () => void;
 }) {
-  // Pre-fill a name in the operator's voice ("Sentinel-3") — editable.
+  // Pre-fill a name in the operator's voice ("Sentinel-3") · editable.
   // The subtree is client-only (WalletBoundary ssr:false), so a random
   // seed never causes a hydration mismatch.
   const [name, setName] = useState(
@@ -1851,7 +1851,7 @@ function TraderAdoptionPanel({
 
   return (
     <div className="relative mt-5 animate-fade-up bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-      {/* Step rail — three beats: 01 Name & Budget · 02 Markets · 03 Release.
+      {/* Step rail · three beats: 01 Name & Budget · 02 Markets · 03 Release.
           Done beats turn emerald; the current beat is ink. */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line px-6 py-4 sm:px-8">
         {STEPS.map((label, i) => {
@@ -1885,7 +1885,7 @@ function TraderAdoptionPanel({
       </div>
 
       <div className="px-6 py-7 sm:px-8 sm:py-8">
-        {/* STEP 1 — Name & Budget */}
+        {/* STEP 1 · Name & Budget */}
         {step === 0 && (
           <div className="space-y-8 animate-fade-up">
             <div>
@@ -1944,21 +1944,21 @@ function TraderAdoptionPanel({
                 ))}
               </div>
               <p className="mt-3 max-w-prose text-[13px] leading-relaxed text-ink-2">
-                Each $1 {trimmedName} stakes records 1 SUI against the leash —
+                Each $1 {trimmedName} stakes records 1 SUI against the leash -
                 so this is roughly{" "}
                 <span className="text-ink">
                   {typicalBets >= 1
                     ? `${typicalBets} full-size bet${typicalBets === 1 ? "" : "s"}`
                     : "a partial bet"}
                 </span>
-                . When it runs out, the chain itself stops the next bet — even
+                . When it runs out, the chain itself stops the next bet · even
                 if {trimmedName} wants to keep going.
               </p>
             </div>
           </div>
         )}
 
-        {/* STEP 2 — Markets */}
+        {/* STEP 2 · Markets */}
         {step === 1 && (
           <div className="animate-fade-up">
             <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
@@ -2008,14 +2008,14 @@ function TraderAdoptionPanel({
           </div>
         )}
 
-        {/* STEP 3 — Goal: deterministically calibrate the thresholds */}
+        {/* STEP 3 · Goal: deterministically calibrate the thresholds */}
         {step === 2 && (
           <div className="animate-fade-up">
             <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
               What should {trimmedName} optimize for?
             </p>
             <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-ink-2">
-              Your goal calibrates the operator&apos;s own thresholds —
+              Your goal calibrates the operator&apos;s own thresholds -
               deterministically, no black box. The smart default for a{" "}
               {personality.label.toLowerCase()} operator is pre-selected; override it freely.
             </p>
@@ -2024,7 +2024,7 @@ function TraderAdoptionPanel({
                 [
                   { type: "grow", title: "Grow capital", blurb: "Act more often toward a target. Slightly lower edge bar." },
                   { type: "preserve", title: "Preserve capital", blurb: "Tighter thresholds, smaller size. Sits out more." },
-                  { type: "edge", title: "Maximize edge", blurb: "Baseline discipline — act only on clear edge." },
+                  { type: "edge", title: "Maximize edge", blurb: "Baseline discipline · act only on clear edge." },
                 ] as const
               ).map((g) => {
                 const active = goal.type === g.type;
@@ -2118,8 +2118,8 @@ function TraderAdoptionPanel({
           </div>
         )}
 
-        {/* STEP 4 — Release. The summary card IS the OperatorPolicy that
-            mints — every field is a real on-chain parameter. */}
+        {/* STEP 4 · Release. The summary card IS the OperatorPolicy that
+            mints · every field is a real on-chain parameter. */}
         {step === 3 && (
           <div className="animate-fade-up">
             <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
@@ -2128,7 +2128,7 @@ function TraderAdoptionPanel({
             <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-ink-2">
               One signature mints the leash below, sets the budget, and
               dispatches {trimmedName}&apos;s first decision. This card{" "}
-              <span className="text-ink">is</span> the policy — every field is
+              <span className="text-ink">is</span> the policy · every field is
               enforced on chain, not on our server.
             </p>
 
@@ -2226,7 +2226,7 @@ function TraderAdoptionPanel({
         )}
       </div>
 
-      {/* Footer — Back · Continue / Adopt. Adoption is the emerald "go
+      {/* Footer · Back · Continue / Adopt. Adoption is the emerald "go
           live" moment; navigation stays ink. */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-bg px-6 py-5 sm:px-8">
         <button
@@ -2289,7 +2289,7 @@ function phaseLabel(p: AdoptPhase): string {
 }
 
 // =============================================================================
-// Teaching intro — the single line a first-time visitor reads. The whole
+// Teaching intro · the single line a first-time visitor reads. The whole
 // console exists in service of these 18 words. Everything below it should
 // teach by doing, not by adding more sentences.
 // =============================================================================
@@ -2303,12 +2303,12 @@ function TeachingIntro() {
       <h1 className="mt-3 font-sans text-[28px] font-medium leading-[1.12] tracking-tightest text-ink sm:text-[40px]">
         Hire a team of AI agents.{" "}
         <span className="text-ink-2">
-          They hire each other, do real work, and get paid on-chain — and you
+          They hire each other, do real work, and get paid on-chain · and you
           hold a kill switch the blockchain itself enforces.
         </span>
       </h1>
       <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-muted">
-        Tap a mission below — we&apos;ll fund your wallet if it&apos;s empty,
+        Tap a mission below · we&apos;ll fund your wallet if it&apos;s empty,
         you sign once, and you watch the team work. No forms. No writing.
       </p>
     </header>
@@ -2316,7 +2316,7 @@ function TeachingIntro() {
 }
 
 // =============================================================================
-// Cold-start faucet — a brand-new wallet has 0 SUI and can't sign the grant.
+// Cold-start faucet · a brand-new wallet has 0 SUI and can't sign the grant.
 // This banner appears the moment we detect the connected wallet is empty
 // and goes away the moment it has enough SUI to act.
 // =============================================================================
@@ -2339,7 +2339,7 @@ function ColdStartFaucet({ address }: { address: string }) {
           setBalanceSui(Number(b.totalBalance) / 1e9);
         }
       } catch {
-        /* ignore — the banner just hides */
+        /* ignore · the banner just hides */
       }
     };
     tick();
@@ -2371,7 +2371,7 @@ function ColdStartFaucet({ address }: { address: string }) {
           j.message ??
             (j.retry_after_sec
               ? `Try again in ${j.retry_after_sec}s.`
-              : "Faucet failed — try again in a moment."),
+              : "Faucet failed · try again in a moment."),
         );
         setPhase("err");
         return;
@@ -2386,7 +2386,7 @@ function ColdStartFaucet({ address }: { address: string }) {
     }
   }
 
-  // Loading the first balance — render nothing so the layout doesn't flash.
+  // Loading the first balance · render nothing so the layout doesn't flash.
   if (balanceSui === null) return null;
   // Wallet is funded; nothing to do.
   if (balanceSui >= COLD_START_MIN_SUI) return null;
@@ -2419,7 +2419,7 @@ function ColdStartFaucet({ address }: { address: string }) {
                 <span className="font-mono tabular-nums text-ink">1 SUI</span>{" "}
                 from the public faucet for{" "}
                 <span className="font-mono text-ink">{short(address, 6, 4)}</span>{" "}
-                — costs nothing, takes a few seconds. Then the brief form below
+                · costs nothing, takes a few seconds. Then the brief form below
                 unlocks.
               </p>
             </div>
@@ -2469,11 +2469,11 @@ function ColdStartFaucet({ address }: { address: string }) {
 }
 
 // =============================================================================
-// Single-step hire form — one screen, one signature, mission auto-dispatched
+// Single-step hire form · one screen, one signature, mission auto-dispatched
 // =============================================================================
 
 // =============================================================================
-// Mission Gallery — the "tap and watch" front door.
+// Mission Gallery · the "tap and watch" front door.
 //
 // A beginner shouldn't have to author or configure anything. The cards
 // below are complete, pre-baked missions. Tapping one = template + brief +
@@ -2482,7 +2482,7 @@ function ColdStartFaucet({ address }: { address: string }) {
 // so the momentum is never broken.
 //
 // `HireForm` (below) is preserved verbatim as the power-user escape
-// hatch — wrapped in a collapsed "Write your own mission" disclosure.
+// hatch · wrapped in a collapsed "Write your own mission" disclosure.
 // =============================================================================
 
 type MissionDetails = {
@@ -2519,7 +2519,7 @@ const MISSION_DETAILS: Record<string, MissionDetails> = {
     hero: false,
     outcomeHeadline: "A single audit report on a Move package.",
     outcomeDetail:
-      "Capability surface, abort coverage, public entry points, and concrete risks — stored on Walrus, signed off by Planner.",
+      "Capability surface, abort coverage, public entry points, and concrete risks · stored on Walrus, signed off by Planner.",
     team: [
       { role: "Planner", does: "scopes the audit and hires Research" },
       {
@@ -2548,7 +2548,7 @@ const MISSION_DETAILS: Record<string, MissionDetails> = {
 };
 
 // Templates we actually show in the gallery. `open-workforce` is a
-// blank-canvas power-user template (empty missionPlaceholder) — it lives
+// blank-canvas power-user template (empty missionPlaceholder) · it lives
 // behind the "Write your own" disclosure, not in the gallery.
 const GALLERY_TEMPLATE_IDS = [
   "investment-committee",
@@ -2576,7 +2576,7 @@ function useMissionLauncher({
   launch: (template: WorkforceTemplate) => void;
 } {
   const client = useSuiClient();
-  // Unified signer — routes the activation tx through dApp Kit OR the
+  // Unified signer · routes the activation tx through dApp Kit OR the
   // zkLogin path depending on which one is signed in. The button copy
   // and the cold-start faucet flow are identical for both.
   const { signAndExecute } = useAccountSigner();
@@ -2622,7 +2622,7 @@ function useMissionLauncher({
                 !!j.retry_after_sec;
               const shortAddr = `${address.slice(0, 8)}…${address.slice(-4)}`;
               const msg = isRateLimit
-                ? `The public testnet faucet is cooling down for your address. Open the account chip (top right) to copy ${shortAddr} and send testnet SUI to it from another wallet — or wait ~30 minutes and tap the mission again.`
+                ? `The public testnet faucet is cooling down for your address. Open the account chip (top right) to copy ${shortAddr} and send testnet SUI to it from another wallet · or wait ~30 minutes and tap the mission again.`
                 : raw || "Faucet failed.";
               setPhase({
                 kind: "error",
@@ -2652,7 +2652,7 @@ function useMissionLauncher({
               setPhase({
                 kind: "error",
                 templateId: template.id,
-                msg: "Faucet sent the SUI but it hasn't settled yet — try again in a few seconds.",
+                msg: "Faucet sent the SUI but it hasn't settled yet · try again in a few seconds.",
               });
               return;
             }
@@ -2667,7 +2667,7 @@ function useMissionLauncher({
         }
 
         // 2) Sign the activation. We hand the template's defaults
-        //    verbatim — no UI for the user to override here.
+        //    verbatim · no UI for the user to override here.
         setPhase({ kind: "signing", templateId: template.id });
         let tx;
         try {
@@ -2760,7 +2760,7 @@ function MissionGallery({
 
       <ControlReassurance />
 
-      {/* Escape hatch — power-user / write-your-own. Collapsed by
+      {/* Escape hatch · power-user / write-your-own. Collapsed by
           default so a beginner never sees the form. */}
       <details
         className="group mt-10 border border-line bg-bg-elev"
@@ -2823,7 +2823,7 @@ function MissionCardHero({
     phase.kind === "error" && phase.templateId === template.id ? phase.msg : null;
   return (
     <article className="relative mt-4 border-2 border-ink bg-bg-elev">
-      {/* No heartbeat here — animate-operator-pulse-line is reserved
+      {/* No heartbeat here · animate-operator-pulse-line is reserved
           for the live console where it signals real on-chain activity.
           The gallery surface stays calm and premium. */}
       <div className="grid gap-8 px-6 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.35fr_1fr] lg:items-start">
@@ -3041,7 +3041,7 @@ function HireForm({
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Keep the budget pinned to the template's default whenever the
-  // template changes — judges shouldn't have to think about budget if
+  // template changes · judges shouldn't have to think about budget if
   // they're not customizing.
   useEffect(() => {
     setBudgetSui(template.defaults.budgetSui);
@@ -3055,12 +3055,12 @@ function HireForm({
   const [error, setError] = useState<string | null>(null);
 
   // After the policy is created we POST the mission automatically in the
-  // background — the judge never sees a second form.
+  // background · the judge never sees a second form.
   function handleHire() {
     setError(null);
     const briefTrim = brief.trim();
     if (briefTrim.length === 0) {
-      setError("Write a brief first — what should the workforce do?");
+      setError("Write a brief first · what should the workforce do?");
       return;
     }
     let tx;
@@ -3121,7 +3121,7 @@ function HireForm({
             value={brief}
             onChange={(e) => setBrief(e.target.value)}
             placeholder={template.defaults.missionPlaceholder ||
-              "Evaluate this Move contract for a $50,000 DAO grant — recommend approve / reject and probe DeepBook depth to size the disbursement."}
+              "Evaluate this Move contract for a $50,000 DAO grant · recommend approve / reject and probe DeepBook depth to size the disbursement."}
             rows={4}
             maxLength={1600}
             className="w-full resize-none border-2 border-line bg-bg-elev px-4 py-3 text-base leading-relaxed outline-none transition-colors focus:border-ink focus-visible:border-ink"
@@ -3225,7 +3225,7 @@ function HireForm({
         <p className="mt-3 text-[12.5px] leading-relaxed text-muted">
           You are the OWNER. The Planner agent at{" "}
           <span className="font-mono">{short(BRIEF_OPERATOR_ADDRESS, 6, 4)}</span>{" "}
-          is the bound AGENT — it can only spend within this envelope, only
+          is the bound AGENT · it can only spend within this envelope, only
           on the capabilities below, only until expiry. You can revoke any
           time.
         </p>
@@ -3322,7 +3322,7 @@ function HireForm({
         </p>
       )}
 
-      {/* "What happens when you sign" — three concrete beats so the judge
+      {/* "What happens when you sign" · three concrete beats so the judge
           isn't signing a black box. Reads top-to-bottom like a contract,
           not a sales line. */}
       <div className="mt-8 border-l-2 border-line-strong pl-4">
@@ -3333,7 +3333,7 @@ function HireForm({
           <li className="flex gap-2.5">
             <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-ink/40" aria-hidden />
             A Move <span className="font-mono text-ink">OperatorPolicy</span> is
-            minted on chain — owned by you, capped at{" "}
+            minted on chain · owned by you, capped at{" "}
             <span className="font-mono tabular-nums text-ink">
               {budgetSui.toFixed(2)} SUI
             </span>
@@ -3348,7 +3348,7 @@ function HireForm({
             <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-ink/40" aria-hidden />
             When work is delivered you choose{" "}
             <span className="text-ink">Release</span> or{" "}
-            <span className="text-red-700">Revoke</span> — the chain enforces
+            <span className="text-red-700">Revoke</span> · the chain enforces
             either way.
           </li>
         </ol>
@@ -3399,7 +3399,7 @@ function Field({
 }
 
 // =============================================================================
-// Live console — top status card + Revoke + Activity timeline
+// Live console · top status card + Revoke + Activity timeline
 // =============================================================================
 
 type AbortRecord = {
@@ -3414,7 +3414,7 @@ type AbortRecord = {
 };
 
 // =============================================================================
-// Trader Dashboard — thin wrapper for an adopted operator.
+// Trader Dashboard · thin wrapper for an adopted operator.
 //
 // Owns the proven substrate (policy resolution, auto-dispatch, the
 // deterministic kill-switch state machine + on-chain EPolicyRevoked
@@ -3467,7 +3467,7 @@ function TraderDashboard({
   }, [policyId, activation]);
 
   // Auto-dispatch a predict-btc task the moment the policy id resolves
-  // — the user only signed the grant; the trader's first bet is posted
+  // · the user only signed the grant; the trader's first bet is posted
   // server-side by the Planner key so they don't see a second prompt.
   const dispatchedRef = useRef(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
@@ -3491,7 +3491,7 @@ function TraderDashboard({
     })();
   }, [policyId, activation.traderStrategy, activation.traderMarkets, activation.traderGoal, traderName]);
 
-  // Manual re-dispatch — wired to the honest "infra hiccup, dispatch
+  // Manual re-dispatch · wired to the honest "infra hiccup, dispatch
   // again" affordance when a task closes on a dead pool. Same call as
   // the auto-dispatch; the server route rate-limits per session.
   const [redispatching, setRedispatching] = useState(false);
@@ -3515,7 +3515,7 @@ function TraderDashboard({
     }
   }, [policyId, activation.traderStrategy, activation.traderMarkets, activation.traderGoal, traderName, redispatching]);
 
-  // Kill-switch state machine — identical to LiveConsole. The revoke
+  // Kill-switch state machine · identical to LiveConsole. The revoke
   // path proves the leash by waiting for an EPolicyRevoked abort on a
   // delivered task. Past wins still auto-redeem via the trader agent's
   // permissionless service (no policy gate on redeem_permissionless).
@@ -3755,7 +3755,7 @@ function LiveConsole({
       mission: activation.brief,
       targetPackageId,
     }).catch(() => {
-      // Swallow — the planner-service may not be running locally for a
+      // Swallow · the planner-service may not be running locally for a
       // judge, but the policy is real and visible on chain. The next
       // section explains how to bring the workforce online if needed.
     });
@@ -3770,7 +3770,7 @@ function LiveConsole({
   // Revoke + deterministic kill-switch state machine.
   //
   // The chain only emits EPolicyRevoked (operator_policy::3) on a task
-  // that is currently in DELIVERED status — the runtime checks task
+  // that is currently in DELIVERED status · the runtime checks task
   // status BEFORE record_spend (see move/sources/task.move). So to
   // surface the canonical EPolicyRevoked fingerprint we always need a
   // live DELIVERED target. Strategy:
@@ -3778,7 +3778,7 @@ function LiveConsole({
   //   1. After the user signs revoke, scan the task list for any
   //      delivered-but-unsettled task and attempt approve_with_policy
   //      against it via /api/workforce/approve (server-signed by the
-  //      Planner). Validate the abort response — only commit to the
+  //      Planner). Validate the abort response · only commit to the
   //      CHAIN REFUSED card if the chain returned the EXACT
   //      (operator_policy::assert_can_spend, code 3) fingerprint.
   //   2. If the response was anything else (e.g. task::EWrongStatus
@@ -3788,7 +3788,7 @@ function LiveConsole({
   //   3. If we exhaust all delivered tasks without verifying, post a
   //      "Kill-switch verification" task via /api/workforce/post-
   //      verification. Wait for the specialist to deliver it, then
-  //      attempt approve — which aborts EPolicyRevoked, deterministically.
+  //      attempt approve · which aborts EPolicyRevoked, deterministically.
   //
   // The planner-service holds the most-recent delivered task per policy
   // as the user-facing "pending release" checkpoint, so step 1 almost
@@ -3811,7 +3811,7 @@ function LiveConsole({
   const triedTaskIdsRef = useRef<Set<string>>(new Set());
   const verificationPostedRef = useRef(false);
   const inFlightRef = useRef(false);
-  // The revoke tx goes through the SAME unified signer as the grant —
+  // The revoke tx goes through the SAME unified signer as the grant -
   // works whether the owner signed in with Google or a Sui wallet.
   const { signAndExecute: signRevoke } = useAccountSigner();
 
@@ -3840,7 +3840,7 @@ function LiveConsole({
           error?: string;
         };
         // A successful approve is a race: revoke hadn't landed before the
-        // approve hit the validator. Skip — caller will try another task.
+        // approve hit the validator. Skip · caller will try another task.
         if (j.ok) return false;
         if (!isVerifiedEPolicyRevoked(j)) return false;
         setChainAbort({
@@ -3882,7 +3882,7 @@ function LiveConsole({
           break;
         }
       }
-      // Fallback — first capability/specialist match.
+      // Fallback · first capability/specialist match.
       if (!chosen) {
         for (const a of roster) {
           for (const cap of a.capabilities) {
@@ -3895,7 +3895,7 @@ function LiveConsole({
         }
       }
       if (!chosen) {
-        // Can't post — no eligible specialist. The state machine will
+        // Can't post · no eligible specialist. The state machine will
         // retry; if it persists, the UI surfaces "armed, awaiting
         // workforce" copy.
         verificationPostedRef.current = false;
@@ -3932,7 +3932,7 @@ function LiveConsole({
   );
 
   // Drive the kill-switch state machine. The effect re-runs whenever the
-  // task list updates (useTasksForPolicy polls every 3s) — so a freshly
+  // task list updates (useTasksForPolicy polls every 3s) · so a freshly
   // delivered task is picked up automatically.
   useEffect(() => {
     if (chainAbort) return;
@@ -3992,7 +3992,7 @@ function LiveConsole({
     });
   }
 
-  // Manual "Release payment" on the pending-release task — exactly the
+  // Manual "Release payment" on the pending-release task · exactly the
   // same approve call the auto-approve loop would have made; we just
   // expose it as a deliberate user action when the policy is live so the
   // judge can choose between Release and Revoke.
@@ -4011,7 +4011,7 @@ function LiveConsole({
         body: JSON.stringify({ task_id: taskId, policy_id: policyId }),
       });
     } catch {
-      /* silent — the polled task list will reflect the result */
+      /* silent · the polled task list will reflect the result */
     } finally {
       setReleaseSubmitting(false);
       releaseSubmittingRef.current = false;
@@ -4041,7 +4041,7 @@ function LiveConsole({
           {activation.name} is at work.
         </h1>
         <div className="flex flex-wrap items-center gap-3">
-          {/* Always-visible kill-switch affordance. Calm by design —
+          {/* Always-visible kill-switch affordance. Calm by design -
               just a small chip framed as control, not as panic. Opens
               the same RevokeModal as the PolicyCard's primary button.
               Hidden once revoked / refused since the moment has passed. */}
@@ -4051,7 +4051,7 @@ function LiveConsole({
               onClick={() => setConfirmRevoke(true)}
               disabled={!policyId || revokeSubmitting}
               className="inline-flex items-center gap-1.5 border border-line bg-bg-elev px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-ink-2 transition-colors hover:border-red-400 hover:text-red-700 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-              title="Revoke the policy — the chain will refuse the next payment."
+              title="Revoke the policy · the chain will refuse the next payment."
             >
               <ShieldOff className="h-3 w-3" strokeWidth={1.75} aria-hidden />
               You&apos;re in control · revoke
@@ -4151,7 +4151,7 @@ function statusLabel(s: "active" | "revoked" | "expired" | "exhausted") {
 }
 
 // =============================================================================
-// Policy status card — primary surface, includes Revoke
+// Policy status card · primary surface, includes Revoke
 // =============================================================================
 
 function PolicyCard({
@@ -4178,12 +4178,12 @@ function PolicyCard({
   const pct = remaining !== null ? Math.max(0, Math.min(1, remaining / cap)) : 0;
   const isLive = status === "active";
   const isRevoked = status === "revoked";
-  // Per-policy realized P&L — the honest "your trader's result" number,
+  // Per-policy realized P&L · the honest "your trader's result" number,
   // attributed on-chain even though the demo trades house capital.
   const trades = useTraderTrades(policyId);
   const realizedPnl = trades.realizedPnlUsd;
 
-  // Pulse the card the moment the chain debits the leash — every
+  // Pulse the card the moment the chain debits the leash · every
   // record_spend bumps policy.spent, which we watch directly so the
   // burn-down reflects real on-chain state, not our own bookkeeping.
   const prevSpentRef = useRef<bigint | null>(null);
@@ -4215,7 +4215,7 @@ function PolicyCard({
           aria-hidden
         />
       )}
-      {/* Command strip — status · inline budget burn-down · details toggle */}
+      {/* Command strip · status · inline budget burn-down · details toggle */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-5">
         <StatusPill status={status} />
         <div className="flex min-w-[220px] flex-1 items-center gap-3">
@@ -4298,12 +4298,12 @@ function PolicyCard({
           </div>
           <p className="font-mono text-[9.5px] leading-relaxed tracking-[0.04em] text-muted">
             Every spend recorded by{" "}
-            <span className="text-ink-2">operator_policy::record_spend</span> — on
+            <span className="text-ink-2">operator_policy::record_spend</span> · on
             chain, not in our database. The chain refuses the next bet once the
             budget runs out; funds stay locked in escrow, past wins still pay out.
           </p>
 
-          {/* Capital story — who stakes, who's leashed, whose P&L. Honest
+          {/* Capital story · who stakes, who's leashed, whose P&L. Honest
               by design: the demo trades house capital under YOUR policy. */}
           <div className="border-t border-line pt-3">
             <p className="font-mono text-[9px] uppercase tracking-[0.28em] text-muted">
@@ -4344,7 +4344,7 @@ function PolicyCard({
             <p className="mt-2 text-[10.5px] leading-relaxed text-muted">
               Testnet demo trades house capital under{" "}
               <span className="text-ink-2">your</span> policy. Mainnet design: your
-              own PredictManager —{" "}
+              own PredictManager -{" "}
               <a
                 href="https://github.com/shariqazeem/brief/blob/main/SUBMISSION.md"
                 target="_blank"
@@ -4473,11 +4473,11 @@ function ChainRefusedCard({
   const codeLabel =
     code !== undefined
       ? `${code}${named ? ` (${named})` : ""}`
-      : named ?? "—";
+      : named ?? "-";
 
   return (
     <div className="mt-6 animate-rejection-flash overflow-hidden border-2 border-red-500 bg-red-50/70 text-red-900">
-      {/* Overline banner — runs full bleed inside the card, mono caps. */}
+      {/* Overline banner · runs full bleed inside the card, mono caps. */}
       <div className="border-b-2 border-red-500 bg-red-500 px-5 py-2 text-center font-mono text-[10.5px] uppercase tracking-[0.5em] text-bg sm:text-[11px]">
         ✕ Chain intervention · settlement refused
       </div>
@@ -4498,7 +4498,7 @@ function ChainRefusedCard({
           </p>
         </div>
 
-        {/* "REFUSED" stamp — visual seal that locks the fingerprint in.
+        {/* "REFUSED" stamp · visual seal that locks the fingerprint in.
             The rotation + double-border feels stamped, not rendered. */}
         <div
           className="relative shrink-0 self-start"
@@ -4512,7 +4512,7 @@ function ChainRefusedCard({
               refused
             </p>
             <p className="mt-1 font-mono text-[22px] font-medium tabular-nums text-red-800 sm:text-[26px]">
-              {code ?? "—"}
+              {code ?? "-"}
             </p>
             <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-red-700">
               {named ?? "EPolicyRevoked"}
@@ -4521,7 +4521,7 @@ function ChainRefusedCard({
         </div>
       </div>
 
-      {/* Abort fingerprint — read like a chain receipt. */}
+      {/* Abort fingerprint · read like a chain receipt. */}
       <dl className="grid gap-3 border-t-2 border-red-300 bg-red-50/40 px-5 py-5 font-mono text-[12px] sm:grid-cols-2 sm:gap-y-2 sm:px-7">
         <AbortRow label="Abort code">{codeLabel}</AbortRow>
         <AbortRow label="Module / function">
@@ -4575,7 +4575,7 @@ function ChainRefusedCard({
         )}
       </dl>
 
-      {/* Punchline — the line that has anchored Article III of the
+      {/* Punchline · the line that has anchored Article III of the
           landing now closes the console payoff. Sealed by a 2px ink
           divider so it reads as the final beat, not body text. */}
       <div className="border-t-2 border-red-700/80 bg-red-100/40 px-5 py-5 sm:px-7 sm:py-6">
@@ -4631,11 +4631,11 @@ function KillSwitchInFlight({
   let copy: string;
   if (phase === "verifying_post") {
     copy =
-      "Posting a kill-switch verification task. The specialist will accept and deliver in seconds — then the chain refuses settlement.";
+      "Posting a kill-switch verification task. The specialist will accept and deliver in seconds · then the chain refuses settlement.";
   } else if (verificationTask) {
     if (verificationTask.status === "delivered") {
       copy =
-        "Verification task delivered. Submitting the (now-refused) payment — the chain refusal lands here in a beat.";
+        "Verification task delivered. Submitting the (now-refused) payment · the chain refusal lands here in a beat.";
     } else if (verificationTask.status === "approved") {
       copy =
         "Verification task settled before revoke landed. Re-arming on the next delivery…";
@@ -4647,12 +4647,12 @@ function KillSwitchInFlight({
       "Attempting to settle a delivered task; the chain will refuse and the abort lands here in a beat.";
   } else {
     copy =
-      "Policy revoked. No delivery pending — posting a tiny verification task so the chain can prove the kill switch is real.";
+      "Policy revoked. No delivery pending · posting a tiny verification task so the chain can prove the kill switch is real.";
   }
 
   return (
     <div className="mt-6 overflow-hidden border-2 border-red-400 bg-red-50/60">
-      {/* Heartbeat top line — the chain is making up its mind. */}
+      {/* Heartbeat top line · the chain is making up its mind. */}
       <span
         className="block h-px w-full bg-red-500 animate-operator-pulse-line"
         aria-hidden
@@ -4712,7 +4712,7 @@ function KillSwitchInFlight({
 }
 
 // ---------------------------------------------------------------------------
-// Team panel — three agent presences (Planner + two specialists) with live
+// Team panel · three agent presences (Planner + two specialists) with live
 // status lines tied to the chain state so the screen reads as a working
 // team, not a polling table.
 // ---------------------------------------------------------------------------
@@ -4796,7 +4796,7 @@ function specialistStatusLine(
     return { text: "Authority revoked · standing by", active: false };
   }
   if (!address) {
-    return { text: "Not yet on chain — boot the specialist", active: false };
+    return { text: "Not yet on chain · boot the specialist", active: false };
   }
   const mine = tasks
     .filter((t) => t.assignedTo.toLowerCase() === address.toLowerCase())
@@ -4894,7 +4894,7 @@ function AgentPresence({
             className="pointer-events-none absolute inset-x-0 top-0 h-px bg-emerald-500/60 animate-operator-pulse-line"
             aria-hidden
           />
-          {/* Ambient scan — very low-contrast emerald sweep, 7s loop.
+          {/* Ambient scan · very low-contrast emerald sweep, 7s loop.
               Sells "this thing is alive" without nagging the eye. */}
           <span
             className="pointer-events-none absolute inset-y-0 left-0 w-[40%] -translate-x-full bg-gradient-to-r from-transparent via-emerald-500/[0.04] to-transparent animate-operator-scan"
@@ -4973,7 +4973,7 @@ function AgentPresence({
 }
 
 // ---------------------------------------------------------------------------
-// Pending release — the guided checkpoint. The planner-service holds the
+// Pending release · the guided checkpoint. The planner-service holds the
 // most-recent delivered task; this card shows it with two equal-weight
 // actions so the judge always has a clear next move.
 // ---------------------------------------------------------------------------
@@ -5021,7 +5021,7 @@ function PendingReleaseSection({
       </p>
 
       <div className="mt-3 animate-fade-up overflow-hidden border-2 border-ink bg-bg-elev">
-        {/* Top heartbeat — the chain is waiting for your signal. */}
+        {/* Top heartbeat · the chain is waiting for your signal. */}
         <span
           className="block h-px w-full bg-amber-400/70 animate-operator-pulse-line"
           aria-hidden
@@ -5066,11 +5066,11 @@ function PendingReleaseSection({
           </div>
         </div>
 
-        {/* The two branches — equal visual weight, opposite tones, each
+        {/* The two branches · equal visual weight, opposite tones, each
             with explicit "what happens" copy underneath. The judge can
             see the consequence of each choice without reading docs. */}
         <div className="grid border-t border-line sm:grid-cols-2">
-          {/* RELEASE — happy path */}
+          {/* RELEASE · happy path */}
           <div className="border-b border-line bg-bg-elev p-5 sm:border-b-0 sm:border-r">
             <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-ink-2">
               Release payment
@@ -5106,13 +5106,13 @@ function PendingReleaseSection({
             </button>
           </div>
 
-          {/* REVOKE — the kill switch */}
+          {/* REVOKE · the kill switch */}
           <div className="bg-red-50/30 p-5">
             <p className="font-mono text-[10px] uppercase tracking-[0.32em] text-red-700">
               Revoke authority
             </p>
             <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-              You sign once. The chain refuses this payment — and every payment
+              You sign once. The chain refuses this payment · and every payment
               under this policy from now on. Funds stay locked in escrow until
               the task expires.
             </p>
@@ -5132,7 +5132,7 @@ function PendingReleaseSection({
 }
 
 // =============================================================================
-// Brief — verbatim, what the Planner is working from
+// Brief · verbatim, what the Planner is working from
 // =============================================================================
 
 function Brief({ brief }: { brief: string }) {
@@ -5149,7 +5149,7 @@ function Brief({ brief }: { brief: string }) {
 }
 
 // =============================================================================
-// Mission Narrator — teaches a beginner what an "agent economy" is by
+// Mission Narrator · teaches a beginner what an "agent economy" is by
 // narrating the real on-chain state in plain language.
 //
 // Every beat is derived from a real source: the OperatorPolicy object,
@@ -5195,12 +5195,12 @@ function MissionNarrator({
 }) {
   const beats: NarratorBeat[] = [];
 
-  // 1) Funding — happens the moment the user signed the activation tx.
+  // 1) Funding · happens the moment the user signed the activation tx.
   beats.push({
     kind: "granted",
     ts: 0,
     state: "done",
-    title: `You gave the team a ${activation.budgetSui.toFixed(2)} SUI budget — minted on-chain.`,
+    title: `You gave the team a ${activation.budgetSui.toFixed(2)} SUI budget · minted on-chain.`,
     detail: (
       <>
         A Move <span className="font-mono text-ink">OperatorPolicy</span> object
@@ -5222,7 +5222,7 @@ function MissionNarrator({
     ),
   });
 
-  // 2) Planner-working — between the grant landing and the first task
+  // 2) Planner-working · between the grant landing and the first task
   //    being posted, the planner-service is decomposing the brief.
   const tasksSorted = [...tasks].sort((a, b) =>
     Number(a.postedAtMs - b.postedAtMs),
@@ -5243,7 +5243,7 @@ function MissionNarrator({
     });
   }
 
-  // 3) Per-task beats — posted / accepted / delivered / paid. Each is
+  // 3) Per-task beats · posted / accepted / delivered / paid. Each is
   //    derived from the task object's current `status` field.
   const agentByAddress = new Map(
     roster.map((a) => [a.address.toLowerCase(), a]),
@@ -5255,7 +5255,7 @@ function MissionNarrator({
     const repBadge = agent ? ` (reputation ${agent.reputationScore})` : "";
     const bountySui = Number(t.bountyMist) / 1e9;
 
-    // POSTED — always emit (the task exists on-chain).
+    // POSTED · always emit (the task exists on-chain).
     beats.push({
       kind: "task-posted",
       ts,
@@ -5303,7 +5303,7 @@ function MissionNarrator({
           <>
             {t.primaryCapability === "research" ? (
               <>
-                Audit report written and stored content-addressed — fetchable
+                Audit report written and stored content-addressed · fetchable
                 by anyone, not just from our server.
               </>
             ) : t.primaryCapability === "treasury" ? (
@@ -5335,7 +5335,7 @@ function MissionNarrator({
         title: `Planner paid ${specialistName} ${bountySui.toFixed(3)} SUI.`,
         detail: (
           <>
-            Settled atomically — the policy&apos;s spent counter went up,{" "}
+            Settled atomically · the policy&apos;s spent counter went up,{" "}
             {specialistName}&apos;s reputation went up, and a 10% holdback
             stays parked until expiry.
           </>
@@ -5348,19 +5348,19 @@ function MissionNarrator({
         kind: "task-expired",
         ts: ts + 4,
         state: "done",
-        title: `${specialistName}'s job expired before delivery — bounty returned to you.`,
+        title: `${specialistName}'s job expired before delivery · bounty returned to you.`,
       });
     }
   }
 
-  // 4) Kill switch — always present at the bottom; the visual changes if
+  // 4) Kill switch · always present at the bottom; the visual changes if
   //    the chain has already refused a payment.
   if (chainAbort) {
     beats.push({
       kind: "killswitch-refused",
       ts: chainAbort.at,
       state: "done",
-      title: "You hit the kill switch — the blockchain refused the next payment.",
+      title: "You hit the kill switch · the blockchain refused the next payment.",
       detail: (
         <>
           The Move runtime aborted with{" "}
@@ -5386,12 +5386,12 @@ function MissionNarrator({
       ts: Number.MAX_SAFE_INTEGER,
       state: "pending",
       title:
-        "You hold the kill switch — revoke any time and the chain refuses the next payment.",
+        "You hold the kill switch · revoke any time and the chain refuses the next payment.",
       detail: (
         <>
           Revoke flips the policy&apos;s{" "}
           <span className="font-mono text-ink">revoked</span> bit. The Move
-          runtime checks that bit before every settlement —{" "}
+          runtime checks that bit before every settlement -{" "}
           {policy?.revoked
             ? "this policy is already revoked."
             : "the agent literally cannot spend if it's set."}
@@ -5414,7 +5414,7 @@ function MissionNarrator({
         </p>
       </header>
       <ol className="relative px-5 py-5 sm:px-6 sm:py-6">
-        {/* Connecting rail behind the dots — calm vertical spine. */}
+        {/* Connecting rail behind the dots · calm vertical spine. */}
         <span
           aria-hidden
           className="pointer-events-none absolute left-[1.55rem] top-7 h-[calc(100%-3.25rem)] w-px bg-line sm:left-[1.85rem]"
@@ -5506,12 +5506,12 @@ function narratorActionFor(capability: string): string {
   return "work the brief";
 }
 
-// (RosterStrip removed — replaced by the live `Team` panel above the
+// (RosterStrip removed · replaced by the live `Team` panel above the
 // activity feed, which also surfaces the Planner and per-agent status
 // lines tied to the chain state.)
 
 // =============================================================================
-// Activity feed — task timeline + nice deliverables
+// Activity feed · task timeline + nice deliverables
 // =============================================================================
 
 const STATUS_TONE: Record<TaskStatus, { label: string; tone: string; dot: string }> = {
@@ -5536,7 +5536,7 @@ const STATUS_TONE: Record<TaskStatus, { label: string; tone: string; dot: string
     tone: "border-red-300 text-red-700",
     dot: "bg-red-500",
   },
-  unknown: { label: "—", tone: "border-line text-muted", dot: "bg-muted" },
+  unknown: { label: "-", tone: "border-line text-muted", dot: "bg-muted" },
 };
 
 function ActivityFeed({
@@ -5565,7 +5565,7 @@ function ActivityFeed({
           </p>
         ) : tasks.length === 0 ? (
           <p className="px-6 py-8 text-center font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
-            Planner is decomposing — first job appears here in seconds.
+            Planner is decomposing · first job appears here in seconds.
           </p>
         ) : (
           <ul className="divide-y divide-line">
@@ -5601,7 +5601,7 @@ function TaskCard({
       className="relative animate-land-in"
       style={{ animationDelay: `${index * 60}ms` }}
     >
-      {/* Timeline rail — connects rows so the activity reads as a
+      {/* Timeline rail · connects rows so the activity reads as a
           sequence, not a table. Hidden when expanded so the deliverable
           surface owns the vertical space. */}
       {!expanded && (
@@ -5734,7 +5734,7 @@ function SpecialistChip({ address }: { address: string }) {
 }
 
 // =============================================================================
-// Deliverable rendering — markdown / orders table / view-raw disclosure
+// Deliverable rendering · markdown / orders table / view-raw disclosure
 // =============================================================================
 
 function DeliverableSurface({
@@ -5784,7 +5784,7 @@ function DeliverableSurface({
           // we don't want it to read as "Walrus integration is fake."
           <span
             className="inline-flex items-center gap-1.5 border border-line bg-bg-elev-2/60 px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.22em] text-muted"
-            title="Walrus skipped on this delivery (no WAL coin on the agent's wallet) — falling back to inline payload on chain."
+            title="Walrus skipped on this delivery (no WAL coin on the agent's wallet) · falling back to inline payload on chain."
           >
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted/60" aria-hidden />
             Inline · Walrus unfunded
@@ -5855,7 +5855,7 @@ type TreasuryDeliverable = {
   };
 };
 
-// Walrus badge — the "Stored on Walrus · content-addressed" affordance
+// Walrus badge · the "Stored on Walrus · content-addressed" affordance
 // surfaced in the deliverable header. Clickable to the public testnet
 // aggregator so a judge can fetch the blob directly and see that it
 // lives on decentralised storage, not on our server.
@@ -5867,7 +5867,7 @@ function WalrusBadge({ blobId }: { blobId: string }) {
       target="_blank"
       rel="noreferrer"
       className="group inline-flex items-center gap-1.5 border border-emerald-600/40 bg-emerald-50/70 px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.22em] text-emerald-800 transition-colors hover:border-emerald-700 hover:bg-emerald-100/70 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
-      title={`Walrus content-addressed blob ${blobId} — click to fetch from the public aggregator`}
+      title={`Walrus content-addressed blob ${blobId} · click to fetch from the public aggregator`}
     >
       <span
         className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-600"
@@ -5911,7 +5911,7 @@ function TreasuryView({
   }
   return (
     <div className="space-y-5">
-      {/* Mode badge — the single most important "this is real" signal
+      {/* Mode badge · the single most important "this is real" signal
           on this surface. Green for LIVE, amber for SIMULATED, with a
           one-line justification immediately under it. */}
       <div
@@ -5969,15 +5969,15 @@ function TreasuryView({
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-ink-2">
           <span>
             <span className="text-muted">pool </span>
-            {v.pool?.key ?? "—"}
+            {v.pool?.key ?? "-"}
           </span>
           <span>
             <span className="text-muted">mid </span>
             <span className="tabular-nums text-ink">
-              ${v.pool?.mid_price?.toFixed(4) ?? "—"}
+              ${v.pool?.mid_price?.toFixed(4) ?? "-"}
             </span>
             <span className="ml-1 text-muted">
-              ({v.pool?.price_source ?? "—"})
+              ({v.pool?.price_source ?? "-"})
             </span>
           </span>
           {isLive && v.metadata?.balance_manager && (
@@ -6069,8 +6069,8 @@ function TreasuryView({
                           }
                           title={
                             isLive
-                              ? "On-chain order id propagating — refresh in a moment"
-                              : "Simulated — no on-chain order id"
+                              ? "On-chain order id propagating · refresh in a moment"
+                              : "Simulated · no on-chain order id"
                           }
                         >
                           {isLive ? "propagating…" : o.status}
@@ -6085,7 +6085,7 @@ function TreasuryView({
           {isLive && (
             <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
               Each order id is the actual DeepBook v3 OrderPlaced event from
-              the deliver tx — click through to suiscan.
+              the deliver tx · click through to suiscan.
             </p>
           )}
         </div>
@@ -6108,7 +6108,7 @@ function TreasuryView({
 // -----------------------------------------------------------------------------
 // Minimal markdown renderer. Just enough to render the Research deliverable
 // cleanly (headings, lists, paragraphs, inline bold/italic/code, code blocks).
-// Intentionally tiny — no external deps.
+// Intentionally tiny · no external deps.
 // -----------------------------------------------------------------------------
 
 function Markdown({ source }: { source: string }) {
@@ -6366,7 +6366,7 @@ function RevokeModal({
         className="w-full max-w-md overflow-hidden border-2 border-red-500 bg-bg-elev shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Banner header — matches the climax card's vocabulary. */}
+        {/* Banner header · matches the climax card's vocabulary. */}
         <div className="flex items-center gap-2 border-b-2 border-red-500 bg-red-500 px-5 py-2 font-mono text-[10.5px] uppercase tracking-[0.4em] text-bg">
           <ShieldOff className="h-3.5 w-3.5" strokeWidth={2} />
           Halt the workforce
@@ -6381,12 +6381,12 @@ function RevokeModal({
           </h3>
           <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
             You&apos;ll sign one transaction. The chain itself will refuse the
-            workforce&apos;s next settlement — funds stay locked in escrow, the
+            workforce&apos;s next settlement · funds stay locked in escrow, the
             specialist never gets paid. Final until you grant a new policy.
           </p>
 
           {/* Tiny preview of the abort fingerprint the judge is about to
-              earn — frames the "this is the actual on-chain receipt"
+              earn · frames the "this is the actual on-chain receipt"
               feel without being overbearing. */}
           <div className="mt-5 grid gap-1 border border-line bg-bg-elev-2/60 px-4 py-3 font-mono text-[10.5px] uppercase tracking-[0.22em] text-muted">
             <div className="flex items-center justify-between gap-3">

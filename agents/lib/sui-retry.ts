@@ -8,16 +8,16 @@
 // consumption" / equivocation error because the SDK still holds the
 // stale version.
 //
-// CRITICAL #1 — caching: @mysten/sui's Transaction object caches its
+// CRITICAL #1 · caching: @mysten/sui's Transaction object caches its
 // serialized bytes after the first build, so retrying with the SAME
 // Transaction instance reuses the stale gas. To force a fresh build
 // (and a fresh gas-coin selection from the wallet's current coin set)
-// the caller passes a `buildTx()` function — we re-invoke it on every
+// the caller passes a `buildTx()` function · we re-invoke it on every
 // attempt.
 //
-// CRITICAL #2 — idempotency: some retryable error signatures
+// CRITICAL #2 · idempotency: some retryable error signatures
 // ("could not find the referenced object", "current version:") can
-// occur AFTER a transaction has already executed and landed on chain —
+// occur AFTER a transaction has already executed and landed on chain -
 // the failure is in the response read-back, not in the execution. A
 // blind retry then re-executes a mutation that's already done, and the
 // second attempt aborts with a misleading fingerprint (e.g., a submit
@@ -43,7 +43,7 @@ import type { AgentContext } from "./sui.js";
 
 // Error signatures we will retry on. Sui SDK + fullnode error messages
 // vary by node, so we cast a wide net but stay specific to coin/version
-// races — never retry programming errors like Move aborts.
+// races · never retry programming errors like Move aborts.
 const RACE_SIGNATURES = [
   // SDK-side stale cache
   /not\s+available\s+for\s+consumption/i,
@@ -64,12 +64,12 @@ function isRetryable(msg: string): boolean {
  * Result of an idempotency check. Returned by `alreadyDone` to tell the
  * retry helper whether the original tx's effects already landed.
  *
- *   - `null`: effect did not land — safe to retry.
+ *   - `null`: effect did not land · safe to retry.
  *   - `"done"`: effect landed; the helper synthesizes a minimal success
  *               response (no digest known).
  *   - `SuiTransactionBlockResponse`: effect landed and the caller
  *                                    already constructed (or fetched)
- *                                    the full response — return it.
+ *                                    the full response · return it.
  */
 export type AlreadyDoneResult =
   | null
@@ -86,7 +86,7 @@ export type SignWithRetryOpts = {
   /**
    * Idempotency check called BEFORE every retry. Use this to ask the
    * chain whether the intended on-chain effect of the previous attempt
-   * already landed — if so we short-circuit to success instead of
+   * already landed · if so we short-circuit to success instead of
    * re-executing the mutation.
    *
    * For mutating workforce ops the right check is the post-state shape:
@@ -116,11 +116,11 @@ function syntheticSuccessResponse(label: string): SuiTransactionBlockResponse {
 /**
  * signAndExecuteTransaction(...) with retry-on-coin-race AND
  * caller-driven idempotency. The caller provides:
- *   - a `buildTx()` function (or a Transaction) — we INVOKE IT FRESH on
+ *   - a `buildTx()` function (or a Transaction) · we INVOKE IT FRESH on
  *     every retry so a rebuild uses current gas (the SDK caches built
  *     bytes per Transaction instance; reusing it reuses the stale gas
  *     that caused the race).
- *   - an optional `alreadyDone()` post-state check — see SignWithRetryOpts.
+ *   - an optional `alreadyDone()` post-state check · see SignWithRetryOpts.
  *
  * Throws on the final attempt or on any non-race error (Move aborts,
  * validator rejections, etc.) so callers' abort-fingerprint parsing
@@ -151,7 +151,7 @@ export async function signAndExecuteWithRetry(
       const msg = e instanceof Error ? e.message : String(e);
       const retryable = isRetryable(msg);
       if (!retryable) {
-        // Move aborts (EPolicyRevoked etc.) reach here — never retry.
+        // Move aborts (EPolicyRevoked etc.) reach here · never retry.
         throw e;
       }
 
@@ -164,14 +164,14 @@ export async function signAndExecuteWithRetry(
           const r = await opts.alreadyDone();
           if (r === "done") {
             console.log(
-              `[${label}] idempotency check: effect already landed on chain (suppressed retryable error: "${msg.slice(0, 100).replace(/\n/g, " ")}") — short-circuiting to success`,
+              `[${label}] idempotency check: effect already landed on chain (suppressed retryable error: "${msg.slice(0, 100).replace(/\n/g, " ")}") · short-circuiting to success`,
             );
             return syntheticSuccessResponse(label);
           }
           if (r && typeof r === "object" && "digest" in r) {
             const digest = (r as { digest?: string }).digest ?? "?";
             console.log(
-              `[${label}] idempotency check: effect already landed (tx=${typeof digest === "string" ? digest.slice(0, 12) : "?"}…) — returning the on-chain response`,
+              `[${label}] idempotency check: effect already landed (tx=${typeof digest === "string" ? digest.slice(0, 12) : "?"}…) · returning the on-chain response`,
             );
             return r as SuiTransactionBlockResponse;
           }
@@ -179,7 +179,7 @@ export async function signAndExecuteWithRetry(
         } catch (chainErr) {
           const cm = chainErr instanceof Error ? chainErr.message : String(chainErr);
           console.warn(
-            `[${label}] idempotency check threw (${cm.slice(0, 100)}) — will retry conservatively`,
+            `[${label}] idempotency check threw (${cm.slice(0, 100)}) · will retry conservatively`,
           );
         }
       }
@@ -190,7 +190,7 @@ export async function signAndExecuteWithRetry(
 
       const backoffMs = base * i + Math.floor(Math.random() * 350);
       console.warn(
-        `[${label}] coin/version race on attempt ${i}/${attempts} — retrying in ${backoffMs}ms (${msg.slice(0, 160).replace(/\n/g, " ")})`,
+        `[${label}] coin/version race on attempt ${i}/${attempts} · retrying in ${backoffMs}ms (${msg.slice(0, 160).replace(/\n/g, " ")})`,
       );
       await new Promise((r) => setTimeout(r, backoffMs));
     }

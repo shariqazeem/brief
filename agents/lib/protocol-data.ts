@@ -175,7 +175,7 @@ export async function fetchSuiDefiProtocols(): Promise<ProtocolStat[]> {
 
 /**
  * Pick the top N protocols matching a coarse intent ("yield" vs "lending"
- * vs "trading"). Heuristic — Brief is not a quant engine; the agent's
+ * vs "trading"). Heuristic · Brief is not a quant engine; the agent's
  * LLM step does the deeper reasoning.
  */
 export function rankForIntent(
@@ -231,10 +231,10 @@ export function rankForIntent(
       if (a.category === "Liquid Staking") scoreA += 25;
       if (b.category === "Liquid Staking") scoreB += 25;
     }
-    // Modest APY tiebreaker (capped) — only matters when other factors tie
+    // Modest APY tiebreaker (capped) · only matters when other factors tie
     scoreA += Math.min(a.best_apy, 30) * 0.3;
     scoreB += Math.min(b.best_apy, 30) * 0.3;
-    // TVL tiebreaker (log-scaled) — bigger protocols slightly favored
+    // TVL tiebreaker (log-scaled) · bigger protocols slightly favored
     scoreA += Math.log10(Math.max(a.tvl_usd, 1)) * 2;
     scoreB += Math.log10(Math.max(b.tvl_usd, 1)) * 2;
 
@@ -266,7 +266,7 @@ export function computeGuardianWarnings(
       warnings.push({
         kind: "concentration",
         severity: "red",
-        message: `${(frac * 100).toFixed(0)}% allocated to ${name} — single-protocol failure would wipe most of the position.`,
+        message: `${(frac * 100).toFixed(0)}% allocated to ${name} · single-protocol failure would wipe most of the position.`,
       });
     } else if (frac > 0.5) {
       warnings.push({
@@ -290,7 +290,7 @@ export function computeGuardianWarnings(
       warnings.push({
         kind: "slippage",
         severity: ratio > 0.1 ? "red" : "amber",
-        message: `Projected slippage on the ${name} deposit at this size is ~${pctSlip.toFixed(2)}%. Order is ${(ratio * 100).toFixed(1)}% of pool TVL — consider splitting across two transactions.`,
+        message: `Projected slippage on the ${name} deposit at this size is ~${pctSlip.toFixed(2)}%. Order is ${(ratio * 100).toFixed(1)}% of pool TVL · consider splitting across two transactions.`,
       });
     }
   }

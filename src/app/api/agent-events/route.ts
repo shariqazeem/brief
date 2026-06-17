@@ -4,7 +4,7 @@
 // appends one NDJSON line per lifecycle beat to
 // .cursors/agent-events.ndjson (see agents/workforce/lib/agent-events.ts);
 // this route tails the file and re-streams matching lines so the Mind
-// canvas animates each step of a decision as it happens — observe →
+// canvas animates each step of a decision as it happens · observe →
 // signals → SVI → decision → mint → Walrus → delivered.
 //
 // Why a file tail and not an in-process emitter: the trader runs as a
@@ -12,7 +12,7 @@
 // bridge that survives either process restarting and needs no new
 // port through Caddy.
 //
-// Deploy note: Caddy buffers proxied responses by default — the
+// Deploy note: Caddy buffers proxied responses by default · the
 // /api/agent-events route needs `flush_interval -1` in the reverse_proxy
 // block for events to arrive sub-second.
 
@@ -47,7 +47,7 @@ function parseLines(chunk: string): AgentEvent[] {
     try {
       out.push(JSON.parse(trimmed) as AgentEvent);
     } catch {
-      /* torn or rotated line — skip */
+      /* torn or rotated line · skip */
     }
   }
   return out;
@@ -110,7 +110,7 @@ export async function GET(req: NextRequest) {
           const stat = await fs.stat(FILE);
           if (stat.size === lastSize) return;
           if (stat.size < lastSize) {
-            // Rotation — re-read from the top.
+            // Rotation · re-read from the top.
             lastSize = 0;
           }
           const raw = await fs.readFile(FILE, "utf8");
@@ -120,7 +120,7 @@ export async function GET(req: NextRequest) {
             if (matches(e, policyId)) sendEvent(e);
           }
         } catch {
-          /* file missing or transient read error — keep polling */
+          /* file missing or transient read error · keep polling */
         }
       }, POLL_MS);
 

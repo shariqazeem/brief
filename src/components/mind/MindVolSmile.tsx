@@ -1,4 +1,4 @@
-// MindVolSmile — the live SVI smile read from DeepBook Predict's
+// MindVolSmile · the live SVI smile read from DeepBook Predict's
 // on-chain oracle, with the current strike pinned. This is the curve
 // the quant strategy prices against; rendering it live is the single
 // strongest "this agent is real" frame in the product.

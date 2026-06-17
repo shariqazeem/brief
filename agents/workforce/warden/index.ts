@@ -1,4 +1,4 @@
-// Gas Warden — keeps the agent fleet solvent so a demo (or 100 real
+// Gas Warden · keeps the agent fleet solvent so a demo (or 100 real
 // users) never dies on "insufficient gas".
 //
 // Every WARDEN_POLL_MS it:
@@ -6,17 +6,17 @@
 //      the PredictManager's dUSDC.
 //   2. If a wallet is below its floor, pulls SUI from the richest
 //      wallet that can spare it (donor keeps its own target + buffer),
-//      consolidating coins on both sides — the SDK's largest-coin gas
+//      consolidating coins on both sides · the SDK's largest-coin gas
 //      selection makes fragmented wallets fail high-cost txs (see
 //      AGENT-HANDOFF "gas coin selection bug").
-//   3. Falls back to the public faucet (15-min cooldown — gotcha #10:
+//   3. Falls back to the public faucet (15-min cooldown · gotcha #10:
 //      hammering it blocks the VM egress IP for an hour) only when no
 //      wallet can donate.
 //   4. Writes .cursors/warden-status.json for /api/system/health and
 //      emits a `warden_topup` event so the dashboard can show the
 //      self-healing moment honestly.
 //
-// The warden REPORTS WAL + dUSDC but never tries to acquire them —
+// The warden REPORTS WAL + dUSDC but never tries to acquire them -
 // those come from the Walrus exchange + the dUSDC form, both human
 // steps. Honest status beats silent magic.
 //
@@ -109,7 +109,7 @@ async function transferSui(
   toAddress: string,
   amountMist: bigint,
 ): Promise<string> {
-  // Merge donor coins first — a fragmented donor can pick a gas coin
+  // Merge donor coins first · a fragmented donor can pick a gas coin
   // too small for split+transfer and abort at balance::split.
   try {
     await consolidateSuiCoins(donor.client, donor.keypair);
@@ -247,7 +247,7 @@ async function tick(
     } else {
       const result = await tryFaucet(needCtx.address);
       if (result === "ok") {
-        console.log(`[warden] no donor available — faucet requested for ${need.role}`);
+        console.log(`[warden] no donor available · faucet requested for ${need.role}`);
         pushAction({ ts: Date.now(), type: "faucet", to: need.role });
       } else if (result !== null) {
         console.warn(`[warden] faucet for ${need.role} failed: ${result}`);
@@ -300,13 +300,13 @@ async function main(): Promise<void> {
   }
   const managerId = (process.env.BRIEF_PREDICT_MANAGER_ID ?? "").trim();
   console.log(
-    `[warden] online — watching ${PLAN.map((p) => p.role).join(", ")} every ${POLL_MS / 1000}s` +
+    `[warden] online · watching ${PLAN.map((p) => p.role).join(", ")} every ${POLL_MS / 1000}s` +
       (managerId ? ` + manager ${managerId.slice(0, 10)}…` : ""),
   );
 
   if (process.env.WARDEN_ONCE === "1") {
     await tick(ctxs, managerId);
-    console.log("[warden] WARDEN_ONCE=1 — single tick done, exiting");
+    console.log("[warden] WARDEN_ONCE=1 · single tick done, exiting");
     return;
   }
 

@@ -51,7 +51,7 @@ export async function consolidateSuiCoins(
       coinsBefore: 1,
     };
   }
-  // Sort by balance desc — use the largest coin as the gas-payment
+  // Sort by balance desc · use the largest coin as the gas-payment
   // anchor so the merge doesn't fail with "no valid gas coin".
   const sorted = [...list].sort((a, b) =>
     BigInt(b.balance) > BigInt(a.balance) ? 1 : -1,

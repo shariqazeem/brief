@@ -1,16 +1,16 @@
-// "Get test USDC" — one-signature SUI → DBUSDC for testnet adoption.
+// "Get test USDC" · one-signature SUI → DBUSDC for testnet adoption.
 //
-// The DEEP/DBUSDC pool is whitelisted (0 fee) but THIN — routing through it
+// The DEEP/DBUSDC pool is whitelisted (0 fee) but THIN · routing through it
 // gave a terrible rate (~0.22 DBUSDC/SUI). The SUI/DBUSDC pool is deeply
 // liquid (~0.80 DBUSDC/SUI) but charges a DEEP fee. So we do both in one PTB:
-//   hop 1: a little SUI → DEEP on whitelisted DEEP_SUI (0 fee) — just enough
+//   hop 1: a little SUI → DEEP on whitelisted DEEP_SUI (0 fee) · just enough
 //          DEEP to pay the next hop's fee (0.3 SUI ≈ 13 DEEP, fee ≈ 0.05).
 //   hop 2: the rest of the SUI → DBUSDC on the LIQUID SUI/DBUSDC pool, paying
 //          the fee from hop 1's DEEP.
 // The user signs once and walks away with a usable amount of DBUSDC.
 //
 // Testnet only. Addresses are pinned from @mysten/deepbook-v3 testnet
-// constants — re-verify if DeepBook redeploys (same caveat as DEEPBOOK_CFG).
+// constants · re-verify if DeepBook redeploys (same caveat as DEEPBOOK_CFG).
 
 import { Transaction } from "@mysten/sui/transactions";
 
@@ -36,7 +36,7 @@ const CLOCK = "0x6";
 export function buildGetTestUsdcTx(owner: string, suiIn: number): Transaction {
   const tx = new Transaction();
   // Reserve a slice of SUI to mint DEEP for the SUI/DBUSDC fee; the rest buys
-  // DBUSDC. 0.3 SUI ≈ 13 DEEP — far more than any small swap's fee.
+  // DBUSDC. 0.3 SUI ≈ 13 DEEP · far more than any small swap's fee.
   const feeSui = Math.min(0.3, Math.max(0.08, suiIn * 0.2));
   const mainSui = Math.max(0.02, suiIn - feeSui);
   const [feeCoin, mainCoin] = tx.splitCoins(tx.gas, [
@@ -44,7 +44,7 @@ export function buildGetTestUsdcTx(owner: string, suiIn: number): Transaction {
     tx.pure.u64(BigInt(Math.round(mainSui * 1e9))),
   ]);
 
-  // hop 1 — SUI → DEEP on whitelisted DEEP_SUI (base=DEEP, quote=SUI), 0 fee
+  // hop 1 · SUI → DEEP on whitelisted DEEP_SUI (base=DEEP, quote=SUI), 0 fee
   // so a zero DEEP coin satisfies the signature.
   const zeroDeep = tx.moveCall({ target: "0x2::coin::zero", typeArguments: [DEEP_TYPE] });
   const [deepOut, feeSuiRem, deepFee1] = tx.moveCall({
@@ -53,7 +53,7 @@ export function buildGetTestUsdcTx(owner: string, suiIn: number): Transaction {
     arguments: [tx.object(DEEP_SUI_POOL), feeCoin, zeroDeep, tx.pure.u64(0), tx.object(CLOCK)],
   });
 
-  // hop 2 — SUI → DBUSDC on the LIQUID SUI/DBUSDC pool (base=SUI, quote=DBUSDC):
+  // hop 2 · SUI → DBUSDC on the LIQUID SUI/DBUSDC pool (base=SUI, quote=DBUSDC):
   // base-for-quote, paying the fee from hop 1's DEEP.
   const [suiRem, dbusdcOut, deepRem] = tx.moveCall({
     target: `${DEEPBOOK_PKG}::pool::swap_exact_base_for_quote`,

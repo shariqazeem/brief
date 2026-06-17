@@ -1,4 +1,4 @@
-// useAccountSigner — one hook that wraps either the dApp Kit wallet
+// useAccountSigner · one hook that wraps either the dApp Kit wallet
 // signer OR the zkLogin signer. Components that just want "I have a
 // connected account, sign this tx for me" use this so they don't have
 // to know which auth method is active.
@@ -30,7 +30,7 @@ export type SignAndExecuteOptions = {
 };
 
 export type AccountSigner = {
-  /** The active on-chain address — or null if neither auth path is set. */
+  /** The active on-chain address · or null if neither auth path is set. */
   address: string | null;
   source: AccountSource;
   signAndExecute: (
@@ -49,7 +49,7 @@ export function useAccountSigner(): AccountSigner {
 
   const signAndExecute = useCallback(
     (transaction: Transaction, cb?: SignAndExecuteOptions) => {
-      // zkLogin takes precedence — beginners who signed in with Google
+      // zkLogin takes precedence · beginners who signed in with Google
       // shouldn't be hijacked by a separately-connected wallet.
       if (zkSession) {
         void (async () => {
@@ -73,7 +73,7 @@ export function useAccountSigner(): AccountSigner {
             const raw = e instanceof Error ? e.message : String(e);
             const friendly =
               /Groth16|proof.*verify|InvalidUserSignature|epoch/i.test(raw)
-                ? "Your Google sign-in expired — sign in again and retry. (Sui zkLogin sessions are good for ~2 days.)"
+                ? "Your Google sign-in expired · sign in again and retry. (Sui zkLogin sessions are good for ~2 days.)"
                 : raw;
             cb?.onError?.(new Error(friendly));
           }

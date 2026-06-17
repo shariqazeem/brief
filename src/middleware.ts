@@ -1,11 +1,11 @@
 // Plants an anonymous session id (`brief_sid`) on first visit so the
 // SUI-spending API routes can rate-limit per session instead of per
-// IP — 100 hackathon judges on one venue NAT each get their own
+// IP · 100 hackathon judges on one venue NAT each get their own
 // dispatch allowance (rate-limit.ts still keeps a per-IP cap so
 // minting cookies doesn't multiply throughput).
 //
 // The id is random, carries no identity, and is never stored
-// server-side — it only keys an in-memory token bucket.
+// server-side · it only keys an in-memory token bucket.
 
 import { NextRequest, NextResponse } from "next/server";
 

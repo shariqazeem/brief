@@ -1,10 +1,10 @@
-// POST /api/agent/faucet — proxy the Sui testnet faucet for any Sui
+// POST /api/agent/faucet · proxy the Sui testnet faucet for any Sui
 // address. The judge cold-start affordance on /workforce calls this with
 // the connected wallet's address so a brand-new empty wallet can sign
 // the grant.
 //
 // Body: { recipient?: string }
-//   recipient — 0x… Sui address. When omitted, defaults to
+//   recipient · 0x… Sui address. When omitted, defaults to
 //               NEXT_PUBLIC_BRIEF_OPERATOR_ADDRESS (the Planner). The
 //               legacy POST-with-no-body shape is preserved.
 //

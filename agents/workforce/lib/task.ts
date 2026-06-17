@@ -176,7 +176,7 @@ export async function fetchTask(
 }
 
 // ----------------------------------------------------------------------
-// Tx builders — direct module calls
+// Tx builders · direct module calls
 // ----------------------------------------------------------------------
 
 export type PostTaskArgs = {
@@ -215,7 +215,7 @@ export function buildPostTaskTx(
 }
 
 export type AppendPostTaskArgs = {
-  /** A TransactionArgument referencing the coin to escrow as bounty —
+  /** A TransactionArgument referencing the coin to escrow as bounty -
    *  typically one element of a `tx.splitCoins(tx.gas, [...])` array. */
   bountyCoin: ReturnType<Transaction["splitCoins"]>[number];
   assignedTo: string;
@@ -228,7 +228,7 @@ export type AppendPostTaskArgs = {
 
 /**
  * Append a task::post call to an existing PTB. Lets the Planner batch
- * N sub-tasks of a single mission into ONE atomic transaction —
+ * N sub-tasks of a single mission into ONE atomic transaction -
  * eliminates the intra-mission gas-coin race that previously dropped
  * the 2nd post when it tried to use a stale version of the same gas
  * coin. Use with tx.splitCoins(tx.gas, [b1, b2, …, bN]) to fund each
@@ -315,7 +315,7 @@ export function appendMintAndSubmit(
 /**
  * Mint the Deliverable WorkObject AND submit it to the task in a single
  * atomic PTB. The Deliverable is parented to the task (its ID), and the
- * task transitions to DELIVERED — both or neither.
+ * task transitions to DELIVERED · both or neither.
  */
 export function buildMintAndSubmitTx(
   ctx: AgentContext,
@@ -327,7 +327,7 @@ export function buildMintAndSubmitTx(
 }
 
 /**
- * Approve a policied task. Atomic with operator_policy::record_spend —
+ * Approve a policied task. Atomic with operator_policy::record_spend -
  * if the policy is revoked between submit and this call, the whole PTB
  * aborts and the bounty stays escrowed.
  */

@@ -4,7 +4,7 @@
 // capital, with its reason + settled outcome) plus its lifetime STATS (launch
 // price for benchmarking, cumulative counts, peak value + worst drawdown).
 // Read from the same `.cursors/operator-{ledger,stats}-*.json` the trader
-// writes. The ledger is never trimmed — it's the track record.
+// writes. The ledger is never trimmed · it's the track record.
 
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "node:fs";

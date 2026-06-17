@@ -204,7 +204,7 @@ export function useOperatorPolicies(
 }
 
 // ---------------------------------------------------------------------------
-// Templates — the four canned operator types judges see on the Create screen
+// Templates · the four canned operator types judges see on the Create screen
 // ---------------------------------------------------------------------------
 
 export type OperatorTemplate = {

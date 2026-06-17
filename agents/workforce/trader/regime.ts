@@ -1,4 +1,4 @@
-// Market-regime classifier — the operator's "understanding" layer.
+// Market-regime classifier · the operator's "understanding" layer.
 //
 // Before it decides anything, the operator first asks "what kind of market is
 // this?" and classifies it into one of a few regimes. The regime then gates +
@@ -6,7 +6,7 @@
 // a stretched, fading tape (mean-reversion) is a stand-aside, not a chase.
 //
 // Deterministic + scale-stable: built from ROC (trend strength/direction),
-// RSI (stretch), and MA alignment — NOT raw annualized vol (which is
+// RSI (stretch), and MA alignment · NOT raw annualized vol (which is
 // scale-sensitive on a thin testnet pool). A third party recomputes it exactly.
 
 import type { SignalBundle } from "./signals.js";
@@ -30,9 +30,9 @@ export type Regime = {
 };
 
 // Thresholds on 30m ROC (fraction). Scale-stable across assets.
-const SOME = 0.0025; // 0.25% — a trend exists at all
-const STRONG = 0.006; // 0.6% — a strong directional move
-const SHARP = 0.012; // 1.2% — a breakout-grade move
+const SOME = 0.0025; // 0.25% · a trend exists at all
+const STRONG = 0.006; // 0.6% · a strong directional move
+const SHARP = 0.012; // 1.2% · a breakout-grade move
 
 export function classifyRegime(s: SignalBundle): Regime {
   const roc30 = s.roc_30m ?? 0;
@@ -46,45 +46,45 @@ export function classifyRegime(s: SignalBundle): Regime {
   const overbought = rsi >= 75;
   const oversold = rsi <= 25;
 
-  // 1) Mean-reversion — stretched RSI while the trend is NOT strong: the move
+  // 1) Mean-reversion · stretched RSI while the trend is NOT strong: the move
   //    is exhausting and likely to snap back. A fade signal, so: stand aside.
   if ((overbought || oversold) && a < STRONG) {
     return {
       kind: "mean-reversion",
       label: "Mean-reversion",
-      note: `RSI ${rsi.toFixed(0)} ${overbought ? "overbought" : "oversold"}, trend fading — stretched and likely to revert${volNote}.`,
+      note: `RSI ${rsi.toFixed(0)} ${overbought ? "overbought" : "oversold"}, trend fading · stretched and likely to revert${volNote}.`,
       tradeable: false,
       stance: "fade",
     };
   }
 
-  // 2) Breakout — a sharp directional expansion. A trend worth following.
+  // 2) Breakout · a sharp directional expansion. A trend worth following.
   if (a >= SHARP) {
     return {
       kind: "breakout",
       label: "Breakout",
-      note: `Sharp ${up ? "up" : "down"} move — 30m ROC ${(roc30 * 100).toFixed(2)}%${volNote}.`,
+      note: `Sharp ${up ? "up" : "down"} move · 30m ROC ${(roc30 * 100).toFixed(2)}%${volNote}.`,
       tradeable: true,
       stance: "follow",
     };
   }
 
-  // 3) Trending — a clear directional move with the MA agreeing (or neutral).
+  // 3) Trending · a clear directional move with the MA agreeing (or neutral).
   if (a >= SOME && (aligned === 0 || up === aligned > 0)) {
     return {
       kind: up ? "trending-up" : "trending-down",
       label: up ? "Trending up" : "Trending down",
-      note: `30m ROC ${(roc30 * 100).toFixed(2)}%, short MA ${aligned >= 0 ? "above" : "below"} long — a directional trend${volNote}.`,
+      note: `30m ROC ${(roc30 * 100).toFixed(2)}%, short MA ${aligned >= 0 ? "above" : "below"} long · a directional trend${volNote}.`,
       tradeable: true,
       stance: "follow",
     };
   }
 
-  // 4) Range-bound — flat tape, no trend to ride. Stand aside.
+  // 4) Range-bound · flat tape, no trend to ride. Stand aside.
   return {
     kind: "range-bound",
     label: "Range-bound",
-    note: `Flat tape — 30m ROC ${(roc30 * 100).toFixed(2)}%, no clean direction${volNote}.`,
+    note: `Flat tape · 30m ROC ${(roc30 * 100).toFixed(2)}%, no clean direction${volNote}.`,
     tradeable: false,
     stance: "stand-aside",
   };

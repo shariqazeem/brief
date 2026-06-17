@@ -1,17 +1,17 @@
-// Google OAuth — implicit id_token flow. The JWT comes back to the
+// Google OAuth · implicit id_token flow. The JWT comes back to the
 // redirect URI as a URL fragment (#id_token=…) so we never need a
 // server-side code exchange. Per the zkLogin docs the JWT must include
 // the nonce we computed from (ephemeralPublicKey, maxEpoch, randomness).
 //
 // This module is intentionally crypto-free: it only builds the OAuth
 // URL, reads the URL fragment, and base64url-decodes the JWT *payload*
-// (no signature verification — that happens on chain via zkLogin). We
+// (no signature verification · that happens on chain via zkLogin). We
 // avoid importing from `@mysten/sui/zklogin` here so the eager bundle
 // stays small.
 
 "use client";
 
-/** Public Google OAuth client id — must be set or the button stays hidden. */
+/** Public Google OAuth client id · must be set or the button stays hidden. */
 export const GOOGLE_CLIENT_ID = (
   process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? ""
 ).trim();
@@ -41,7 +41,7 @@ export function buildGoogleAuthUrl(args: {
   u.searchParams.set("scope", "openid email");
   u.searchParams.set("nonce", args.nonce);
   if (args.state) u.searchParams.set("state", args.state);
-  // Force the Google account chooser — beginners may be signed into
+  // Force the Google account chooser · beginners may be signed into
   // multiple Google accounts and we want them to pick deliberately.
   u.searchParams.set("prompt", "select_account");
   return u.toString();

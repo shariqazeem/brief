@@ -1,4 +1,4 @@
-// Trader Agent — autonomous BTC up/down on DeepBook Predict, gated by
+// Trader Agent · autonomous BTC up/down on DeepBook Predict, gated by
 // the same OperatorPolicy + kill switch that runs the Workforce.
 //
 // This agent is the engine for the Phase-3 "Adopt an AI trader"
@@ -14,7 +14,7 @@
 //     same decision as a deliverable and skips the mint.
 //
 // In parallel, an auto-redeem service scans positions we've taken,
-// detects settled oracles, and calls predict::redeem_permissionless —
+// detects settled oracles, and calls predict::redeem_permissionless -
 // which is by design not gated by the policy, so payouts still flow
 // even after a user revokes (the kill switch blocks NEW mints, not
 // the user's right to claim what they already won).
@@ -138,7 +138,7 @@ const SCHEMA_VERSION = 1n;
 
 const DEFAULT_STRATEGY: StrategyId = "conservative";
 
-/** Spot positions auto-close one hour after open by default — short
+/** Spot positions auto-close one hour after open by default · short
  *  enough that a demo can show a complete cycle in one session, long
  *  enough that a thoughtful directional bet actually has room to move. */
 const SPOT_HORIZON_MS = 60 * 60 * 1000;
@@ -157,17 +157,17 @@ type TraderSpec = {
   venue?: string;
   /** Override quantity (in dUSDC contracts). */
   quantity?: number;
-  /** User-given name for the trader — surfaced in the memory journal
+  /** User-given name for the trader · surfaced in the memory journal
    *  header so the same Walrus blob reads as "Bolt's memory" / etc. */
   traderName?: string;
   /** Explicit asset override (BTC / SUI / WAL / DEEP). When set, the
    *  router skips bundle inspection and routes straight to this asset. */
   asset?: string;
-  /** Market bundle the user picked at adoption — the policy's
+  /** Market bundle the user picked at adoption · the policy's
    *  allowed_venues already narrows on chain. We rotate within the
    *  bundle here to choose a concrete asset per task. */
   markets?: "btc_only" | "sui_ecosystem" | "all";
-  /** Goal the user set at adoption — deterministically calibrates the
+  /** Goal the user set at adoption · deterministically calibrates the
    *  operating thresholds. Absent → baseline (pre-goal behaviour). */
   goal?: OperatorGoal;
 };
@@ -184,12 +184,12 @@ function chooseAsset(spec: TraderSpec, taskId: string): "BTC" | "SUI" | "WAL" | 
   const bundle = spec.markets ?? "btc_only";
   if (bundle === "btc_only") return "BTC";
   // For sui_ecosystem / all: rotate SUI/WAL/DEEP using task id hash.
-  // BTC is intentionally excluded from spot rotation — the bundle's BTC
+  // BTC is intentionally excluded from spot rotation · the bundle's BTC
   // share gets a dedicated dispatch (the user adopting "all" can still
   // trigger a BTC task via the existing dispatch path).
   // Weighted rotation by task-id hash: SUI 50% / DEEP 30% / WAL 20%.
   // WAL's DeepBook pool is the flakiest on testnet (readSpotMid often
-  // returns nothing), so it gets the smallest share — and handleSpotTask
+  // returns nothing), so it gets the smallest share · and handleSpotTask
   // falls back across pools if the chosen one is unreadable anyway.
   const roll = (parseInt(taskId.slice(2, 10), 16) >>> 0) % 100;
   if (roll < 50) return "SUI";
@@ -239,7 +239,7 @@ async function savePositions(xs: StoredPosition[]): Promise<void> {
   await fs.writeFile(POSITIONS_PATH, JSON.stringify(xs, null, 2));
 }
 
-// === Memory journal — the Walrus-backed agent memory ===
+// === Memory journal · the Walrus-backed agent memory ===
 
 type JournalEntry = {
   taskId: string;
@@ -265,7 +265,7 @@ type JournalEntry = {
 };
 
 function journalPath(policyId: string | null): string {
-  // Per-policy journal keeps each adopted trader's memory siloed — a
+  // Per-policy journal keeps each adopted trader's memory siloed · a
   // judge can adopt a second trader without their first one's history
   // contaminating the new identity's blob.
   const slug = policyId ? policyId.slice(2, 14) : "no-policy";
@@ -295,7 +295,7 @@ async function saveJournal(
 // === Operator manifesto ===
 // Published once per policy to Walrus: the operator's declared identity,
 // operating parameters, and a pledge of what it will and won't do. It is
-// the operator's verifiable "contract" alongside the on-chain policy —
+// the operator's verifiable "contract" alongside the on-chain policy -
 // declared intent + code enforcement. Best-effort; never blocks a task.
 
 type ManifestState = {
@@ -331,7 +331,7 @@ async function saveManifestState(
   await fs.writeFile(p, JSON.stringify(s, null, 2));
 }
 
-/** Human label for a goal — used in reasoning + logs. */
+/** Human label for a goal · used in reasoning + logs. */
 function goalLabel(goal?: OperatorGoal): string {
   if (!goal || goal.type === "edge") return "edge-seeking goal";
   if (goal.type === "preserve") return "capital-preservation goal";
@@ -361,7 +361,7 @@ function buildManifesto(spec: TraderSpec, strategy: StrategyId, asset: string) {
     },
     enforcedOnChain: {
       policyObject: spec.policyId ?? null,
-      note: "budget cap, allowed venues, expiry and the revoke kill-switch are enforced on the OperatorPolicy object — not by this agent",
+      note: "budget cap, allowed venues, expiry and the revoke kill-switch are enforced on the OperatorPolicy object · not by this agent",
     },
     pledge:
       "I will act only when a genuine edge exists. " +
@@ -373,7 +373,7 @@ function buildManifesto(spec: TraderSpec, strategy: StrategyId, asset: string) {
 
 /** Publish the operator's manifesto to Walrus exactly once per policy.
  *  Call ONLY when Walrus is reachable + funded (inside the walFunded
- *  block). Fully best-effort — never throws, never blocks the task. */
+ *  block). Fully best-effort · never throws, never blocks the task. */
 async function publishManifestoOnce(
   ctx: AgentContext,
   spec: TraderSpec,
@@ -413,7 +413,7 @@ async function publishManifestoOnce(
   }
 }
 
-/** Render the journal as human-readable markdown — what we upload to
+/** Render the journal as human-readable markdown · what we upload to
  *  Walrus as the trader's persistent memory. The agent could also
  *  read these entries back as input for future decisions; for now the
  *  ask is "verifiable, growing memory" and this delivers that. */
@@ -428,7 +428,7 @@ function journalMarkdown(args: {
     "",
     `> The complete decision log for this trader, regenerated every`,
     `> time it makes a new move and uploaded as a single Walrus blob.`,
-    `> Each blob is content-addressed — anyone can verify the trader`,
+    `> Each blob is content-addressed · anyone can verify the trader`,
     `> hasn't rewritten its history.`,
     "",
     `**Strategy:** ${args.strategy ?? "(unknown)"}`,
@@ -445,7 +445,7 @@ function journalMarkdown(args: {
     const strikeUsd = e.market.strike / PRICE_SCALAR;
     const spotUsd = e.market.spotAtDecision / PRICE_SCALAR;
     return [
-      `## #${i + 1} — ${e.decision.direction.toUpperCase()} on BTC (${e.execution.mode})`,
+      `## #${i + 1} · ${e.decision.direction.toUpperCase()} on BTC (${e.execution.mode})`,
       "",
       `**Decided:** ${decidedAt}`,
       `**Strategy:** ${e.strategy}`,
@@ -483,7 +483,7 @@ async function ensureManager(ctx: AgentContext): Promise<string> {
   } catch {
     /* create one below */
   }
-  console.log("[trader] no PredictManager configured — creating one…");
+  console.log("[trader] no PredictManager configured · creating one…");
   const res = await ctx.client.signAndExecuteTransaction({
     signer: ctx.keypair,
     transaction: buildCreateManagerTx(),
@@ -521,7 +521,7 @@ async function chooseMarket(ctx: AgentContext): Promise<MarketChoice | null> {
   const actives = await fetchActiveBtcOracles();
   if (actives.length === 0) return null;
   const nowMs = Date.now();
-  // Skip oracles within the 30s staleness window of expiry — too risky.
+  // Skip oracles within the 30s staleness window of expiry · too risky.
   const usable = actives.filter((o) => o.expiry - nowMs > 60_000);
   if (usable.length === 0) return null;
   const oracle = usable[0];
@@ -562,7 +562,7 @@ type TraderDeliverable = {
     mint_tx_digest: string | null;
     walrus_blob_id: string | null;
     reason_if_simulated: string | null;
-    /** Per-trader cumulative memory journal — every prior decision +
+    /** Per-trader cumulative memory journal · every prior decision +
      *  outcome rolled into one markdown blob uploaded to Walrus. Each
      *  task version-bumps the blob; the UI surfaces this as
      *  "{Name}'s memory · on Walrus" so a judge can open and read the
@@ -761,7 +761,7 @@ async function handleTask(
   // SUI/WAL/DEEP (DeepBook spot, directional buy/sell over a horizon).
   // Whoever dispatches the task picks the asset via `spec.asset`, or
   // we infer one from the adopted policy's market bundle (`spec.markets`)
-  // — the policy's `allowed_venues` already narrowed the user's
+  // · the policy's `allowed_venues` already narrowed the user's
   // authorization at grant time.
   //
   // The BTC path below this branch stays byte-for-byte unchanged so the
@@ -817,7 +817,7 @@ async function handleTask(
     data: { signals },
   });
 
-  // Read the live SVI vol surface — the centerpiece input the quant
+  // Read the live SVI vol surface · the centerpiece input the quant
   // strategy diverges from. We tolerate a read failure (cold RPC) by
   // proceeding without it; strategies that need it return null and the
   // trader honestly delivers a simulated abstention.
@@ -884,7 +884,7 @@ async function handleTask(
   const abstainReason = decision
     ? null
     : floorConv !== null
-      ? `${strategyId} preserved capital on BTC: conviction ${floorConv.toFixed(2)} is below the ${params.convictionFloor.toFixed(2)} floor calibrated for your ${goalLabel(spec.goal)} — not strong enough to risk capital.`
+      ? `${strategyId} preserved capital on BTC: conviction ${floorConv.toFixed(2)} is below the ${params.convictionFloor.toFixed(2)} floor calibrated for your ${goalLabel(spec.goal)} · not strong enough to risk capital.`
       : abstentionReason(strategyId, signals, "BTC", spotUsdNow, params);
   if (decision) {
     console.log(
@@ -917,7 +917,7 @@ async function handleTask(
   // No-edge abstention is HONEST: we still deliver the task with a
   // simulated label so the journal records why we sat out.
   const managerDusdcBase = await readManagerDusdcBalance(ctx, managerId);
-  const fallbackQty = 1; // accounting only — never actually minted
+  const fallbackQty = 1; // accounting only · never actually minted
   const costDusdcBase =
     BigInt(decision?.quantity ?? fallbackQty) * BigInt(DUSDC_BASE);
   const hasFunds = managerDusdcBase >= costDusdcBase;
@@ -927,12 +927,12 @@ async function handleTask(
   let mintDigest: string | null = null;
   let simReason: string | null = null;
   if (!decision) {
-    // Honest, per-strategy "why I preserved capital" — cites live numbers.
+    // Honest, per-strategy "why I preserved capital" · cites live numbers.
     simReason = abstainReason;
   } else if (!hasFunds) {
-    simReason = `Manager dUSDC ${Number(managerDusdcBase) / DUSDC_BASE} < required ${decision.quantity} — top up the PredictManager to flip to live.`;
+    simReason = `Manager dUSDC ${Number(managerDusdcBase) / DUSDC_BASE} < required ${decision.quantity} · top up the PredictManager to flip to live.`;
   } else if (!hasGate) {
-    simReason = `No policy_id in task spec — live trades must be gated by an OperatorPolicy with venue "${venue}".`;
+    simReason = `No policy_id in task spec · live trades must be gated by an OperatorPolicy with venue "${venue}".`;
   }
   console.log(
     `[trader] mode=${mode} manager_dusdc=${Number(managerDusdcBase) / DUSDC_BASE} hasFunds=${hasFunds} hasGate=${hasGate} hasDecision=${!!decision}`,
@@ -954,7 +954,7 @@ async function handleTask(
     quantity: 0,
     conviction: 0,
     reasoning:
-      simReason ?? `${strategyId} abstained — no signal cleared the threshold.`,
+      simReason ?? `${strategyId} abstained · no signal cleared the threshold.`,
   };
 
   // ---- 4) LIVE: build + submit the policy-gated mint -----
@@ -1033,17 +1033,17 @@ async function handleTask(
     }
   }
 
-  // ---- 5) Walrus uploads — per-decision reasoning + cumulative journal.
+  // ---- 5) Walrus uploads · per-decision reasoning + cumulative journal.
   //
   // Two separate blobs per task when WAL is funded:
-  //   (a) reasoning  — just this decision's markdown (the "agent's
+  //   (a) reasoning  · just this decision's markdown (the "agent's
   //                    thinking on this trade")
-  //   (b) journal    — the trader's entire prior memory + this entry
+  //   (b) journal    · the trader's entire prior memory + this entry
   //                    rolled into one blob (the "agent that remembers
   //                    and builds over time" story for the Walrus track)
   //
   // Both upload independently. Either may fail without breaking the
-  // task — we just don't surface that blob.
+  // task · we just don't surface that blob.
   let walrusBlobId: string | null = null;
   let journalBlobId: string | null = null;
   let journalEntries = 0;
@@ -1155,7 +1155,7 @@ async function handleTask(
     await publishManifestoOnce(ctx, spec, strategyId, "BTC", notice.taskId);
   } else if (walrusEnabled()) {
     console.log(
-      "[trader] walrus enabled but wallet has no WAL — inline only",
+      "[trader] walrus enabled but wallet has no WAL · inline only",
     );
   }
 
@@ -1182,7 +1182,7 @@ async function handleTask(
   // ---- 6) Mint deliverable + submit task (atomic) -----
   // The deliverable JSON is small (~1 KB) so we ALWAYS inline it on chain.
   // The reasoning + journal markdown blobs live on Walrus and are linked
-  // from inside the JSON's `execution.*` — the dashboard reads those
+  // from inside the JSON's `execution.*` · the dashboard reads those
   // directly off the parsed body to render the prominent memory panel.
   //
   // The on-chain `walrus_blob_id` field prefers the journal blob so
@@ -1245,7 +1245,7 @@ async function handleTask(
   });
 }
 
-// === Spot task handler — DeepBook v3 directional bet over a horizon ===
+// === Spot task handler · DeepBook v3 directional bet over a horizon ===
 //
 // Mirrors the BTC handler's lifecycle: pick direction from strategy,
 // build the atomic policy-gated open PTB (record_spend + market order),
@@ -1253,10 +1253,10 @@ async function handleTask(
 // shape with the asset name in `market.underlying`. The auto-close
 // service below scans the cursor and closes each position when its
 // horizon elapses.
-// Close a spot task HONESTLY when every DeepBook pool is unreadable —
+// Close a spot task HONESTLY when every DeepBook pool is unreadable -
 // delivers a simulated deliverable whose reason_if_simulated names the
 // infra failure, so the task completes (not stranded in `accepted`) and
-// the UI can show "infra hiccup — dispatch again" instead of a silent
+// the UI can show "infra hiccup · dispatch again" instead of a silent
 // hang. Reuses the same inline-deliverable + appendMintAndSubmit path
 // as a normal spot delivery.
 async function deliverSpotInfraFailure(
@@ -1270,7 +1270,7 @@ async function deliverSpotInfraFailure(
 ): Promise<void> {
   const simReason =
     `Infra: every DeepBook spot pool was unreadable this cycle ` +
-    `(${asset} last: ${reason}). Task closed honestly as simulated — ` +
+    `(${asset} last: ${reason}). Task closed honestly as simulated · ` +
     `no bet placed. Dispatch again to retry.`;
   const deliverable: TraderDeliverable = {
     task_title: notice.title,
@@ -1376,7 +1376,7 @@ async function handleSpotTask(
     );
   }
 
-  // Resolve a WORKING (asset, market, mid) — testnet DeepBook pools
+  // Resolve a WORKING (asset, market, mid) · testnet DeepBook pools
   // (WAL especially) often return nothing from readSpotMid, which used
   // to throw and strand the task in `accepted` forever. Instead we try
   // the chosen asset first, then fall back across [SUI, DEEP, WAL]
@@ -1408,12 +1408,12 @@ async function handleSpotTask(
           data: { from: cand, to: next, reason },
         });
       } else {
-        // Every spot pool is unreadable — close the task honestly.
+        // Every spot pool is unreadable · close the task honestly.
         emitAgentEvent("task_failed", {
           policyId: spec.policyId ?? null,
           taskId: notice.taskId,
           asset: cand,
-          data: { error: `all spot pools unavailable — last: ${reason}` },
+          data: { error: `all spot pools unavailable · last: ${reason}` },
         });
         await deliverSpotInfraFailure(
           ctx,
@@ -1428,9 +1428,9 @@ async function handleSpotTask(
       }
     }
   }
-  if (!resolved) return; // unreachable — the loop either resolves or returns
+  if (!resolved) return; // unreachable · the loop either resolves or returns
 
-  // Observe spot mid and append to rolling history BEFORE deciding —
+  // Observe spot mid and append to rolling history BEFORE deciding -
   // every spot bet uses the same signal-based strategy logic the BTC
   // path does. Spot pools have no SVI surface, so the quant strategy
   // falls back to momentum here (and conservative/contrarian rely on
@@ -1455,7 +1455,7 @@ async function handleSpotTask(
 
   // Goal-calibrated params threaded for consistency. Spot has no SVI
   // surface (so minEdge is moot) and uses a fixed min-order size (maxQty
-  // moot), so calibration is effectively a BTC-Predict feature — spot
+  // moot), so calibration is effectively a BTC-Predict feature · spot
   // behaviour is unchanged.
   const params = calibrateParams(strategyId, spec.goal);
   const candidateDecision = decide(strategyId, {
@@ -1472,7 +1472,7 @@ async function handleSpotTask(
     nowMs: Date.now(),
   });
 
-  // Spot positions use the pool's minimum order size — conviction
+  // Spot positions use the pool's minimum order size · conviction
   // doesn't change quantity for SUI/WAL/DEEP. (Going bigger would need
   // multiple market orders; we keep this disciplined.)
   const direction: "up" | "down" =
@@ -1504,7 +1504,7 @@ async function handleSpotTask(
   });
 
   // Pre-flight: consolidate SUI coins. Same fix that protects Walrus
-  // applies to DeepBook PTBs — both auto-pick gas and abort at
+  // applies to DeepBook PTBs · both auto-pick gas and abort at
   // `balance::split` if the picked coin is too small.
   try {
     const c = await consolidateSuiCoins(ctx.client, ctx.keypair);
@@ -1520,7 +1520,7 @@ async function handleSpotTask(
     );
   }
 
-  // Decide mode (live vs simulated) — spot has no manager-balance gate
+  // Decide mode (live vs simulated) · spot has no manager-balance gate
   // (the BM is funded once at setup), so we only need the policy gate.
   const hasGate = !!spec.policyId;
   let mode: ExecutionMode = hasGate ? "live" : "simulated";
@@ -1528,7 +1528,7 @@ async function handleSpotTask(
   let openQuoteBase: bigint = 0n;
   let simReason: string | null = null;
   if (!hasGate) {
-    simReason = `No policy_id in task spec — live spot bets must be gated by an OperatorPolicy with venue "spot-${asset.toLowerCase()}".`;
+    simReason = `No policy_id in task spec · live spot bets must be gated by an OperatorPolicy with venue "spot-${asset.toLowerCase()}".`;
   }
   emitAgentEvent("mode", {
     policyId: spec.policyId ?? null,
@@ -1790,12 +1790,12 @@ async function handleSpotTask(
   });
 }
 
-// === Auto-close spot loop — closes positions when their horizon elapses ===
+// === Auto-close spot loop · closes positions when their horizon elapses ===
 //
 // Idempotent: a position that's already past status="closed" is skipped.
 // On a tx failure we leave the position in status="open" so the next
 // tick retries. Closes have no policy gate, so even after revoke this
-// loop continues to settle whatever's on the book — mirrors the
+// loop continues to settle whatever's on the book · mirrors the
 // "past wins still pay out" guarantee from the BTC redeem path.
 async function autoCloseSpotTick(ctx: AgentContext): Promise<void> {
   const due = await dueSpotPositions(Date.now());
@@ -1804,7 +1804,7 @@ async function autoCloseSpotTick(ctx: AgentContext): Promise<void> {
     process.env.BRIEF_BALANCE_MANAGER_ID ?? ""
   ).trim();
   if (!balanceManagerId) return;
-  // Consolidate the trader's SUI coins before close attempts — gas
+  // Consolidate the trader's SUI coins before close attempts · gas
   // fragmentation here causes the same balance::split aborts that hit
   // Walrus uploads in the BTC path.
   try {
@@ -1824,7 +1824,7 @@ async function autoCloseSpotTick(ctx: AgentContext): Promise<void> {
     try {
       const market = getMarket(p.asset);
       console.log(
-        `[trader-spot-close] ${p.asset} ${p.direction} qty=${p.baseQty} task=${p.taskId.slice(0, 12)}… — closing`,
+        `[trader-spot-close] ${p.asset} ${p.direction} qty=${p.baseQty} task=${p.taskId.slice(0, 12)}… · closing`,
       );
       const r = await closeSpot({
         ctx,
@@ -1869,21 +1869,21 @@ function startAutoCloseSpotLoop(ctx: AgentContext): void {
   })();
 }
 
-// === Autonomous gated-spot loop — the operator that is actually ALIVE ===
+// === Autonomous gated-spot loop · the operator that is actually ALIVE ===
 //
 // Unlike handleTask (inbox-driven, house BM, owner proof), this loop drives
 // every ADOPTED non-custodial operator on its own. Each registered user has
 // their OWN BalanceManager, a delegated TradeCap, and an OperatorPolicy.
 // Every tick the operator observes SUI, runs its goal-calibrated strategy,
-// and — ONLY on genuine edge — fires a policy-gated DeepBook market order
+// and · ONLY on genuine edge · fires a policy-gated DeepBook market order
 // from the user's BM via the delegated TradeCap (record_spend +
 // place_market_order, atomic). It can trade; it can NEVER withdraw. The
 // instant the user revokes, record_spend aborts EPolicyRevoked and this
 // loop retires the operator (in-memory skip + durable registry flag).
 //
 // Honest by construction: most ticks abstain (capital preserved), and a BM
-// that can't cover DeepBook's DEEP fee — or lacks the inventory for the
-// chosen side — is skipped with a clear reason rather than firing a doomed
+// that can't cover DeepBook's DEEP fee · or lacks the inventory for the
+// chosen side · is skipped with a clear reason rather than firing a doomed
 // tx. The whole cascade emits the SAME SSE events as handleSpotTask, so the
 // existing operator dashboard renders the autonomous loop unchanged.
 
@@ -1893,7 +1893,7 @@ const GATED_LOOP_POLL_MS = 45_000;
 // SUI/USDC isn't a whitelisted pool, so every order pays its fee in DEEP.
 // The operator keeps a small DEEP "fuel tank" in the user's BM, topped up
 // by the house via the delegated DepositCap. The user never thinks about
-// DEEP — they deposit USDC, the operator trades USDC, fuel is handled.
+// DEEP · they deposit USDC, the operator trades USDC, fuel is handled.
 /** Below this the BM can't reliably pay a fee → refuel before trading. */
 const FUEL_FLOOR_BASE = 50_000n; // 0.05 DEEP
 /** Below this we flag the tank amber ("low fuel") on the dashboard. */
@@ -1901,9 +1901,9 @@ const FUEL_LOW_BASE = 200_000n; // 0.2 DEEP
 /** DEEP deposited per refuel (human units). "~$2 of DEEP" in the UI. */
 const FUEL_TOPUP_DEEP = 2;
 /** When a refuel fails (house DEEP reserve dry), back off this long before
- *  trying again — the reserve is shared across operators, so this is global. */
+ *  trying again · the reserve is shared across operators, so this is global. */
 const FUEL_DRY_COOLDOWN_MS = 5 * 60_000;
-/** Epoch ms until which the house DEEP reserve looked dry — skip top-ups. */
+/** Epoch ms until which the house DEEP reserve looked dry · skip top-ups. */
 let houseFuelDryUntilMs = 0;
 
 type FuelLevel = "ok" | "low" | "empty";
@@ -1914,14 +1914,14 @@ function fuelLevelOf(deepBase: bigint): FuelLevel {
 }
 
 /** Base order size. Both testnet SUI/DBUSDC and mainnet SUI/USDC have
- *  minSize 1 SUI / lotSize 0.1; we trade exactly one min-lot per edge —
+ *  minSize 1 SUI / lotSize 0.1; we trade exactly one min-lot per edge -
  *  disciplined, with the policy's budget cap as the real ceiling. */
 const GATED_BASE_QTY = 1;
-/** Venue label record_spend asserts against — must be in the policy's
+/** Venue label record_spend asserts against · must be in the policy's
  *  allowed_venues (the adoption PTB grants "spot-sui"). */
 const GATED_VENUE = "spot-sui";
 
-/** Operators retired this process (revoked/expired/budget/venue) — never
+/** Operators retired this process (revoked/expired/budget/venue) · never
  *  retried until restart (and the registry flag makes it durable). */
 const gatedSkip = new Set<string>();
 /** Mainnet operators we've already logged as "awaiting publish" once. */
@@ -1931,7 +1931,7 @@ type OperatorRegistryEntry = {
   policyId: string;
   bmId: string;
   tradeCapId: string;
-  /** Delegated DepositCap — lets the operator top up its DEEP fuel tank
+  /** Delegated DepositCap · lets the operator top up its DEEP fuel tank
    *  (deposit-not-withdraw). Null for pre-fuel adoptions. */
   depositCapId?: string | null;
   owner: string;
@@ -2003,7 +2003,7 @@ function isTerminalPolicyAbort(err: unknown): boolean {
  *  and publish its manifesto once. Never blocks the trade; never throws. */
 // The operator's experience snapshot is anchored on Walrus so the memory it
 // recalls from is verifiable. Throttled (10 min) unless a settlement just
-// happened — a learning moment worth recording immediately.
+// happened · a learning moment worth recording immediately.
 const lastExperienceUploadMs = new Map<string, number>();
 const EXPERIENCE_UPLOAD_THROTTLE_MS = 10 * 60 * 1000;
 
@@ -2039,7 +2039,7 @@ async function maybePublishExperience(
       },
     });
   } catch {
-    /* best-effort — memory still works locally */
+    /* best-effort · memory still works locally */
   }
 }
 
@@ -2112,7 +2112,7 @@ async function recordGatedMemory(
   );
 }
 
-/** Read the policy's budget utilization (0–100) — feeds the risk review. */
+/** Read the policy's budget utilization (0–100) · feeds the risk review. */
 /** The policy's budget in base units (6dp DBUSDC/USDC for spot), plus the
  *  used %. `remaining` lets the loop pre-check headroom and abstain GRACEFULLY
  *  at the cap instead of attempting a doomed record_spend that aborts and
@@ -2167,14 +2167,14 @@ async function runGatedOperator(
     data: { signals },
   });
 
-  // The Brief Operator's decision engine — ONE operator, mode-calibrated, a
+  // The Brief Operator's decision engine · ONE operator, mode-calibrated, a
   // transparent 7-step pipeline over the real signals (Observe → Thesis →
   // Counterargument → Risk → Policy → Execution → Decision). AI reasoning,
   // memory replay and DeepBook execution analysis fold in via opts in later
   // phases; the Move policy gates execution regardless.
   const budget = await readPolicyBudget(ctx, e.policyId);
   // record_spend amount (quote, 6dp): one min-lot of SUI at the current mid.
-  // Hitting the cap is a NORMAL end-state — if the next order wouldn't fit, the
+  // Hitting the cap is a NORMAL end-state · if the next order wouldn't fit, the
   // engine abstains as a SUCCESS (capital fully deployed) so the operator stays
   // alive rather than attempting a doomed record_spend that aborts + retires it.
   const recordSpendAmount = BigInt(
@@ -2198,7 +2198,7 @@ async function runGatedOperator(
   const mandate: Mandate | null = normalizeMandate(e.mandate);
   let mandateEval: MandateEval | null = null;
   let portfolio: { value: number; deposit: number; pnlPct: number } | null = null;
-  // Where capital currently LIVES — the allocator's starting point. Exposure is
+  // Where capital currently LIVES · the allocator's starting point. Exposure is
   // SUI value as a fraction of total capital (0–1); defaults to all-cash (0) on
   // a read failure, a safe no-op assumption.
   let currentExposure = 0;
@@ -2241,7 +2241,7 @@ async function runGatedOperator(
   // non-tradeable regime (range-bound / mean-reversion) stands the op aside.
   const marketRegime = classifyRegime(signals);
 
-  // Pass 1 — reason over regime + signals + memory + mandate (no exec yet).
+  // Pass 1 · reason over regime + signals + memory + mandate (no exec yet).
   let eng = runDecisionEngine({
     asset: "SUI",
     signals,
@@ -2257,9 +2257,9 @@ async function runGatedOperator(
   // ---- ALLOCATOR: think in ALLOCATIONS, not trades. Compare where capital
   // currently lives (currentExposure) to where the thesis wants it
   // (eng.targetExposurePct), and only move when the gap clears a band. This is
-  // what turns "tried to sell but had nothing" into "already in cash — no
+  // what turns "tried to sell but had nothing" into "already in cash · no
   // action required": a real capital manager, not a trade firehose.
-  const REBALANCE_BAND = 0.15; // ignore drift under 15 pts — avoids churn
+  const REBALANCE_BAND = 0.15; // ignore drift under 15 pts · avoids churn
   const rebalanceSideFor = (d: typeof eng): Direction | null => {
     if (d.targetExposurePct == null) return null; // no confident view → hold
     const gap = d.targetExposurePct / 100 - currentExposure;
@@ -2271,7 +2271,7 @@ async function runGatedOperator(
 
   // ---- FEASIBILITY: a rebalance is one 1-SUI min-lot. If the balances can't
   // cover it (no cash to buy / sub-lot SUI to sell), DON'T claim a move we
-  // can't make — hold honestly. This keeps the headline "holding" instead of
+  // can't make · hold honestly. This keeps the headline "holding" instead of
   // "adding/trimming" → "no order placed" (the contradiction we're killing).
   let infeasibleNote: string | null = null;
   const lotCostUsd = GATED_BASE_QTY * midUsd;
@@ -2317,7 +2317,7 @@ async function runGatedOperator(
   const curExposurePct = Math.round(currentExposure * 100);
 
   // ---- PLAYBOOK: the operator's learned procedure for THIS regime (real,
-  // aggregated from settled outcomes — memory as an operating procedure).
+  // aggregated from settled outcomes · memory as an operating procedure).
   const playbook = playbookFor(experience, marketRegime.kind);
 
   const reasoning = `${eng.thesis} ${eng.counterargument} → ${eng.verdict}`;
@@ -2349,12 +2349,12 @@ async function runGatedOperator(
       execution_review: eng.executionReview,
       verdict: eng.verdict,
       ai_reasoned: eng.aiReasoned,
-      // capital-manager view — what the money should be doing, vs where it is
+      // capital-manager view · what the money should be doing, vs where it is
       allocation: eng.allocation,
       target_exposure_pct: eng.targetExposurePct,
       current_exposure_pct: curExposurePct,
       rebalance: willRebalance ? (direction === "up" ? "buy" : "sell") : "hold",
-      // playbook — the operator's learned procedure for this regime
+      // playbook · the operator's learned procedure for this regime
       playbook: {
         label: playbook.label,
         occurrences: playbook.occurrences,
@@ -2365,7 +2365,7 @@ async function runGatedOperator(
         preferred_exposure_pct: playbook.preferredExposurePct,
         note: playbook.note,
       },
-      // live portfolio mark — "how much money do I have right now"
+      // live portfolio mark · "how much money do I have right now"
       portfolio: portfolio
         ? {
             value: portfolio.value,
@@ -2433,10 +2433,10 @@ async function runGatedOperator(
   experience.push(expRecord);
   await saveExperience(e.policyId, experience);
   // Anchor the memory on Walrus (throttled, or on a settlement moment) so it's
-  // verifiable — not just claimed.
+  // verifiable · not just claimed.
   await maybePublishExperience(ctx, e, experience, taskId, matured.settled > 0);
 
-  // ---- LIFETIME STATS + LEDGER SETTLEMENT — persist beyond the archive cap so
+  // ---- LIFETIME STATS + LEDGER SETTLEMENT · persist beyond the archive cap so
   // counts/benchmarks reflect the operator's whole life, and pending allocation
   // events settle into win/loss as their horizon elapses.
   try {
@@ -2456,15 +2456,15 @@ async function runGatedOperator(
     );
   }
 
-  // Held — already where it wants to be, or no confident edge. A first-class
+  // Held · already where it wants to be, or no confident edge. A first-class
   // outcome: capital is positioned, none at NEW risk. The reason is stated in
-  // allocation terms ("Bearish — already in cash") so the user never has to
+  // allocation terms ("Bearish · already in cash") so the user never has to
   // reconcile "found an edge" with "no order placed".
   if (!willRebalance) {
     const tail = infeasibleNote
-      ? ` Would rebalance but ${infeasibleNote} — holding.`
+      ? ` Would rebalance but ${infeasibleNote} · holding.`
       : eng.targetExposurePct != null
-        ? ` Portfolio already at ${curExposurePct}% SUI, within the target band — no rebalance needed.`
+        ? ` Portfolio already at ${curExposurePct}% SUI, within the target band · no rebalance needed.`
         : "";
     emitAgentEvent("mode", {
       policyId: e.policyId,
@@ -2475,7 +2475,7 @@ async function runGatedOperator(
     return;
   }
 
-  // Rebalance required — verify the BM can actually execute before firing.
+  // Rebalance required · verify the BM can actually execute before firing.
   const coins = gatedCoinTypes(e.network);
   const isBid = direction === "up";
 
@@ -2483,7 +2483,7 @@ async function runGatedOperator(
   // On testnet we pay DeepBook fees in DEEP (and demo the self-fueling tank).
   // On MAINNET the gated order pays its fee from the traded asset
   // (pay_with_deep=false), so the operator needs no DEEP and never idles
-  // "awaiting fuel" — a new user brings only USDC + SUI.
+  // "awaiting fuel" · a new user brings only USDC + SUI.
   if (e.network === "testnet") {
   // The operator's DEEP tank pays DeepBook fees. If the tank is empty, the
   // house tops it up via the delegated DepositCap (deposit-not-withdraw). If
@@ -2512,7 +2512,7 @@ async function runGatedOperator(
         `[trader-gated] fueled ${e.policyId.slice(0, 10)}… +${FUEL_TOPUP_DEEP} DEEP tx=${fres.digest}`,
       );
     } catch (err) {
-      // The shared house reserve looks dry — back off for all operators.
+      // The shared house reserve looks dry · back off for all operators.
       houseFuelDryUntilMs = Date.now() + FUEL_DRY_COOLDOWN_MS;
       console.warn(
         `[trader-gated] fuel top-up failed (house DEEP reserve dry?) for ${e.policyId.slice(0, 10)}…:`,
@@ -2520,7 +2520,7 @@ async function runGatedOperator(
       );
     }
   }
-  // Always surface the current fuel level — drives the dashboard fuel gauge.
+  // Always surface the current fuel level · drives the dashboard fuel gauge.
   emitAgentEvent("fuel", {
     policyId: e.policyId,
     taskId,
@@ -2532,7 +2532,7 @@ async function runGatedOperator(
     },
   });
   if (deepBal < FUEL_FLOOR_BASE) {
-    const r = `The operator decided ${direction.toUpperCase()} SUI but is out of fuel — its DEEP tank (DeepBook fees) is empty${e.depositCapId ? " and the house reserve couldn't top it up" : " and it has no delegated DepositCap to refuel"}. Alive, awaiting fuel; capital untouched.`;
+    const r = `The operator decided ${direction.toUpperCase()} SUI but is out of fuel · its DEEP tank (DeepBook fees) is empty${e.depositCapId ? " and the house reserve couldn't top it up" : " and it has no delegated DepositCap to refuel"}. Alive, awaiting fuel; capital untouched.`;
     emitAgentEvent("mode", {
       policyId: e.policyId,
       taskId,
@@ -2540,7 +2540,7 @@ async function runGatedOperator(
       data: { mode: "simulated", sim_reason: r },
     });
     console.log(
-      `[trader-gated] ${e.policyId.slice(0, 10)}… ${direction} but out of fuel — skip`,
+      `[trader-gated] ${e.policyId.slice(0, 10)}… ${direction} but out of fuel · skip`,
     );
     return;
   }
@@ -2548,7 +2548,7 @@ async function runGatedOperator(
 
   // Inventory guard: UP buys SUI with quote (USDC/DBUSDC); DOWN sells SUI
   // base. A freshly-adopted BM holds only quote, so it can buy but not yet
-  // short — skip honestly instead of aborting on chain.
+  // short · skip honestly instead of aborting on chain.
   const needType = isBid ? coins.quote : coins.base;
   const needAmount = isBid
     ? recordSpendAmount
@@ -2556,7 +2556,7 @@ async function runGatedOperator(
   const haveBal = await readBmAssetBalance(ctx, e.bmId, needType);
   if (haveBal < needAmount) {
     const sideAsset = isBid ? "USDC" : "SUI";
-    const r = `Operator decided ${direction.toUpperCase()} SUI but the BalanceManager's ${sideAsset} inventory is insufficient for a 1-SUI ${isBid ? "buy" : "sell"} — no trade; capital untouched.`;
+    const r = `Operator decided ${direction.toUpperCase()} SUI but the BalanceManager's ${sideAsset} inventory is insufficient for a 1-SUI ${isBid ? "buy" : "sell"} · no trade; capital untouched.`;
     emitAgentEvent("mode", {
       policyId: e.policyId,
       taskId,
@@ -2564,7 +2564,7 @@ async function runGatedOperator(
       data: { mode: "simulated", sim_reason: r },
     });
     console.log(
-      `[trader-gated] ${e.policyId.slice(0, 10)}… ${direction} insufficient ${sideAsset} inventory — skip`,
+      `[trader-gated] ${e.policyId.slice(0, 10)}… ${direction} insufficient ${sideAsset} inventory · skip`,
     );
     return;
   }
@@ -2611,7 +2611,7 @@ async function runGatedOperator(
     expRecord.detail.txDigest = digest;
     await saveExperience(e.policyId, experience).catch(() => {});
   }
-  // Append the allocation event to the PERMANENT ledger (never trimmed) — the
+  // Append the allocation event to the PERMANENT ledger (never trimmed) · the
   // operator's decision → action → outcome track record.
   try {
     const led = await loadLedger(e.policyId);
@@ -2625,13 +2625,13 @@ async function runGatedOperator(
       targetPct: eng.targetExposurePct ?? 0,
       mid: midUsd,
       qtySui: GATED_BASE_QTY,
-      reason: `${eng.regimeLabel} — ${eng.thesis}`,
+      reason: `${eng.regimeLabel} · ${eng.thesis}`,
       txDigest: digest,
       outcome: "pending",
     });
     await saveLedger(e.policyId, led);
   } catch {
-    /* ledger append best-effort — never block the trade path */
+    /* ledger append best-effort · never block the trade path */
   }
   emitAgentEvent("spot_opened", {
     policyId: e.policyId,
@@ -2669,7 +2669,7 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
   for (const e of registry.filter((x) => x.network === "mainnet")) {
     if (!loggedMainnetSkip.has(e.policyId)) {
       console.log(
-        `[trader-gated] mainnet operator ${e.policyId.slice(0, 10)}… awaiting mainnet publish + context — skipping`,
+        `[trader-gated] mainnet operator ${e.policyId.slice(0, 10)}… awaiting mainnet publish + context · skipping`,
       );
       loggedMainnetSkip.add(e.policyId);
     }
@@ -2694,7 +2694,7 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
   const history = await loadHistory("SUI");
   const signals = computeSignals(history, Date.now());
 
-  // Consolidate the operator wallet's SUI once before signing across BMs —
+  // Consolidate the operator wallet's SUI once before signing across BMs -
   // many gated orders from one wallet fragment gas otherwise.
   try {
     const c = await consolidateSuiCoins(ctx.client, ctx.keypair);
@@ -2725,7 +2725,7 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
           taskId: gatedTaskId(e),
           asset: "SUI",
           data: {
-            error: "chain refused — operator retired (revoked / expired / budget reached)",
+            error: "chain refused · operator retired (revoked / expired / budget reached)",
             terminal: true,
           },
         });
@@ -2767,7 +2767,7 @@ async function priceHistoryTick(
   _managerId: string,
 ): Promise<void> {
   const nowMs = Date.now();
-  // BTC — read the live spot from the nearest-expiry active oracle.
+  // BTC · read the live spot from the nearest-expiry active oracle.
   try {
     const actives = await fetchActiveBtcOracles();
     const oracle = actives.find((o) => o.expiry - nowMs > 60_000);
@@ -2782,7 +2782,7 @@ async function priceHistoryTick(
       String((e as Error)?.message ?? e).slice(0, 120),
     );
   }
-  // Spot assets — read the live pool mid for each market in the registry.
+  // Spot assets · read the live pool mid for each market in the registry.
   for (const asset of ["SUI", "WAL", "DEEP"] as const) {
     try {
       const market = getMarket(asset);
@@ -2818,7 +2818,7 @@ function startPriceHistoryLoop(ctx: AgentContext, managerId: string): void {
 // === Auto-redeem service ===
 
 /** A redeem failure is TERMINAL when the chain aborts inside the predict
- *  module — the position is already redeemed or in a state that can never
+ *  module · the position is already redeemed or in a state that can never
  *  redeem. Such positions must be dropped (not retried forever), or they
  *  flood the logs every poll. Transient RPC errors don't match this. */
 function isTerminalRedeemAbort(msg: string): boolean {
@@ -2845,7 +2845,7 @@ async function autoRedeemTick(
       continue;
     }
     console.log(
-      `[trader-redeem] settled position ${p.oracleId.slice(0, 12)}… qty=${p.quantity} — redeeming`,
+      `[trader-redeem] settled position ${p.oracleId.slice(0, 12)}… qty=${p.quantity} · redeeming`,
     );
     try {
       const tx = buildRedeemPermissionlessTx({
@@ -2868,7 +2868,7 @@ async function autoRedeemTick(
       } else {
         const err = res.effects?.status?.error ?? "";
         if (isTerminalRedeemAbort(err)) {
-          // Permanently un-redeemable (already redeemed / invalid state) —
+          // Permanently un-redeemable (already redeemed / invalid state) -
           // DROP it so it stops retrying forever and flooding the logs.
           console.warn(
             `[trader-redeem] dropping un-redeemable position task=${p.taskId.slice(0, 12)}… (terminal: ${err.slice(0, 80)})`,
@@ -2921,7 +2921,7 @@ function startAutoRedeemLoop(ctx: AgentContext, managerId: string): void {
 async function main(): Promise<void> {
   const env = loadEnv();
   // Multi-wallet mode: signs as TREASURY_SECRET_KEY (we share the wallet
-  // with DeepBook v3 — same address owns the PredictManager and the
+  // with DeepBook v3 · same address owns the PredictManager and the
   // DeepBook BalanceManager). Reputation accrues on the same on-chain
   // AgentRegistration with two capabilities.
   const ctx = makeAgentContextFor(env, "treasury");
@@ -2960,9 +2960,9 @@ async function main(): Promise<void> {
   // history hasn't yet reached a given lookback window.
   startPriceHistoryLoop(ctx, managerId);
   // Spin up the spot auto-close service (mirrors auto-redeem for spot
-  // positions — closes settle at the position's horizon).
+  // positions · closes settle at the position's horizon).
   startAutoCloseSpotLoop(ctx);
-  // Autonomous non-custodial operators — the always-on engine that trades
+  // Autonomous non-custodial operators · the always-on engine that trades
   // each adopted user's OWN BalanceManager via its delegated TradeCap,
   // gated by their OperatorPolicy. This is the "alive" loop for the mainnet
   // product: testnet operators trade now; mainnet operators light up once
@@ -2985,7 +2985,7 @@ async function main(): Promise<void> {
           `[trader] task ${notice.taskId.slice(0, 10)}… handler failed:`,
           msg,
         );
-        // The wire must never go silent — surface the failure to the
+        // The wire must never go silent · surface the failure to the
         // dashboard even when the handler threw before its own emits.
         // (We log + emit but don't re-throw: the inbox cursor should
         // still advance so a poison task can't loop forever.)

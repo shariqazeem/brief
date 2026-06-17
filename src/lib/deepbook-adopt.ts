@@ -1,10 +1,10 @@
-// DeepBook non-custodial adoption — the mainnet spot path.
+// DeepBook non-custodial adoption · the mainnet spot path.
 //
 // One signature: create the user's own BalanceManager → deposit their
 // capital (USDC on mainnet) → mint a TradeCap and delegate it to the
 // operator → create the chain-enforced OperatorPolicy (agent = operator).
 //
-// After this tx the user OWNS the BalanceManager (owner-gated withdraw —
+// After this tx the user OWNS the BalanceManager (owner-gated withdraw -
 // custody never leaves), the operator holds only a TradeCap (trade, never
 // withdraw), and `gated_spot`/record_spend enforce the budget on every
 // trade. Proven end-to-end on testnet (adoption tx Gg8TaL4p…, gated fill
@@ -28,7 +28,7 @@ type NetCfg = {
 
 // Verified against @mysten/deepbook-v3 constants (testnet confirmed live in
 // the spike). Re-verify the mainnet package id immediately before the
-// mainnet publish — DeepBook upgrades its package id on version bumps.
+// mainnet publish · DeepBook upgrades its package id on version bumps.
 export const DEEPBOOK_CFG: Record<DeepBookNetwork, NetCfg> = {
   testnet: {
     deepbook: "0x22be4cade64bf2d02412c7e8d0e8beea2f78828b948118d46735315409371a3c",
@@ -78,20 +78,20 @@ export function buildAdoptTx(tx: Transaction, args: AdoptArgs): void {
     typeArguments: [cfg.capitalCoinType],
     arguments: [bm, args.capitalCoin],
   });
-  // 3) mint a TradeCap (owner-only) to delegate — trade, never withdraw
+  // 3) mint a TradeCap (owner-only) to delegate · trade, never withdraw
   const tradeCap = tx.moveCall({
     target: `${cfg.deepbook}::balance_manager::mint_trade_cap`,
     arguments: [bm],
   });
-  // 3b) mint a DepositCap (owner-only) to delegate — lets the operator/house
+  // 3b) mint a DepositCap (owner-only) to delegate · lets the operator/house
   //     deposit "fuel" (DEEP for DeepBook fees) into the user's BM, but NEVER
   //     withdraw. This is what makes "your operator comes with fuel" real
-  //     while staying non-custodial — the DEEP is the user's, withdrawable.
+  //     while staying non-custodial · the DEEP is the user's, withdrawable.
   const depositCap = tx.moveCall({
     target: `${cfg.deepbook}::balance_manager::mint_deposit_cap`,
     arguments: [bm],
   });
-  // 4) share the BalanceManager — owner field stays = the user (custody kept)
+  // 4) share the BalanceManager · owner field stays = the user (custody kept)
   tx.moveCall({
     target: `0x2::transfer::public_share_object`,
     typeArguments: [bmType],

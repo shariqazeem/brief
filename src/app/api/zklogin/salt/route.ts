@@ -1,4 +1,4 @@
-// /api/zklogin/salt — returns a deterministic per-user salt.
+// /api/zklogin/salt · returns a deterministic per-user salt.
 //
 // Per the Sui zkLogin docs the salt is a value chosen by the dApp that
 // (combined with the JWT's claims) determines the user's on-chain
@@ -7,7 +7,7 @@
 // account → same Sui address.
 //
 // The salt MUST remain private if you treat it as part of "what only the
-// user has" — but for testnet this is a soft constraint and the
+// user has" · but for testnet this is a soft constraint and the
 // self-managed pattern is what the docs recommend for prototyping.
 //
 // SERVER_SECRET is read from ZKLOGIN_SALT_SECRET; the value lives in
@@ -20,7 +20,7 @@ export const runtime = "nodejs";
 
 const SECRET = (process.env.ZKLOGIN_SALT_SECRET ?? "").trim();
 
-// Salt must be < 2^128 per the zkLogin spec — we render the HMAC as a
+// Salt must be < 2^128 per the zkLogin spec · we render the HMAC as a
 // 16-byte (128-bit) big-endian integer.
 function saltFromHmac(hmacHex: string): string {
   // Take the first 16 bytes (32 hex chars), parse as BigInt.

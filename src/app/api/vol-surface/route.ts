@@ -5,7 +5,7 @@
 // of fanning out devInspects to the public fullnode. Returns the
 // decoded surface plus a pre-sampled smile curve the chart can bind
 // directly; when ?strike= is given, also the market-implied Pr(UP) at
-// that strike — the same number the quant strategy compares against.
+// that strike · the same number the quant strategy compares against.
 
 import { NextRequest, NextResponse } from "next/server";
 import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
@@ -22,7 +22,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Mirrors src/lib/predict-client.ts (browser reader) — keep in sync.
+// Mirrors src/lib/predict-client.ts (browser reader) · keep in sync.
 const PREDICT_PACKAGE =
   "0xf5ea2b3749c65d6e56507cc35388719aadb28f9cab873696a2f8687f5c785138";
 const READ_SENDER =
@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
       surface = await readSurface(oracleId);
       cache.set(oracleId, { generatedAtMs: Date.now(), surface });
     } catch (e) {
-      // Serve a stale surface over an error — the smile drifts slowly.
+      // Serve a stale surface over an error · the smile drifts slowly.
       if (hit) {
         surface = hit.surface;
       } else {

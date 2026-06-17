@@ -265,7 +265,7 @@ function decodeRegistrationFields(
 /**
  * Ensure this agent's declared capabilities are present in the on-chain
  * AgentRegistration. Augments the existing entry (via `update`) when one
- * already exists at this address — useful when multiple specialist agents
+ * already exists at this address · useful when multiple specialist agents
  * share a wallet during Wk1 single-wallet mode and each needs to publish
  * its own capability without clobbering the other's.
  *
@@ -291,7 +291,7 @@ export async function augmentRegistration(
     covers(existing.producesObjectTypes, args.producesObjectTypes)
   ) {
     console.log(
-      `[registry] augmentation no-op — registration already covers [${args.capabilities.join(", ")}]`,
+      `[registry] augmentation no-op · registration already covers [${args.capabilities.join(", ")}]`,
     );
     return existing;
   }
@@ -339,7 +339,7 @@ export async function ensureRegistration(
   if (existing) return existing;
 
   console.log(
-    `[registry] no AgentRegistration found for ${ctx.address.slice(0, 10)}… — registering ${args.displayName}`,
+    `[registry] no AgentRegistration found for ${ctx.address.slice(0, 10)}… · registering ${args.displayName}`,
   );
 
   const tx = buildRegisterAgentTx(ctx, args);

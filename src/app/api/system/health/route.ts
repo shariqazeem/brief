@@ -81,7 +81,7 @@ export async function GET() {
   if (lowWallets.length > 0) problems.push(`low gas: ${lowWallets.join(", ")}`);
   if (!priceFresh) problems.push("price feed stale");
   if (warden && warden.manager_dusdc < 10)
-    problems.push("manager dUSDC low — live mints degrade to simulated");
+    problems.push("manager dUSDC low · live mints degrade to simulated");
 
   const payload = {
     ok: true,

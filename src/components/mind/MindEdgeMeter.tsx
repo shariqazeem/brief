@@ -1,4 +1,4 @@
-// MindEdgeMeter — where the bet comes from. Market-implied Pr(UP)
+// MindEdgeMeter · where the bet comes from. Market-implied Pr(UP)
 // (derived live from the SVI surface at the current strike) against
 // the agent's own estimate; the visible gap between the two bars IS
 // the edge, and the verdict line says whether it cleared the
@@ -13,9 +13,9 @@ export function MindEdgeMeter({
   decided,
   direction,
 }: {
-  /** Market-implied Pr(UP) 0..1 — live from the surface. */
+  /** Market-implied Pr(UP) 0..1 · live from the surface. */
   marketP: number | null;
-  /** Agent's estimate 0..1 — from the latest decision. */
+  /** Agent's estimate 0..1 · from the latest decision. */
   agentP: number | null;
   /** Fire threshold as a fraction (e.g. 0.05). */
   threshold: number;
@@ -47,7 +47,7 @@ export function MindEdgeMeter({
           <div className="flex items-baseline justify-between font-mono text-[10px] tracking-[0.04em] text-muted">
             <span className="uppercase tracking-[0.2em]">Market says</span>
             <span className="tabular-nums text-ink">
-              {mp === null ? "—" : `${mp.toFixed(1)}% UP`}
+              {mp === null ? "-" : `${mp.toFixed(1)}% UP`}
             </span>
           </div>
           <div className="mt-1 h-2.5 w-full overflow-hidden border border-line bg-bg-elev-2/40">
@@ -92,7 +92,7 @@ export function MindEdgeMeter({
           <p className="font-sans text-[16px] leading-snug text-muted">
             {mp === null
               ? "Reading the surface…"
-              : "Market priced — the agent's estimate lands on its next decision."}
+              : "Market priced · the agent's estimate lands on its next decision."}
           </p>
         ) : (
           <p
@@ -114,7 +114,7 @@ export function MindEdgeMeter({
                 </strong>
               </>
             ) : (
-              <>→ under threshold — sat out, honestly</>
+              <>→ under threshold · sat out, honestly</>
             )}
           </p>
         )}

@@ -1,4 +1,4 @@
-// OperatorChart — the clinical price tape under the decision cascade.
+// OperatorChart · the clinical price tape under the decision cascade.
 //
 // Thin #111 price line over a faint #F5F5F5 fill, SMA-15/60 as dashed
 // #CCC, the strike as a dotted #EF4444 line, and each past decision as a

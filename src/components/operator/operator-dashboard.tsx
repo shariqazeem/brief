@@ -1,10 +1,10 @@
-// OperatorDashboard — the one focused surface for an adopted operator.
+// OperatorDashboard · the one focused surface for an adopted operator.
 //
 // A thin top bar (identity · budget leash · kill switch) over a single
 // white card with three tabs:
-//   Now      — the decision cascade (the operator thinking, live) + tape
-//   Journal  — its cumulative experience on Walrus, with real settlement
-//   Policy   — the OperatorPolicy the chain enforces, + revoke
+//   Now      · the decision cascade (the operator thinking, live) + tape
+//   Journal  · its cumulative experience on Walrus, with real settlement
+//   Policy   · the OperatorPolicy the chain enforces, + revoke
 // and a bottom strip of the last ten decisions.
 //
 // This component is presentational + reads the live wire/journal itself.
@@ -110,7 +110,7 @@ export type OperatorDashboardProps = {
   onConfirmRevoke: () => void;
   onCancelRevoke: () => void;
   /** Read-only shared view (e.g. ?policy=…): hide the revoke + adopt
-   *  controls — only the owner drives the leash, from their own session. */
+   *  controls · only the owner drives the leash, from their own session. */
   readOnly?: boolean;
 };
 
@@ -119,7 +119,7 @@ export type OperatorDashboardProps = {
 // ---------------------------------------------------------------------------
 
 function short(s: string | null | undefined, n = 4): string {
-  if (!s) return "—";
+  if (!s) return "-";
   return s.length > 2 * n + 2 ? `${s.slice(0, n + 2)}…${s.slice(-n)}` : s;
 }
 
@@ -134,7 +134,7 @@ function venueLabel(v: string): string {
 }
 
 function usd(n: number | null | undefined, dp = 0): string {
-  if (n == null) return "—";
+  if (n == null) return "-";
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: dp })}`;
 }
 
@@ -145,7 +145,7 @@ function sui(mist: bigint | null | undefined): number {
 
 // A gated-spot operator (the wizard product) trades SUI/USDC, and its policy
 // budget is denominated in the capital coin (DBUSDC testnet / USDC mainnet,
-// 6dp) — NOT SUI (9dp). A Predict operator is BTC + SUI-denominated budget.
+// 6dp) · NOT SUI (9dp). A Predict operator is BTC + SUI-denominated budget.
 function isSpotPolicy(policy: OperatorPolicyDecoded | null): boolean {
   return (policy?.allowedVenues ?? []).some((v) => v.startsWith("spot"));
 }
@@ -183,50 +183,50 @@ function deriveThesis(s: StreamSignals | null): string {
   return parts.length ? `${parts.join(". ")}.` : "Reading the tape…";
 }
 
-// The hero statement, in ALLOCATION terms — never "found an edge → selling"
+// The hero statement, in ALLOCATION terms · never "found an edge → selling"
 // followed by "no order placed". A capital manager states where the money is
 // and where it's going: "Bearish outlook. Holding cash." / "Adding to SUI."
 function allocationHeadline(dec: NonNullable<AgentStreamState["decision"]>): string {
   const cur = dec.currentExposurePct ?? 0;
   const tgt = dec.targetExposurePct;
   if (dec.decided && dec.rebalance === "buy") {
-    return `Adding to SUI — moving toward ${tgt ?? cur}% exposure.`;
+    return `Adding to SUI · moving toward ${tgt ?? cur}% exposure.`;
   }
   if (dec.decided && dec.rebalance === "sell") {
-    return `Reducing risk — trimming SUI toward ${tgt ?? 0}%.`;
+    return `Reducing risk · trimming SUI toward ${tgt ?? 0}%.`;
   }
-  // Holding — state the outlook and where capital sits, no contradiction.
+  // Holding · state the outlook and where capital sits, no contradiction.
   const outlook = tgt == null ? "No clear edge" : tgt === 0 ? "Bearish outlook" : "Bullish outlook";
   const where = cur < 5 ? "Holding cash." : `Holding ${cur}% in SUI.`;
   return `${outlook}. ${where}`;
 }
 
-// The operator's learned procedure for a regime — memory as an operating
+// The operator's learned procedure for a regime · memory as an operating
 // procedure, not "found 3 similar situations".
 function playbookLine(pb: NonNullable<AgentStreamState["decision"]>["playbook"]): string {
-  if (!pb || pb.occurrences === 0) return "First time in this regime — recording it.";
+  if (!pb || pb.occurrences === 0) return "First time in this regime · recording it.";
   const best =
     pb.bestAction === "act" ? "act" : pb.bestAction === "stand-aside" ? "stand aside" : "build the record";
   const wr = pb.winRate != null ? ` · ${Math.round(pb.winRate)}% win rate` : "";
   return `${pb.label} · seen ${pb.occurrences}× · best play: ${best}${wr}`;
 }
 
-// The allocation step in the timeline — target vs current → the action.
+// The allocation step in the timeline · target vs current → the action.
 function allocationBeat(dec: NonNullable<AgentStreamState["decision"]>): string {
   const cur = dec.currentExposurePct ?? 0;
   const tgt = dec.targetExposurePct;
-  if (tgt == null) return `Currently ${cur}% SUI · no confident target — hold.`;
+  if (tgt == null) return `Currently ${cur}% SUI · no confident target · hold.`;
   if (dec.rebalance === "buy") return `Target ${tgt}% SUI · currently ${cur}% → buy toward ${tgt}%.`;
   if (dec.rebalance === "sell") return `Target ${tgt}% SUI · currently ${cur}% → trim toward ${tgt}%.`;
-  return `Target ${tgt}% SUI · currently ${cur}% — within band, hold.`;
+  return `Target ${tgt}% SUI · currently ${cur}% · within band, hold.`;
 }
 
-// The result line when the operator holds — allocation terms, no "stood down".
+// The result line when the operator holds · allocation terms, no "stood down".
 function holdResult(dec: NonNullable<AgentStreamState["decision"]>): string {
   const cur = dec.currentExposurePct ?? 0;
   if (dec.targetExposurePct != null)
-    return `Already aligned — ${cur}% SUI, within target. No rebalance needed.`;
-  return "No confident edge — capital positioned, none at new risk.";
+    return `Already aligned · ${cur}% SUI, within target. No rebalance needed.`;
+  return "No confident edge · capital positioned, none at new risk.";
 }
 
 function relTime(ms: number, now: number): string {
@@ -309,7 +309,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
       />
 
       <main className="mx-auto max-w-3xl space-y-6 px-5 py-8 sm:px-8">
-        {/* YOUR OBJECTIVE first — the operator manages the owner's objective,
+        {/* YOUR OBJECTIVE first · the operator manages the owner's objective,
             not the other way around. Then: what it's doing → capital →
             outcome → the actions → why it's safe → (reasoning below). */}
         {spot && (
@@ -337,7 +337,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
         <CapitalCard stream={stream} bv={bv} spanDays={scorecard?.spanDays ?? null} />
 
-        {/* OUTCOME first — performance + the actions behind it */}
+        {/* OUTCOME first · performance + the actions behind it */}
         {spot && (
           <OperatorPerformance
             scorecard={scorecard}
@@ -358,7 +358,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             so it appears only for the owner and is a no-op for anyone else. */}
         {spot && <WithdrawFunds policyId={policyId} />}
 
-        {/* REASONING — supporting evidence, collapsed by default (outcome > how) */}
+        {/* REASONING · supporting evidence, collapsed by default (outcome > how) */}
         {spot ? (
           <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
             <summary
@@ -473,8 +473,8 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Hero — the ONE glance. Current status (live) AND last completed decision
-// COEXIST (they're different things — fixes the "watching↔protected" flicker),
+// Hero · the ONE glance. Current status (live) AND last completed decision
+// COEXIST (they're different things · fixes the "watching↔protected" flicker),
 // over the four numbers that matter.
 // ---------------------------------------------------------------------------
 
@@ -504,25 +504,25 @@ function OperatorHero({
       ? { word: "Executing", color: EMERALD, live: true }
       : { word: "Observing", color: NAVY, live: true };
   const heroLine = revoked
-    ? "Operator grounded — past wins still redeem, no new trades."
+    ? "Operator grounded · past wins still redeem, no new trades."
     : !dec
-      ? "Reading the market — its first decision lands shortly."
+      ? "Reading the market · its first decision lands shortly."
       : dec.mandate?.breached
-        ? "Mandate guard tripped — standing down to honour your limit."
+        ? "Mandate guard tripped · standing down to honour your limit."
         : allocationHeadline(dec);
-  // The allocation sub-line — "what your money is doing" in one tabular glance.
+  // The allocation sub-line · "what your money is doing" in one tabular glance.
   const curEx = dec?.currentExposurePct ?? null;
   const tgtEx = dec?.targetExposurePct ?? null;
   const allocSub =
     dec && !revoked && curEx != null
       ? `${curEx}% SUI · ${100 - curEx}% cash${tgtEx != null ? ` · target ${tgtEx}% SUI` : ""}`
       : null;
-  const lastWhen = stream.lastEventTs ? relTime(stream.lastEventTs, now) : "—";
-  const conf = dec ? `${Math.round(dec.conviction * 100)}%` : "—";
+  const lastWhen = stream.lastEventTs ? relTime(stream.lastEventTs, now) : "-";
+  const conf = dec ? `${Math.round(dec.conviction * 100)}%` : "-";
   const m = dec?.mandate ?? null;
-  const mandateHealth = m ? (m.breached ? "Guard tripped" : "Healthy") : "—";
+  const mandateHealth = m ? (m.breached ? "Guard tripped" : "Healthy") : "-";
   const mandateColor = m ? (m.breached ? RED : EMERALD) : SUB;
-  const budgetRem = bv.cap > 0 ? `${Math.max(0, Math.round(100 - (bv.spent / bv.cap) * 100))}%` : "—";
+  const budgetRem = bv.cap > 0 ? `${Math.max(0, Math.round(100 - (bv.spent / bv.cap) * 100))}%` : "-";
   return (
     <section
       className="bg-bg-elev px-6 py-7 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9 sm:py-8"
@@ -589,7 +589,7 @@ function HeroStat({ label, value, color = INK }: { label: string; value: string;
   );
 }
 
-// Operator Capital — the FIRST thing a user (and judge) wants: how much money
+// Operator Capital · the FIRST thing a user (and judge) wants: how much money
 // is it managing right now, and is it up or down. Marked to market live.
 function CapitalCard({
   stream,
@@ -609,7 +609,7 @@ function CapitalCard({
   const budgetRem = p?.budgetRemainingPct ?? (bv.cap > 0 ? Math.max(0, 100 - (bv.spent / bv.cap) * 100) : 100);
   const flat = Math.abs(pnl) < 0.005;
   const pnlColor = flat ? SUB : pnl > 0 ? EMERALD : RED;
-  // Where the money LIVES right now — the allocation split (SUI vs cash).
+  // Where the money LIVES right now · the allocation split (SUI vs cash).
   const suiPct = dec?.currentExposurePct ?? null;
   const tgtPct = dec?.targetExposurePct ?? null;
   return (
@@ -672,10 +672,10 @@ function CapitalCard({
   );
 }
 
-// Operator Performance — outcome, not explanation. The return BENCHMARKED
+// Operator Performance · outcome, not explanation. The return BENCHMARKED
 // against buy-and-hold SUI and cash (a "+1.4%" means nothing without it), over
 // honest LIFETIME counts (from persisted stats, so a buy that aged out of the
-// decision window still counts) — observations / allocations / abstentions —
+// decision window still counts) · observations / allocations / abstentions -
 // plus worst drawdown, mandate compliance, and 0 policy violations.
 function OperatorPerformance({
   scorecard,
@@ -694,7 +694,7 @@ function OperatorPerformance({
 }) {
   const sc = scorecard;
   const pnlPct = stream.decision?.portfolio?.pnlPct ?? 0;
-  // Need *something* to show — either the live mark or the archive.
+  // Need *something* to show · either the live mark or the archive.
   if (!sc && !stats) return null;
   const flat = Math.abs(pnlPct) < 0.05;
   const pnlColor = revoked ? IDLE : flat ? SUB : pnlPct > 0 ? EMERALD : RED;
@@ -730,7 +730,7 @@ function OperatorPerformance({
         </span>
       </div>
 
-      {/* Benchmark — vs holding SUI, vs cash. The number now means something. */}
+      {/* Benchmark · vs holding SUI, vs cash. The number now means something. */}
       {benchmark && (
         <div className="mt-4 grid grid-cols-3 gap-px overflow-hidden" style={{ background: "#E5E5EA" }}>
           <BenchCell label="Operator" pct={benchmark.operatorPct} strong />
@@ -747,14 +747,14 @@ function OperatorPerformance({
         </p>
       )}
 
-      {/* Honest activity counts — never "0 reallocations" while it holds SUI. */}
+      {/* Honest activity counts · never "0 reallocations" while it holds SUI. */}
       <div className="mt-5 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-3" style={{ background: "#E5E5EA" }}>
         <HeroStat label="Observations" value={`${observations}`} />
         <HeroStat label="Allocations" value={`${allocations}`} />
         <HeroStat label="Abstentions" value={`${abstentions}`} />
         <HeroStat
           label="Worst drawdown"
-          value={worstDD != null ? `-${worstDD.toFixed(1)}%` : "—"}
+          value={worstDD != null ? `-${worstDD.toFixed(1)}%` : "-"}
           color={worstDD != null && worstDD > 5 ? AMBER : INK}
         />
         <HeroStat label="Mandate" value={mandateHealthy ? "100%" : "Breached"} color={mandateHealthy ? EMERALD : RED} />
@@ -788,7 +788,7 @@ function BenchCell({ label, pct, strong }: { label: string; pct: number; strong?
   );
 }
 
-// Operator Ledger — every capital ALLOCATION as decision → action → outcome.
+// Operator Ledger · every capital ALLOCATION as decision → action → outcome.
 // "10:14 PM · Moved into SUI · Breakout · +1.8%". The thin/empty state is
 // honest: holding through every regime IS the track record so far.
 function OperatorLedgerCard({ ledger, now }: { ledger: LedgerEvent[]; now: number }) {
@@ -796,7 +796,7 @@ function OperatorLedgerCard({ ledger, now }: { ledger: LedgerEvent[]; now: numbe
     <SectionCard title="Operator ledger · every allocation">
       {ledger.length === 0 ? (
         <p className="py-2 text-[13px] leading-relaxed" style={{ color: SUB }}>
-          No allocation moves in the current window — the operator has held its
+          No allocation moves in the current window · the operator has held its
           position through every regime. Holding is a decision too; each one is in
           the timeline below.
         </p>
@@ -820,8 +820,8 @@ function LedgerRow({ ev, now, isFirst }: { ev: LedgerEvent; now: number; isFirst
     ? "settling…"
     : ev.side === "buy"
       ? favorPct >= 0
-        ? `+${favorPct.toFixed(1)}% — SUI rose after`
-        : `${favorPct.toFixed(1)}% — SUI fell after`
+        ? `+${favorPct.toFixed(1)}% · SUI rose after`
+        : `${favorPct.toFixed(1)}% · SUI fell after`
       : favorPct >= 0
         ? `avoided ${Math.abs(favorPct).toFixed(1)}% drop`
         : `missed ${Math.abs(favorPct).toFixed(1)}% upside`;
@@ -864,7 +864,7 @@ function LedgerRow({ ev, now, isFirst }: { ev: LedgerEvent; now: number; isFirst
   );
 }
 
-// Regime → Allocation Matrix — the operator's visible brain. Its allocation
+// Regime → Allocation Matrix · the operator's visible brain. Its allocation
 // POLICY: each mode's SUI ceiling × each regime's stance. Mirrors the engine
 // (MODE_CFG.maxExposure), so it's a window into the real logic, not a claim.
 // The current regime row + active mode column are lit; the live target/current
@@ -881,7 +881,7 @@ function AllocationMatrix({ dec }: { dec: AgentStreamState["decision"] }) {
         ? "Trim toward target"
         : tgt != null
           ? "Already aligned"
-          : "Hold — no edge";
+          : "Hold · no edge";
   return (
     <section className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
       <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
@@ -941,7 +941,7 @@ function AllocationMatrix({ dec }: { dec: AgentStreamState["decision"] }) {
           <span style={{ color: INK }}>
             {action}
           </span>{" "}
-          — target {tgt != null ? `${tgt}% SUI` : "hold current"}, holding {cur ?? 0}% now.
+          · target {tgt != null ? `${tgt}% SUI` : "hold current"}, holding {cur ?? 0}% now.
         </p>
       )}
       <p className="mt-1.5 font-mono text-[10px]" style={{ color: MUTED }}>
@@ -951,7 +951,7 @@ function AllocationMatrix({ dec }: { dec: AgentStreamState["decision"] }) {
   );
 }
 
-// Playbook Intelligence — per-regime learned behavior. Not "found 3 similar
+// Playbook Intelligence · per-regime learned behavior. Not "found 3 similar
 // situations"; a procedure the operator has built from settled outcomes.
 function PlaybookIntelligence({ playbooks }: { playbooks: PlaybookStat[] }) {
   if (!playbooks.length) return null;
@@ -986,7 +986,7 @@ function PlaybookIntelligence({ playbooks }: { playbooks: PlaybookStat[] }) {
   );
 }
 
-// Your Objective — the reframe that matters most: the operator manages the
+// Your Objective · the reframe that matters most: the operator manages the
 // OWNER's objective, not the other way around. Leads the page with the goal +
 // live progress toward it + "Operator [name]: Working". A grow target shows
 // progress to %, a protect mandate shows the drawdown guard, and "beat passive
@@ -1012,7 +1012,7 @@ function ObjectiveCard({
   const m = dec?.mandate ?? null;
   const pnlPct = dec?.portfolio?.pnlPct ?? 0;
 
-  // Operator status — the worker behind the objective.
+  // Operator status · the worker behind the objective.
   const status = revoked
     ? { word: "Grounded", color: IDLE }
     : stream.mode === "live" && !stale
@@ -1090,7 +1090,7 @@ function ObjectiveCard({
     <GoalShell eyebrow="Your objective" title={`Beat passive ${assetLabel}`} footer={footer}>
       <div className="mt-3 flex items-baseline gap-2.5">
         <span className="font-sans text-[32px] font-medium tabular-nums leading-none tracking-tight" style={{ color: vsColor }}>
-          {vsHold == null ? "—" : `${vsHold >= 0 ? "+" : ""}${vsHold.toFixed(1)}%`}
+          {vsHold == null ? "-" : `${vsHold >= 0 ? "+" : ""}${vsHold.toFixed(1)}%`}
         </span>
         <span className="font-mono text-[12px]" style={{ color: SUB }}>
           vs passive {assetLabel}
@@ -1133,7 +1133,7 @@ function GoalShell({
   );
 }
 
-// Protected by Sui — the real moat, made VISUAL: the custody chain your money
+// Protected by Sui · the real moat, made VISUAL: the custody chain your money
 // flows through, and what each link can and cannot do. This is the "why Sui"
 // answer, visible every day (not buried in Proof).
 function ProtectedBySui({ policyId }: { policyId: string | null }) {
@@ -1167,7 +1167,7 @@ function ProtectedBySui({ policyId }: { policyId: string | null }) {
         )}
       </div>
 
-      {/* The flow — your money down through the custody chain. */}
+      {/* The flow · your money down through the custody chain. */}
       <div className="mt-4 space-y-0">
         {flow.map((f, i) => (
           <div key={f.node}>
@@ -1223,7 +1223,7 @@ function ProtectedBySui({ policyId }: { policyId: string | null }) {
   );
 }
 
-// Operator Timeline — the most alive part. Driven by the SAME decision archive
+// Operator Timeline · the most alive part. Driven by the SAME decision archive
 // the scorecard reads (so it can NEVER say "no decisions yet" while the count
 // shows hundreds). Each beat: when, what regime, what it did with the money.
 function OperatorTimeline({
@@ -1240,7 +1240,7 @@ function OperatorTimeline({
   if (decisions.length === 0) {
     return (
       <p className="py-10 text-center text-[13px]" style={{ color: SUB }}>
-        {traderName} is booting — its first decision lands shortly.
+        {traderName} is booting · its first decision lands shortly.
       </p>
     );
   }
@@ -1284,8 +1284,8 @@ function TimelineDecisionRow({ d, now, isLast }: { d: DecisionRecord; now: numbe
         ? "Moved to cash"
         : `Trimmed toward ${tgt ?? 0}% SUI`
     : tgt != null
-      ? `Held — target ${tgt}% SUI`
-      : "Held — no edge";
+      ? `Held · target ${tgt}% SUI`
+      : "Held · no edge";
   const color = !act ? "#CCCCCC" : d.outcome === "win" ? EMERALD : d.outcome === "loss" ? RED : "#4DA2FF";
   const tag =
     act && (d.outcome === "win" || d.outcome === "loss")
@@ -1305,7 +1305,7 @@ function TimelineDecisionRow({ d, now, isLast }: { d: DecisionRecord; now: numbe
           {relTime(d.ts, now)}
         </p>
         <p className="mt-0.5 text-[13.5px] leading-snug" style={{ color: INK }}>
-          <span style={{ color: SUB }}>{label}</span> — {action}
+          <span style={{ color: SUB }}>{label}</span> · {action}
           {tag && (
             <span className="ml-2 font-mono text-[11px] tabular-nums" style={{ color: tagColor }}>
               {tag}
@@ -1317,7 +1317,7 @@ function TimelineDecisionRow({ d, now, isLast }: { d: DecisionRecord; now: numbe
   );
 }
 
-// Market State — a story, not a metrics grid. Trend headline + price +
+// Market State · a story, not a metrics grid. Trend headline + price +
 // confidence-to-act + a one-line reason. Humans read stories.
 function MarketState({
   signals,
@@ -1335,7 +1335,7 @@ function MarketState({
   const a = Math.abs(roc);
   const flat = a < 0.0008;
   const mom = momentumLabel(signals.rsi_60m).toLowerCase();
-  const conf = dec ? `${Math.round(dec.conviction * 100)}%` : "—";
+  const conf = dec ? `${Math.round(dec.conviction * 100)}%` : "-";
   // Lead with the operator's REGIME classification (its read of the market);
   // fall back to a derived trend before the first decision lands.
   const kind = dec?.regimeKind ?? null;
@@ -1357,7 +1357,7 @@ function MarketState({
                 ? EMERALD
                 : RED;
   const reason =
-    dec?.regimeReview ?? (flat ? `No trend to ride — momentum ${mom}.` : `Trend present, momentum ${mom}.`);
+    dec?.regimeReview ?? (flat ? `No trend to ride · momentum ${mom}.` : `Trend present, momentum ${mom}.`);
   return (
     <section className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
       <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
@@ -1370,7 +1370,7 @@ function MarketState({
         {assetLabel} ${signals.spot.toFixed(3)} · momentum {mom}
       </p>
       <p className="mt-3 text-[13px] leading-relaxed" style={{ color: SUB }}>
-        <span style={{ color: INK }}>Confidence to act {conf}</span> — {reason}
+        <span style={{ color: INK }}>Confidence to act {conf}</span> · {reason}
       </p>
       {dec?.playbook && dec.playbook.occurrences > 0 && (
         <p className="mt-2 font-mono text-[11.5px] tabular-nums" style={{ color: SUB }}>
@@ -1460,12 +1460,12 @@ function TopBar({
           />
         </div>
 
-        {/* fuel gauge — DEEP tank for DeepBook fees. Understated; the user
+        {/* fuel gauge · DEEP tank for DeepBook fees. Understated; the user
             doesn't think about DEEP unless it runs low (amber). */}
         {fuel && (
           <div
             className="hidden shrink-0 items-center gap-1.5 sm:flex"
-            title={`Fuel — DEEP covers DeepBook trading fees. Tank: ${fuel.deepHuman.toFixed(2)} DEEP.`}
+            title={`Fuel · DEEP covers DeepBook trading fees. Tank: ${fuel.deepHuman.toFixed(2)} DEEP.`}
           >
             <span
               className="font-sans text-[12px] leading-none"
@@ -1492,7 +1492,7 @@ function TopBar({
           </div>
         )}
 
-        {/* controls — judge path (Brain · Proof) + the leash */}
+        {/* controls · judge path (Brain · Proof) + the leash */}
         <div className="ml-auto flex items-center gap-5">
           {policyId && (
             <>
@@ -1530,7 +1530,7 @@ function TopBar({
             <span
               className="font-mono text-[9.5px] uppercase tracking-[0.2em]"
               style={{ color: SUB }}
-              title="Shared view — only the owner can revoke, from their own session."
+              title="Shared view · only the owner can revoke, from their own session."
             >
               watching · owner holds the leash
             </span>
@@ -1539,7 +1539,7 @@ function TopBar({
               <button
                 type="button"
                 onClick={onYank}
-                title="Revoke on-chain — the operator stops immediately. Past wins still redeem."
+                title="Revoke on-chain · the operator stops immediately. Past wins still redeem."
                 className="font-mono text-[10px] uppercase tracking-[0.2em] transition-colors hover:text-[#EF4444]"
                 style={{ color: SUB }}
               >
@@ -1563,7 +1563,7 @@ function TopBar({
 }
 
 // ---------------------------------------------------------------------------
-// "Right now" — the live decision cascade (the operator thinking)
+// "Right now" · the live decision cascade (the operator thinking)
 // ---------------------------------------------------------------------------
 
 function NowTab({
@@ -1632,7 +1632,7 @@ function NowTab({
           />
         ) : (
         <div className="mx-auto max-w-xl space-y-px">
-          {/* 1 — Observing */}
+          {/* 1 · Observing */}
           <CascadeRow
             reached={hasObserve}
             expanded={hasObserve && !decided}
@@ -1648,7 +1648,7 @@ function NowTab({
             </div>
           </CascadeRow>
 
-          {/* 2 — Thesis */}
+          {/* 2 · Thesis */}
           <CascadeRow
             reached={hasSignals || decided}
             expanded={hasSignals && !decided}
@@ -1661,7 +1661,7 @@ function NowTab({
             </p>
           </CascadeRow>
 
-          {/* 3 — Risk */}
+          {/* 3 · Risk */}
           <CascadeRow
             reached={hasSignals || decided}
             expanded={hasSignals && !decided}
@@ -1670,14 +1670,14 @@ function NowTab({
             label="Risk"
           >
             <p className="font-mono text-[12px] tabular-nums" style={{ color: SUB }}>
-              Budget {policy ? `${Math.round((sui(policy.spent) / Math.max(1e-9, sui(policy.budgetCap))) * 100)}% used` : "—"}
+              Budget {policy ? `${Math.round((sui(policy.spent) / Math.max(1e-9, sui(policy.budgetCap))) * 100)}% used` : "-"}
               {" · "}
               Policy {policy?.revoked ? "revoked" : "clear"}
               {dec ? ` · Conviction ${(dec.conviction * 100).toFixed(0)}%` : ""}
             </p>
           </CascadeRow>
 
-          {/* 4 — Decision */}
+          {/* 4 · Decision */}
           <CascadeRow
             reached={decided}
             expanded={decided}
@@ -1688,7 +1688,7 @@ function NowTab({
             <DecisionBlock dec={dec} />
           </CascadeRow>
 
-          {/* 5 — Chain */}
+          {/* 5 · Chain */}
           <CascadeRow
             reached={chainReached}
             expanded={chainReached}
@@ -1719,7 +1719,7 @@ function NowTab({
         />
       )}
 
-      {/* price tape — ~30% of the card */}
+      {/* price tape · ~30% of the card */}
       <div className="mt-8" style={{ borderTop: "1px solid #E5E5E5", paddingTop: 16 }}>
         <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.28em]" style={{ color: SUB }}>
           {assetLabel} · 24h{isSpot ? (BRIEF_NETWORK === "testnet" ? " · live testnet pool" : " · live") : " · strike dotted"}
@@ -1736,13 +1736,13 @@ function NowTab({
 }
 
 // ---------------------------------------------------------------------------
-// SpotPipeline — the Brief Operator's visible decision engine (gated-spot).
+// SpotPipeline · the Brief Operator's visible decision engine (gated-spot).
 //
 // Seven steps the user can watch execute, on real market data:
 //   Observe → Build thesis → Challenge thesis → Risk review → Policy review →
 //   Decision → Execution.
 // AI (Claude) may author the thesis/counterargument; the Move policy still
-// gates execution. Abstention renders as a SUCCESS — capital protected.
+// gates execution. Abstention renders as a SUCCESS · capital protected.
 // ---------------------------------------------------------------------------
 
 function SpotPipeline({
@@ -1807,8 +1807,8 @@ function SpotPipeline({
       steps.push({ key: "playbook", label: "Recalled playbook", body: playbookLine(dec.playbook) });
     else if (dec.recall)
       steps.push({ key: "recall", label: "Recalled", body: recallLine(dec.recall) });
-    steps.push({ key: "thesis", label: "Thesis", body: dec.thesis ?? "—" });
-    steps.push({ key: "counter", label: "Counterargument", body: dec.counterargument ?? "—" });
+    steps.push({ key: "thesis", label: "Thesis", body: dec.thesis ?? "-" });
+    steps.push({ key: "counter", label: "Counterargument", body: dec.counterargument ?? "-" });
     steps.push({
       key: "risk",
       label: "Risk review",
@@ -1897,7 +1897,7 @@ function SpotPipeline({
   );
 }
 
-// A single beat in the living timeline — ● dot + connector, fading in in turn.
+// A single beat in the living timeline · ● dot + connector, fading in in turn.
 function TimelineStep({
   label,
   children,
@@ -1947,8 +1947,8 @@ function TimelineStep({
 }
 
 function recallLine(recall: NonNullable<AgentStreamState["decision"]>["recall"]): string {
-  if (!recall) return "—";
-  if (recall.found === 0) return "First time in conditions like these — recording it.";
+  if (!recall) return "-";
+  if (recall.found === 0) return "First time in conditions like these · recording it.";
   const effect =
     recall.confidenceMult < 0.99
       ? "confidence reduced"
@@ -1975,7 +1975,7 @@ function CascadeRow({
 }) {
   if (!reached) return null;
   if (!expanded) {
-    // collapsed thin row — dot + label only, faded
+    // collapsed thin row · dot + label only, faded
     return (
       <div className="flex items-center gap-2.5 py-1.5">
         <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "#CCCCCC" }} aria-hidden />
@@ -2020,7 +2020,7 @@ function DecisionBlock({ dec }: { dec: AgentStreamState["decision"] }) {
   return (
     <div>
       <p className="font-mono text-[26px] font-medium tracking-tight" style={{ color: up ? EMERALD : RED }}>
-        ACT — {up ? "UP ▲" : "DOWN ▼"}
+        ACT · {up ? "UP ▲" : "DOWN ▼"}
       </p>
       <p className="mt-1.5 text-[13px] leading-relaxed" style={{ color: SUB }}>
         {dec.reasoning ?? `Conviction ${(dec.conviction * 100).toFixed(0)}% · ${dec.quantity} contract${dec.quantity === 1 ? "" : "s"}.`}
@@ -2033,14 +2033,14 @@ function ChainBlock({ stream, isSpot }: { stream: AgentStreamState; isSpot: bool
   const tx = stream.deliveredTx ?? stream.mintTx;
   const refused = stream.steps.mint.status === "failed";
   const live = stream.mode === "live";
-  // For a spot operator, "not live" means it abstained (no order placed) —
+  // For a spot operator, "not live" means it abstained (no order placed) -
   // that's discipline, not a fake/off-chain sim. Word it honestly.
   const verdict = refused
     ? { text: "Chain refused", color: RED }
     : live
       ? { text: isSpot ? "Executed on DeepBook" : "Policy verified", color: EMERALD }
       : {
-          text: isSpot ? "Stood down — no order placed" : "Simulated · off-chain",
+          text: isSpot ? "Stood down · no order placed" : "Simulated · off-chain",
           color: AMBER,
         };
   return (
@@ -2104,7 +2104,7 @@ function IdleBlock({
             {traderName} is watching the market.
           </p>
           <p className="mt-2 max-w-sm text-[13px] leading-relaxed" style={{ color: SUB }}>
-            It reads the tape every cycle and acts only on a real edge — first
+            It reads the tape every cycle and acts only on a real edge · first
             decision usually within a minute. An abstention is a decision too:
             capital preserved is discipline, not inaction.
           </p>
@@ -2202,7 +2202,7 @@ function JournalTab({
   if (entries.length === 0) {
     return (
       <p className="py-12 text-center text-[13px]" style={{ color: SUB }}>
-        {traderName} hasn&apos;t made its first decision yet. Its experience will be written here — and to Walrus — as it works.
+        {traderName} hasn&apos;t made its first decision yet. Its experience will be written here · and to Walrus · as it works.
       </p>
     );
   }
@@ -2224,7 +2224,7 @@ function JournalTab({
             {stats.winRate.toFixed(0)}% settled win rate
           </span>
         ) : (
-          <span>win rate — (awaiting settlement)</span>
+          <span>win rate · (awaiting settlement)</span>
         )}
       </p>
 
@@ -2238,7 +2238,7 @@ function JournalTab({
       {/* walrus provenance */}
       <div className="mt-8 space-y-2" style={{ borderTop: "1px solid #E5E5E5", paddingTop: 16 }}>
         <p className="text-[12px] leading-relaxed" style={{ color: SUB }}>
-          {traderName}&apos;s experience is permanently stored on Walrus — and it&apos;s
+          {traderName}&apos;s experience is permanently stored on Walrus · and it&apos;s
           not a log it forgets: the operator <span style={{ color: INK }}>recalls similar
           past situations from this memory before every decision</span>. Verifiable by anyone.
         </p>
@@ -2268,7 +2268,7 @@ function JournalTab({
         </div>
       </div>
 
-      {/* technical signals — hidden by default */}
+      {/* technical signals · hidden by default */}
       <details className="group mt-4">
         <summary className="cursor-pointer list-none font-mono text-[10px] uppercase tracking-[0.22em]" style={{ color: SUB }}>
           <span className="transition-opacity hover:opacity-70">View technical signals ▾</span>
@@ -2338,7 +2338,7 @@ function settlementHeadline(e: JournalDecision): string {
       return `Acted ${dir}. Awaiting settlement.`;
     case "preserved":
       return e.swingPct != null
-        ? `Preserved capital. The market swung ${e.swingPct.toFixed(1)}% — volatility it sat out.`
+        ? `Preserved capital. The market swung ${e.swingPct.toFixed(1)}% · volatility it sat out.`
         : "Preserved capital. No edge worth the risk.";
     case "executed":
       return `Acted ${dir}${e.mode === "live" ? " · live on chain" : ""}.`;
@@ -2373,11 +2373,11 @@ function SignalReadout({ signals }: { signals: StreamSignals | null }) {
   }
   const rsi = signals.rsi_60m;
   const rows: Array<[string, string]> = [
-    ["RSI 60m", rsi != null ? rsi.toFixed(0) : "—"],
-    ["ROC 30m", signals.roc_30m != null ? `${(signals.roc_30m * 100).toFixed(2)}%` : "—"],
-    ["SMA 15m", signals.sma_15m != null ? usd(signals.sma_15m) : "—"],
-    ["SMA 60m", signals.sma_60m != null ? usd(signals.sma_60m) : "—"],
-    ["Realized vol 60m", signals.realized_vol_60m != null ? `${(signals.realized_vol_60m * 100).toFixed(1)}%` : "—"],
+    ["RSI 60m", rsi != null ? rsi.toFixed(0) : "-"],
+    ["ROC 30m", signals.roc_30m != null ? `${(signals.roc_30m * 100).toFixed(2)}%` : "-"],
+    ["SMA 15m", signals.sma_15m != null ? usd(signals.sma_15m) : "-"],
+    ["SMA 60m", signals.sma_60m != null ? usd(signals.sma_60m) : "-"],
+    ["Realized vol 60m", signals.realized_vol_60m != null ? `${(signals.realized_vol_60m * 100).toFixed(1)}%` : "-"],
   ];
   return (
     <div className="space-y-2">
@@ -2428,10 +2428,10 @@ function PolicyTab({
     ["Budget cap", `${cap.toFixed(2)} ${bvp.unit}`],
     ["Spent", `${spent.toFixed(2)} ${bvp.unit}`],
     ["Remaining", `${remaining.toFixed(2)} ${bvp.unit}`],
-    ["Venues", (policy.allowedVenues ?? []).map(venueLabel).join(" · ") || "—"],
+    ["Venues", (policy.allowedVenues ?? []).map(venueLabel).join(" · ") || "-"],
     ["Agent", short(policy.agent, 6)],
     ["Owner (you)", short(policy.owner, 6)],
-    ["Expires", policy.expiresAtMs ? new Date(Number(policy.expiresAtMs)).toLocaleString() : "—"],
+    ["Expires", policy.expiresAtMs ? new Date(Number(policy.expiresAtMs)).toLocaleString() : "-"],
   ];
   return (
     <div>
@@ -2503,12 +2503,12 @@ function PolicyTab({
         )}
       </div>
       <p className="mt-4 text-[12px] leading-relaxed" style={{ color: SUB }}>
-        This operator published a manifesto to Walrus at adoption — its declared
+        This operator published a manifesto to Walrus at adoption · its declared
         parameters + a pledge, verifiable by anyone. Past wins still auto-redeem
         after revocation; the kill switch blocks new trades, never your funds.
       </p>
 
-      {/* Lifecycle — answer "how do I leave?" plainly. */}
+      {/* Lifecycle · answer "how do I leave?" plainly. */}
       <div className="mt-6 border-t pt-5" style={{ borderColor: "#E5E5EA" }}>
         <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
           Lifecycle
@@ -2523,10 +2523,10 @@ function PolicyTab({
           <span style={{ color: SUB }}>Done</span>
         </div>
         <p className="mt-3 text-[12px] leading-relaxed" style={{ color: SUB }}>
-          Your capital never left your custody — it&apos;s in{" "}
+          Your capital never left your custody · it&apos;s in{" "}
           <span style={{ color: INK }}>your own DeepBook BalanceManager</span>. Revoke
           stops the operator on-chain. To take funds out, you withdraw from your
-          BalanceManager — <span style={{ color: INK }}>only you hold the WithdrawCap</span>,
+          BalanceManager · <span style={{ color: INK }}>only you hold the WithdrawCap</span>,
           so neither the operator nor we ever can.
         </p>
       </div>
@@ -2589,7 +2589,7 @@ function RevokeConfirm({
           Yank the leash
         </p>
         <p className="mt-3 text-[14px] leading-relaxed" style={{ color: INK }}>
-          Pull the leash on <span className="font-medium">{name}</span>? The Move policy will block its next bet on chain. Past wins still auto-redeem — this stops new risk, not your winnings.
+          Pull the leash on <span className="font-medium">{name}</span>? The Move policy will block its next bet on chain. Past wins still auto-redeem · this stops new risk, not your winnings.
         </p>
         {error && (
           <p className="mt-3 font-mono text-[11px]" style={{ color: RED }}>{error.slice(0, 200)}</p>

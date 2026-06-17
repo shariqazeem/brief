@@ -1,4 +1,4 @@
-// Planner Agent — the head of Brief's autonomous workforce.
+// Planner Agent · the head of Brief's autonomous workforce.
 //
 // Given a mission (a plain-English brief from a user) and an OperatorPolicy
 // envelope, the Planner decomposes the mission into 1–N sub-tasks routed to
@@ -6,7 +6,7 @@
 // each sub-task on chain with `parent_policy = Some(policy.id)` so the
 // later `approve_with_policy` call enforces the kill switch atomically.
 //
-// For Wk1 this is a CLI one-shot — given a mission, decompose, post, exit.
+// For Wk1 this is a CLI one-shot · given a mission, decompose, post, exit.
 // Day 8 wraps the same core in an event-driven loop bound to a UI-minted
 // MissionRequested event.
 //
@@ -84,7 +84,7 @@ function parseArgs(): Args {
 }
 
 // ---------------------------------------------------------------------------
-// Workforce discovery — multi-wallet.
+// Workforce discovery · multi-wallet.
 //
 // Walks every AgentRegistered event on chain, keeps the newest
 // registration per address, and exposes the (capability, address) pairs
@@ -94,7 +94,7 @@ function parseArgs(): Args {
 // in spirit (the policy bakes that contract: poster signs the approve;
 // reputation must accrue to a DIFFERENT registration). If no distinct
 // specialist exists for a required capability we fail loudly rather than
-// silently self-assigning back to the Planner — that would collapse the
+// silently self-assigning back to the Planner · that would collapse the
 // "agents hiring agents" property the chain is supposed to prove.
 // ---------------------------------------------------------------------------
 
@@ -130,7 +130,7 @@ async function discoverWorkforce(ctx: AgentContext): Promise<WorkforceEntry[]> {
 /**
  * Pick the best specialist for a capability. Tie-break: higher
  * reputation_score first, then lower base_price_per_call. Planner's own
- * address is never eligible — discoverWorkforce filters it out by
+ * address is never eligible · discoverWorkforce filters it out by
  * construction, but we re-assert defensively here in case a caller hands
  * us a custom workforce list.
  */
@@ -241,7 +241,7 @@ ${workforceTable}
 
 ## Rules
 - Every sub-task's "capability" MUST be one of [${availableCapabilities.join(", ")}]. If only "research" is available, do not produce a "treasury" sub-task.
-- Each sub-task must be self-contained — the specialist must be able to act on it without further clarification.
+- Each sub-task must be self-contained · the specialist must be able to act on it without further clarification.
 - The "spec" object is serialized to JSON and stored on chain as the spec_blob the specialist reads. Include target_package_id and a short context paragraph for research sub-tasks.
 - Do not exceed ${args.maxSubtasks} sub-tasks. Fewer is fine.
 - bounty_sui must be a positive number; default to ${args.defaultBountySui} unless the mission justifies more.
@@ -314,7 +314,7 @@ function validatePolicyForPlanner(
   subtasks: SubTaskPlan[],
 ): bigint {
   if (policy.revoked) {
-    throw new Error(`Policy ${policy.id} is revoked — cannot post sub-tasks.`);
+    throw new Error(`Policy ${policy.id} is revoked · cannot post sub-tasks.`);
   }
   if (Number(policy.expiresAtMs) <= Date.now()) {
     throw new Error(
@@ -382,7 +382,7 @@ type PostedSubtask = {
  * Eliminates the intra-mission gas-coin race that previously dropped the
  * 2nd post when the SDK held a stale version of the same gas coin. The N
  * Task object ids are pulled from the TaskPosted events in the response
- * — events fire in PTB-call order, so events[i] matches plans[i].
+ * · events fire in PTB-call order, so events[i] matches plans[i].
  */
 async function postSubtasks(
   ctx: AgentContext,
@@ -399,7 +399,7 @@ async function postSubtasks(
     if (!specialist) {
       const capsSeen = Array.from(new Set(workforce.map((w) => w.capability)));
       throw new Error(
-        `no distinct specialist registered for capability "${plan.capability}" — ` +
+        `no distinct specialist registered for capability "${plan.capability}" · ` +
           `workforce has [${capsSeen.join(", ") || "none"}] from ${workforce.length} entries, ` +
           `all at planner address. Start the ${plan.capability} agent on its own wallet ` +
           `(see 'npm run workforce:setup') and re-run.`,
@@ -447,7 +447,7 @@ async function postSubtasks(
   // Idempotency anchor: if a retryable error fires AFTER the chain
   // accepted the one-PTB post, look for N matching TaskPosted events
   // for THIS (poster, parent_policy) within the window. Don't
-  // re-execute — that would create 2N tasks.
+  // re-execute · that would create 2N tasks.
   const idempotencyAnchorMs = Date.now() - 5000;
 
   console.log(
@@ -579,7 +579,7 @@ async function main(): Promise<void> {
   // 2) Discover specialists from the on-chain registry
   const workforce = await discoverWorkforce(ctx);
   console.log(
-    `[planner] workforce: ${workforce.length} capability binding(s) — [${workforce.map((w) => w.capability).join(", ")}]`,
+    `[planner] workforce: ${workforce.length} capability binding(s) · [${workforce.map((w) => w.capability).join(", ")}]`,
   );
 
   // 3) Decompose the mission (LLM with template fallback)
@@ -611,7 +611,7 @@ async function main(): Promise<void> {
   console.log(`[planner] plan: ${subtasks.length} sub-task(s)`);
   for (const st of subtasks) {
     console.log(
-      `  · ${st.capability} | ${st.title} | ${st.bounty_sui} SUI | ${st.deadline_minutes}m — ${st.rationale}`,
+      `  · ${st.capability} | ${st.title} | ${st.bounty_sui} SUI | ${st.deadline_minutes}m · ${st.rationale}`,
     );
   }
 
@@ -620,7 +620,7 @@ async function main(): Promise<void> {
   await assertWalletHasFunds(ctx, totalBountyMist);
 
   // 5) Post EVERY sub-task in ONE atomic PTB. Either every sub-task
-  // lands, or none of them do — the judge never sees a half-posted
+  // lands, or none of them do · the judge never sees a half-posted
   // mission and we sidestep the in-process gas-coin race entirely.
   const posted = await postSubtasks(ctx, subtasks, workforce, policy.id);
   for (const result of posted) {

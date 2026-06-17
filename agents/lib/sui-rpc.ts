@@ -68,7 +68,7 @@ export type MakeTransportOptions = {
   label?: string;
   /**
    * Minimum cool-down between rotations to the same URL after it fails,
-   * in ms. Default 30s — protects against hammering a sick endpoint.
+   * in ms. Default 30s · protects against hammering a sick endpoint.
    */
   cooldownMs?: number;
 };
@@ -91,7 +91,7 @@ export function makeResilientTransport(opts: MakeTransportOptions): ResilientTra
       const idx = (start + attempt) % urls.length;
       if (now - lastFailureAt[idx] >= cooldownMs) return idx;
     }
-    // Every URL is in cooldown — pick the least-recently-failed one anyway.
+    // Every URL is in cooldown · pick the least-recently-failed one anyway.
     let best = 0;
     let bestAge = -Infinity;
     for (let i = 0; i < urls.length; i++) {
@@ -149,7 +149,7 @@ export function makeResilientTransport(opts: MakeTransportOptions): ResilientTra
             err.code = data.error.code;
             throw err;
           }
-          // Success — promote this URL to active.
+          // Success · promote this URL to active.
           if (idx !== activeIdx) {
             console.log(
               `[${tag}] promoted ${hostOf(url)} to active (was ${hostOf(urls[activeIdx])})`,
@@ -165,7 +165,7 @@ export function makeResilientTransport(opts: MakeTransportOptions): ResilientTra
           lastFailureAt[idx] = Date.now();
           const msg = e instanceof Error ? e.message : String(e);
           console.warn(
-            `[${tag}] ${hostOf(url)} failed (${msg.slice(0, 100)}) — rotating`,
+            `[${tag}] ${hostOf(url)} failed (${msg.slice(0, 100)}) · rotating`,
           );
           idx = pickNextIdx(idx);
         }

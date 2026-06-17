@@ -1,4 +1,4 @@
-// The Brief Operator's brain — a transparent, multi-step decision engine.
+// The Brief Operator's brain · a transparent, multi-step decision engine.
 //
 // One operator, three modes (Protect / Grow / Aggressive). Every cycle it runs
 // a visible pipeline over REAL market signals:
@@ -6,11 +6,11 @@
 //   Observe → Thesis → Counterargument → Risk review → Policy review →
 //   Execution review → Decision
 //
-// This is the deterministic core (honest, reproducible — it articulates the
+// This is the deterministic core (honest, reproducible · it articulates the
 // operator's genuine logic over real inputs, it does not invent facts). It is
 // designed so an AI reasoning layer (Claude) can later REPLACE the thesis /
 // counterargument / confidence via `opts.ai`, and so memory-replay (opts.memory)
-// and DeepBook execution analysis (opts.exec) fold straight in — without the
+// and DeepBook execution analysis (opts.exec) fold straight in · without the
 // Move enforcement model changing at all: the chain still gates every trade.
 
 import type { SignalBundle } from "./signals.js";
@@ -71,17 +71,17 @@ export function normalizeMode(m: string | undefined): OperatorMode {
 
 /** Optional augmentations folded into the engine (built in later phases). */
 export type EngineOpts = {
-  /** Phase 3 — similar past situations recalled from the Walrus journal. */
+  /** Phase 3 · similar past situations recalled from the Walrus journal. */
   memory?: {
     note: string; // human line, e.g. "resembles Trade #41 (−1.8%)"
     confidenceMult: number; // scales confidence (≤1 dampens, >1 reinforces)
   };
-  /** Phase 4 — DeepBook orderbook read at decision time. */
+  /** Phase 4 · DeepBook orderbook read at decision time. */
   exec?: {
     note: string; // e.g. "depth healthy · slippage 0.09% · edge 7%"
     approved: boolean;
   };
-  /** Phase 2 — AI reasoning layer override (Claude). When present, its
+  /** Phase 2 · AI reasoning layer override (Claude). When present, its
    *  thesis/counterargument/confidence/direction supersede the deterministic
    *  ones; the Move policy still gates execution downstream. */
   ai?: {
@@ -104,7 +104,7 @@ export type OperatorDecision = {
   thesis: string;
   counterargument: string;
   riskReview: string;
-  /** Mandate check — empty string when no mandate is set. */
+  /** Mandate check · empty string when no mandate is set. */
   mandateReview: string;
   policyReview: string;
   executionReview: string;
@@ -115,7 +115,7 @@ export type OperatorDecision = {
   /** Capital-manager view: target SUI allocation as % of capital
    *  (null = no confident view → hold current). The loop rebalances to it. */
   targetExposurePct: number | null;
-  /** The allocation reasoning — what the operator wants its money doing. */
+  /** The allocation reasoning · what the operator wants its money doing. */
   allocation: string;
   /** One-line synthesis for headers/journal. */
   verdict: string;
@@ -137,13 +137,13 @@ export function runDecisionEngine(args: {
   spotUsd: number;
   mode: OperatorMode;
   budgetUsedPct: number;
-  /** Capital is fully deployed — no headroom for another min-lot. A normal
+  /** Capital is fully deployed · no headroom for another min-lot. A normal
    *  end-state: the operator abstains as a SUCCESS and stays alive. */
   budgetExhausted?: boolean;
   /** User-mandate check (drawdown guard). When breached, the operator stands
-   *  down to honour the human's objective — a hard, non-negotiable stop. */
+   *  down to honour the human's objective · a hard, non-negotiable stop. */
   mandate?: { review: string; breached: boolean };
-  /** Market regime — classified before deciding. A non-tradeable regime
+  /** Market regime · classified before deciding. A non-tradeable regime
    *  (range-bound, mean-reversion) stands the operator aside. */
   regime?: Regime;
   opts?: EngineOpts;
@@ -155,8 +155,8 @@ export function runDecisionEngine(args: {
   const mandateReview = args.mandate?.review ?? "";
   const regime = args.regime;
   const regimeBlocked = regime ? !regime.tradeable : false;
-  const regimeLabel = regime?.label ?? "—";
-  const regimeReview = regime ? `${regime.label} — ${regime.note}` : "";
+  const regimeLabel = regime?.label ?? "-";
+  const regimeReview = regime ? `${regime.label} · ${regime.note}` : "";
 
   const roc30 = signals.roc_30m ?? 0;
   const roc5 = signals.roc_5m ?? 0;
@@ -171,7 +171,7 @@ export function runDecisionEngine(args: {
     opts?.ai?.direction ?? (roc30 >= 0 ? "up" : "down");
   const trending = Math.abs(roc30) >= cfg.rocFloor;
 
-  // ── Thesis — the case FOR a move (AI overrides if present) ──────────────
+  // ── Thesis · the case FOR a move (AI overrides if present) ──────────────
   const thesis =
     opts?.ai?.thesis ??
     `${asset} ${roc30 >= 0 ? "firming" : "softening"}: 30m ROC ${pct(roc30)} (5m ${pct(
@@ -180,20 +180,20 @@ export function runDecisionEngine(args: {
       smaAlign >= 0 ? "above" : "below"
     } the short MA → leaning ${direction.toUpperCase()}.`;
 
-  // ── Counterargument — the case AGAINST (AI overrides if present) ────────
+  // ── Counterargument · the case AGAINST (AI overrides if present) ────────
   let counterargument: string;
   if (opts?.ai?.counterargument) {
     counterargument = opts.ai.counterargument;
   } else if (!trending) {
-    counterargument = `Tape is flat — 30m ROC ${pct(
+    counterargument = `Tape is flat · 30m ROC ${pct(
       roc30,
     )} sits inside the ±${pct(cfg.rocFloor)} band. No trend to ride.`;
   } else if (direction === "up" && rsi > cfg.rsiCeiling) {
-    counterargument = `Momentum is overextended — exhaustion risk on a long.`;
+    counterargument = `Momentum is overextended · exhaustion risk on a long.`;
   } else if (direction === "down" && rsi < 100 - cfg.rsiCeiling) {
-    counterargument = `Momentum is deeply oversold — snap-back risk on a short.`;
+    counterargument = `Momentum is deeply oversold · snap-back risk on a short.`;
   } else {
-    counterargument = `No strong counter-signal — ${
+    counterargument = `No strong counter-signal · ${
       direction === "up" ? "momentum" : "weakness"
     } is confirmed across ROC and the MA.`;
   }
@@ -218,12 +218,12 @@ export function runDecisionEngine(args: {
   )}% used · realized vol ${pct(signals.realized_vol_60m)} · ${cfg.label} mode needs ≥ ${(
     cfg.minConfidence * 100
   ).toFixed(0)}% confidence.${
-    budgetBlocked ? " Budget fully deployed — no headroom for another min-lot." : ""
+    budgetBlocked ? " Budget fully deployed · no headroom for another min-lot." : ""
   }`;
 
   // ── Policy review (the loop verifies the real on-chain gate; this is the
   //    operator's own pre-check before it even builds the tx) ──────────────
-  const policyReview = `Within budget, not revoked, not expired, venue spot-${asset.toLowerCase()} allowed — the Move policy will re-check this atomically.`;
+  const policyReview = `Within budget, not revoked, not expired, venue spot-${asset.toLowerCase()} allowed · the Move policy will re-check this atomically.`;
 
   // ── Execution review (Phase 4 fills depth/slippage/edge) ────────────────
   const executionReview =
@@ -240,41 +240,41 @@ export function runDecisionEngine(args: {
     !regimeBlocked;
 
   const verdict = act
-    ? `Act ${direction.toUpperCase()} — ${(confidence * 100).toFixed(0)}% confidence clears the ${cfg.label} bar in a ${regimeLabel.toLowerCase()} regime.`
+    ? `Act ${direction.toUpperCase()} · ${(confidence * 100).toFixed(0)}% confidence clears the ${cfg.label} bar in a ${regimeLabel.toLowerCase()} regime.`
     : mandateBlocked
-      ? `Stand down — mandate drawdown guard tripped; honouring your risk limit.`
+      ? `Stand down · mandate drawdown guard tripped; honouring your risk limit.`
       : budgetBlocked
-        ? `Stand down — budget fully deployed; capital working, none at new risk.`
+        ? `Stand down · budget fully deployed; capital working, none at new risk.`
         : regimeBlocked
-          ? `Stand down — ${regimeLabel.toLowerCase()} regime offers no directional edge; capital protected.`
+          ? `Stand down · ${regimeLabel.toLowerCase()} regime offers no directional edge; capital protected.`
           : !trending
-            ? `Stand down — flat tape, capital protected.`
+            ? `Stand down · flat tape, capital protected.`
             : !execOk
-              ? `Stand down — execution conditions not met.`
-              : `Stand down — ${(confidence * 100).toFixed(0)}% confidence below the ${(
+              ? `Stand down · execution conditions not met.`
+              : `Stand down · ${(confidence * 100).toFixed(0)}% confidence below the ${(
                   cfg.minConfidence * 100
                 ).toFixed(0)}% ${cfg.label} bar.`;
 
-  // ── Allocation — the capital-manager view: what % should live in SUI ────
+  // ── Allocation · the capital-manager view: what % should live in SUI ────
   let targetExposurePct: number | null;
   let allocation: string;
   if (act) {
     if (direction === "up") {
       targetExposurePct = Math.max(20, Math.round(clamp01(confidence) * cfg.maxExposure * 100));
-      allocation = `Bullish ${regimeLabel.toLowerCase()} — target ${targetExposurePct}% in SUI.`;
+      allocation = `Bullish ${regimeLabel.toLowerCase()} · target ${targetExposurePct}% in SUI.`;
     } else {
       targetExposurePct = 0;
-      allocation = `Bearish ${regimeLabel.toLowerCase()} — target cash (0% SUI).`;
+      allocation = `Bearish ${regimeLabel.toLowerCase()} · target cash (0% SUI).`;
     }
   } else {
     targetExposurePct = null;
     allocation = mandateBlocked
-      ? "Mandate guard — no new exposure; holding."
+      ? "Mandate guard · no new exposure; holding."
       : budgetBlocked
-        ? "Budget fully deployed — holding current allocation."
+        ? "Budget fully deployed · holding current allocation."
         : regimeBlocked
-          ? `${regimeLabel} regime — no directional edge; holding current allocation.`
-          : "No confident edge — holding current allocation.";
+          ? `${regimeLabel} regime · no directional edge; holding current allocation.`
+          : "No confident edge · holding current allocation.";
   }
 
   return {

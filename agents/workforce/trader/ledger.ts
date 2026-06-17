@@ -1,8 +1,8 @@
-// The Operator Ledger — a permanent record of capital ALLOCATION events.
+// The Operator Ledger · a permanent record of capital ALLOCATION events.
 //
 // The experience archive (experience.ts) records every DECISION but is capped
-// (recent window). Allocation events — actual buys/sells that move capital
-// between cash and SUI — are rare and must NEVER be trimmed: they are the
+// (recent window). Allocation events · actual buys/sells that move capital
+// between cash and SUI · are rare and must NEVER be trimmed: they are the
 // operator's track record. Each event carries its reason and, once its horizon
 // elapses, its realized outcome. This is the "decision → action → outcome"
 // chain judges (and depositors) actually trust.
@@ -42,11 +42,11 @@ export type LedgerEvent = {
 export type OperatorStats = {
   /** When the operator first decided (for "since launch"). */
   launchTs: number;
-  /** SUI mid at launch — the buy-and-hold benchmark baseline. */
+  /** SUI mid at launch · the buy-and-hold benchmark baseline. */
   launchMid: number;
-  /** Deposited capital (quote units) — the return baseline. */
+  /** Deposited capital (quote units) · the return baseline. */
   deposit: number;
-  /** Operator mode (protect | grow | aggressive) — drives the objective label. */
+  /** Operator mode (protect | grow | aggressive) · drives the objective label. */
   mode?: string;
   /** Cumulative decision count (survives the experience-archive cap). */
   decisions: number;
@@ -59,7 +59,7 @@ export type OperatorStats = {
   worstDrawdownPct: number;
   /** Last marked value. */
   lastValue: number;
-  /** Last SUI mid seen — for the live buy-and-hold benchmark. */
+  /** Last SUI mid seen · for the live buy-and-hold benchmark. */
   lastMid: number;
   updatedTs: number;
 };
@@ -82,7 +82,7 @@ export async function loadLedger(policyId: string): Promise<LedgerEvent[]> {
 
 export async function saveLedger(policyId: string, events: LedgerEvent[]): Promise<void> {
   await fs.mkdir(DIR, { recursive: true });
-  // Never trim — allocation events are rare and are the track record.
+  // Never trim · allocation events are rare and are the track record.
   await fs.writeFile(ledgerFile(policyId), JSON.stringify(events, null, 2));
 }
 
@@ -152,7 +152,7 @@ export function recordCycle(
 }
 
 /** Settle pending ledger events whose horizon elapsed, by comparing the event
- *  mid to the current mid (a buy wins if SUI rose, a sell — to cash — "wins"
+ *  mid to the current mid (a buy wins if SUI rose, a sell · to cash · "wins"
  *  by avoiding a drop). */
 export function settleLedger(
   ledger: LedgerEvent[],

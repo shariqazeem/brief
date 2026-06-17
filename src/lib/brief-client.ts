@@ -10,7 +10,7 @@ import { fetchWorkObject, type DecodedWorkObject } from "./work-object";
  * The LATEST published package id. Use for `tx.moveCall({ target: ... })`
  * and for any module added in a later version (e.g. operator_policy).
  */
-// .trim() guards against stray whitespace on the platform env value —
+// .trim() guards against stray whitespace on the platform env value -
 // Vercel envs sometimes ship with trailing newlines.
 export const BRIEF_PACKAGE_ID = (
   process.env.NEXT_PUBLIC_BRIEF_PACKAGE_ID ?? "0x0"
@@ -18,7 +18,7 @@ export const BRIEF_PACKAGE_ID = (
 
 /**
  * The ORIGINAL publish-at id. Sui normalizes on-chain type ids to the
- * first publish — so `getOwnedObjects({ filter: { StructType } })` and
+ * first publish · so `getOwnedObjects({ filter: { StructType } })` and
  * `queryEvents({ filter: { MoveEventType } })` for any type defined in v1
  * must use this id. Falls back to BRIEF_PACKAGE_ID for pre-upgrade builds.
  */
@@ -33,7 +33,7 @@ export const BRIEF_NETWORK = (
 ).trim() as "testnet" | "mainnet";
 
 /**
- * The Treasury wallet — the trader agent that signs the gated mint
+ * The Treasury wallet · the trader agent that signs the gated mint
  * (predict::mint + operator_policy::record_spend). `assert_can_spend`
  * requires `sender == policy.agent`, so an adopted trader's policy MUST
  * bind its agent to THIS address for live mints to clear (otherwise the
@@ -51,7 +51,7 @@ export const BRIEF_TRADER_ADDRESS = (
  * expanded "raw signals" details; everywhere else the operator speaks in words.
  */
 export function momentumLabel(rsi: number | null | undefined): string {
-  if (rsi == null || !Number.isFinite(rsi)) return "—";
+  if (rsi == null || !Number.isFinite(rsi)) return "-";
   if (rsi >= 85) return "Extreme";
   if (rsi >= 70) return "Overextended";
   if (rsi >= 58) return "Firm";
@@ -64,7 +64,7 @@ export function momentumLabel(rsi: number | null | undefined): string {
 /**
  * Sui Explorer URL. suiexplorer.com was retired in 2025; we use suiscan.xyz
  * which is the Mysten-recommended replacement. The legacy "txblock" name is
- * preserved on this helper's API for back-compat — suiscan calls it "tx".
+ * preserved on this helper's API for back-compat · suiscan calls it "tx".
  */
 export function explorerUrl(
   kind: "object" | "txblock",

@@ -1,4 +1,4 @@
-// The user's investment MANDATE — a specific human objective the operator
+// The user's investment MANDATE · a specific human objective the operator
 // acts on, and a risk limit it cannot talk itself past.
 //
 //   "Grow my capital 15% in 6 months while avoiding drawdowns above 8%."
@@ -6,7 +6,7 @@
 // The mandate is stored on Walrus (a verifiable instruction from the human)
 // and enforced live: the operator marks its portfolio to market each cycle,
 // tracks the peak, and if the drawdown from peak hits the mandate's limit it
-// STANDS DOWN — it will not open new risk that violates the human's objective.
+// STANDS DOWN · it will not open new risk that violates the human's objective.
 // The on-chain budget cap is the hard floor; this is the tighter, human guard.
 
 import { promises as fs } from "node:fs";
@@ -63,7 +63,7 @@ export type MandateEval = {
   progressPct: number;
   /** Current drawdown from peak, percent (0+). */
   drawdownPct: number;
-  /** True when drawdown ≥ the mandate's limit — the operator must stand down. */
+  /** True when drawdown ≥ the mandate's limit · the operator must stand down. */
   breached: boolean;
   /** One-line objective summary for the banner. */
   summary: string;
@@ -92,7 +92,7 @@ export function evalMandate(args: {
   const drawdownPct = peak > 0 ? Math.max(0, ((peak - currentValue) / peak) * 100) : 0;
   const breached = drawdownPct >= mandate.maxDrawdownPct;
   const review = breached
-    ? `Mandate guard TRIPPED — drawdown ${drawdownPct.toFixed(
+    ? `Mandate guard TRIPPED · drawdown ${drawdownPct.toFixed(
         1,
       )}% reached the ${mandate.maxDrawdownPct}% limit you set. Standing down: no new risk until it recovers.`
     : `Mandate: ${progressPct >= 0 ? "+" : ""}${progressPct.toFixed(1)}%${

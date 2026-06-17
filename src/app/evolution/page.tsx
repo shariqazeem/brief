@@ -1,8 +1,8 @@
 "use client";
 
-// /evolution — the fourth pillar: the operator getting *better* over time.
+// /evolution · the fourth pillar: the operator getting *better* over time.
 // Lessons learned, the single most valuable lesson, and a real timeline of how
-// it grew — all derived from the live decision archive + ledger. This is what
+// it grew · all derived from the live decision archive + ledger. This is what
 // turns "smart" into "alive". Public, no wallet.
 
 import Link from "next/link";
@@ -62,7 +62,7 @@ function Evolution() {
           How {codename} evolved.
         </h1>
         <p className="mt-3 text-[14px] leading-relaxed" style={{ color: SUB }}>
-          The operator doesn&apos;t just remember — it builds operating procedures from
+          The operator doesn&apos;t just remember · it builds operating procedures from
           what actually happened, and gets better at choosing when to act and when to
           wait. This is that growth, derived entirely from its real record.
         </p>
@@ -73,7 +73,7 @@ function Evolution() {
           </p>
         ) : evo.milestones.length === 0 ? (
           <p className="mt-10 text-[14px] leading-relaxed" style={{ color: SUB }}>
-            {codename} is still in its first cycles — its evolution will appear here as
+            {codename} is still in its first cycles · its evolution will appear here as
             it accumulates experience.
           </p>
         ) : (
@@ -111,7 +111,7 @@ function Evolution() {
 
             {policyId && (
               <p className="mt-12 font-mono text-[10px] leading-relaxed" style={{ color: MUTED }}>
-                Every lesson is derived from the operator&apos;s settled outcomes — see the
+                Every lesson is derived from the operator&apos;s settled outcomes · see the
                 full per-regime playbooks on the{" "}
                 <Link href={`/workforce?policy=${policyId}`} className="underline underline-offset-2" style={{ color: NAVY }}>
                   dashboard

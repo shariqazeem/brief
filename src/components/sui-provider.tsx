@@ -14,7 +14,7 @@ const networks = {
   mainnet: { network: "mainnet" as const, url: getJsonRpcFullnodeUrl("mainnet") },
 };
 
-// Trim because Vercel's env values can ship with trailing whitespace —
+// Trim because Vercel's env values can ship with trailing whitespace -
 // a "testnet\n" value would miss the networks lookup and the SDK would
 // throw inside SuiClientProvider.
 const DEFAULT_NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet")

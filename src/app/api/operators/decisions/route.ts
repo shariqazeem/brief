@@ -1,6 +1,6 @@
 // GET /api/operators/decisions?policy_id=0x…
 //
-// Serves an operator's decision archive — the full, replayable story of every
+// Serves an operator's decision archive · the full, replayable story of every
 // decision it has made (what it saw, remembered, feared, concluded, and how it
 // turned out). Read from the same `.cursors/operator-experience-*.json` the
 // trader writes (server fs), newest first. Powers the Brain / Decision Replay
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) recs = parsed as Record<string, unknown>[];
   } catch {
-    /* no decisions yet — empty archive */
+    /* no decisions yet · empty archive */
   }
   // Newest first for the timeline.
   const decisions = recs.slice().reverse();

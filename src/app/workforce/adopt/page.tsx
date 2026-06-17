@@ -1,7 +1,7 @@
 "use client";
 
 // The front door. One scrollable page that progressively reveals as the
-// judge completes each action — connect → choose → budget → deposit → adopt.
+// judge completes each action · connect → choose → budget → deposit → adopt.
 // No steps, no next/back. Adoption is ONE signature that creates the user's
 // BalanceManager, deposits USDC, delegates a trade-not-withdraw TradeCap +
 // a deposit-not-withdraw DepositCap (the fuel access), and creates the
@@ -33,14 +33,14 @@ const TRADER_EXPIRY_HOURS = 24 * 14; // 14 days
 const PRESETS = [5, 10, 20];
 
 // ONE operator, THREE modes. The mode sets the engine's confidence/trend bars
-// (Protect/Grow/Aggressive) — not a different bot. personality/goal are legacy
+// (Protect/Grow/Aggressive) · not a different bot. personality/goal are legacy
 // labels kept only so the journal + manifesto keep reading; the decision engine
 // runs off `mode`.
 type OperatorMode = "protect" | "grow" | "aggressive";
 
 const MODES: {
   id: OperatorMode;
-  /** The GOAL the user is adopting — people buy goals, not strategies. */
+  /** The GOAL the user is adopting · people buy goals, not strategies. */
   intent: string;
   /** The mode under the hood (engine confidence/trend bars). */
   label: string;
@@ -91,7 +91,7 @@ const MODES: {
 const ADOPT_STEPS: { doing: string; done: string }[] = [
   { doing: "Creating your BalanceManager…", done: "BalanceManager created. You own it." },
   { doing: "Depositing USDC…", done: "USDC in your BalanceManager. Only you can withdraw." },
-  { doing: "Enabling DEEP fuel…", done: "Fees covered — your operator fuels itself, never your USDC." },
+  { doing: "Enabling DEEP fuel…", done: "Fees covered · your operator fuels itself, never your USDC." },
   { doing: "Delegating TradeCap…", done: "Operator can trade. Operator cannot withdraw." },
   { doing: "Creating Policy…", done: "Budget cap enforced on-chain. The chain holds the leash." },
 ];
@@ -123,7 +123,7 @@ function AdoptWizard() {
 
   const [pickedMode, setPickedMode] = useState<OperatorMode | null>(null);
   const [amount, setAmount] = useState<number>(5);
-  // Optional investment mandate — a human objective + a drawdown guard the
+  // Optional investment mandate · a human objective + a drawdown guard the
   // operator is bound to. Off by default; the chain caps spend regardless.
   const [mandateOn, setMandateOn] = useState(false);
   const [mTarget, setMTarget] = useState(15);
@@ -170,7 +170,7 @@ function AdoptWizard() {
   const showAdopt = showDeposit && amount > 0 && adopt.kind !== "live";
   const insufficient = usdcLoaded && usdc < amount;
 
-  // "Get test USDC" — one tap SUI→DBUSDC (testnet), capped at wallet SUI.
+  // "Get test USDC" · one tap SUI→DBUSDC (testnet), capped at wallet SUI.
   const onGetUsdc = useCallback(() => {
     if (!address) return;
     void (async () => {
@@ -182,7 +182,7 @@ function AdoptWizard() {
         if (suiIn < 0.05) {
           setSwap({
             kind: "error",
-            msg: `Only ${avail.toFixed(2)} SUI — top up testnet SUI from the faucet, then retry.`,
+            msg: `Only ${avail.toFixed(2)} SUI · top up testnet SUI from the faucet, then retry.`,
           });
           return;
         }
@@ -212,7 +212,7 @@ function AdoptWizard() {
         if (total < base) {
           setAdopt({
             kind: "error",
-            msg: `Not enough ${usdcLabel} — you have ${(Number(total) / 1e6).toFixed(2)}, need ${amount.toFixed(2)}.`,
+            msg: `Not enough ${usdcLabel} · you have ${(Number(total) / 1e6).toFixed(2)}, need ${amount.toFixed(2)}.`,
           });
           return;
         }
@@ -326,7 +326,7 @@ function AdoptWizard() {
             The chain holds the leash.
           </p>
           <p className="mt-5 max-w-xl text-[14px] leading-relaxed text-ink-2">
-            Your operator&apos;s budget cap isn&apos;t a backend promise — it&apos;s a
+            Your operator&apos;s budget cap isn&apos;t a backend promise · it&apos;s a
             Move contract. Over-budget trades revert on-chain. The kill switch is a
             transaction, not a toggle.
           </p>
@@ -357,7 +357,7 @@ function AdoptWizard() {
             <SectionLabel n="01" title="Choose your goal" />
             <p className="mt-3 max-w-prose text-[14px] leading-relaxed text-ink-2">
               You&apos;re adopting an objective, not picking a strategy. Same engine,
-              same on-chain leash — your goal sets how it allocates between cash and SUI.
+              same on-chain leash · your goal sets how it allocates between cash and SUI.
             </p>
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {MODES.map((m) => (
@@ -375,7 +375,7 @@ function AdoptWizard() {
         {/* ─── Section 3 · Set the budget (the leash) ───────────────── */}
         {showBudget && modeCfg && (
           <section className="mt-16 animate-fade-up">
-            <SectionLabel n="02" title="Set the leash — maximum total spend" />
+            <SectionLabel n="02" title="Set the leash · maximum total spend" />
             <p className="mt-2 max-w-prose text-[14px] leading-relaxed text-ink-2">
               This is a Move contract, not a setting. If your operator tries to
               spend past this amount, the transaction reverts on-chain. No override.
@@ -411,7 +411,7 @@ function AdoptWizard() {
               />
             </div>
             <p className="mt-3 font-mono text-[10.5px] leading-relaxed text-ink-2">
-              Hard cap: <span className="text-ink">{amount} {unitLabel}</span> total —
+              Hard cap: <span className="text-ink">{amount} {unitLabel}</span> total -
               the chain reverts anything past it.
             </p>
           </section>
@@ -420,11 +420,11 @@ function AdoptWizard() {
         {/* ─── Section 2b · Mandate (optional objective + drawdown guard) ── */}
         {showBudget && modeCfg && (
           <section className="mt-16 animate-fade-up">
-            <SectionLabel n="02b" title="Set a mandate — optional" />
+            <SectionLabel n="02b" title="Set a mandate · optional" />
             <p className="mt-2 max-w-prose text-[14px] leading-relaxed text-ink-2">
               Give your operator a goal, not just a budget. It acts toward this
               objective and <span className="text-ink">stands down if the drawdown
-              guard trips</span> — it will not open new risk that violates the
+              guard trips</span> · it will not open new risk that violates the
               mandate. The mandate is anchored on Walrus, verifiable by anyone.
             </p>
             <button
@@ -461,7 +461,7 @@ function AdoptWizard() {
               <p className="text-[13px] leading-relaxed text-ink-2">
                 Your {unitLabel} goes into{" "}
                 <span className="text-ink">your BalanceManager on DeepBook</span>. The
-                operator can trade it via the <span className="text-ink">TradeCap</span> —
+                operator can trade it via the <span className="text-ink">TradeCap</span> -
                 it <span className="text-ink">cannot withdraw</span>; only you hold the
                 WithdrawCap. The chain enforces this, not our backend.
               </p>
@@ -511,7 +511,7 @@ function AdoptWizard() {
 
             <p className="mt-4 font-mono text-[10.5px] leading-relaxed text-muted">
               <span className="text-ink-2">⛽ Includes fuel.</span> Trading fees on
-              DeepBook are paid in DEEP — your operator is fueled automatically, so
+              DeepBook are paid in DEEP · your operator is fueled automatically, so
               you never touch it.
             </p>
           </section>
@@ -531,7 +531,7 @@ function AdoptWizard() {
                   disabled={busy || insufficient}
                   className="w-full bg-accent px-6 py-4 font-mono text-[12px] uppercase tracking-[0.3em] text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-10"
                 >
-                  {busy ? "Awaiting signature…" : `Adopt to ${modeCfg.intent.toLowerCase()} — One Signature`}
+                  {busy ? "Awaiting signature…" : `Adopt to ${modeCfg.intent.toLowerCase()} · One Signature`}
                 </button>
                 <p className="mt-3 max-w-prose font-mono text-[10.5px] leading-relaxed text-muted">
                   This single transaction creates your BalanceManager, deposits your
@@ -560,7 +560,7 @@ function AdoptWizard() {
             <p className="mt-2 font-mono text-[11px] text-ink-2">
               policy{" "}
               <span className="text-ink">
-                {adopt.policyId ? `${adopt.policyId.slice(0, 10)}…${adopt.policyId.slice(-4)}` : "—"}
+                {adopt.policyId ? `${adopt.policyId.slice(0, 10)}…${adopt.policyId.slice(-4)}` : "-"}
               </span>
             </p>
             {adopt.policyId && (

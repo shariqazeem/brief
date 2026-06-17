@@ -1,9 +1,9 @@
-// useOperatorJournal — the operator's cumulative experience, enriched
+// useOperatorJournal · the operator's cumulative experience, enriched
 // with REAL settlement.
 //
 // /api/trader/trades gives the agent's decision history (direction,
 // strike, expiry, mode, reasoning, Walrus blob). It does NOT record a
-// win/loss per BTC bet — DeepBook Predict settles on whether spot is
+// win/loss per BTC bet · DeepBook Predict settles on whether spot is
 // above/below the strike at expiry. So we compute that ourselves from
 // the BTC price history (/api/trader/signals): for each past bet whose
 // expiry falls inside the price window, did spot cross the strike in the
@@ -11,7 +11,7 @@
 // Bets whose expiry is still in the future are "pending"; bets older than
 // our window are "unknown" (settled, but beyond the data we hold).
 //
-// For a PRESERVE (abstain) decision there is no position — instead we
+// For a PRESERVE (abstain) decision there is no position · instead we
 // surface the real volatility the operator sat out: how far BTC swung
 // between the decision and the would-be expiry. Honest, not a claim of
 // avoided loss.
@@ -44,7 +44,7 @@ export type SettlementKind =
   | "lost" // acted, and spot settled against the call
   | "pending" // acted, expiry still in the future
   | "unknown" // acted, expiry beyond our price window
-  | "preserved" // abstained — capital preserved on purpose
+  | "preserved" // abstained · capital preserved on purpose
   | "executed"; // acted on a venue we can't settle here (e.g. spot)
 
 export type JournalDecision = RawDecision & {
@@ -116,7 +116,7 @@ function settle(
     return { settlement: "preserved", settledSpotUsd: null, swingPct };
   }
 
-  // Spot venue (DeepBook buy/sell) — there is no strike/expiry to settle
+  // Spot venue (DeepBook buy/sell) · there is no strike/expiry to settle
   // against; the trade simply executed. (Spot entries carry a nominal
   // strike+expiry for the chart, so gate on isSpot, not just their absence.)
   if (isSpot || d.strike_usd == null || d.expiry_ms == null) {
