@@ -132,11 +132,8 @@ export default function ProofPage() {
             Trust nothing.
           </h1>
           <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-ink-2">
-            Every claim on this page is a live on-chain artifact. Each link goes to
-            Suiscan or Walrus · check it yourself. The budget cap, the authorized
-            trades, the refused over-budget trade, the revocation, and the
-            operator&apos;s reasoning are all enforced by the protocol, not our
-            backend.
+            Every claim here is a live on-chain artifact. Each link opens Suiscan or
+            Walrus · check it yourself.
           </p>
           <div className="mt-5 flex flex-wrap items-center gap-2 font-mono text-[11px]">
             <span className="text-muted">operator</span>

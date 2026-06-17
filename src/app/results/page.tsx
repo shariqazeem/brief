@@ -110,6 +110,32 @@ function Results() {
               {objective} · running {dayLabel}
             </p>
 
+            {/* The verdict · one sentence, one answer, before any numbers. */}
+            {bench && (() => {
+              const op = bench.operatorPct;
+              const vh = bench.vsHold;
+              let line: string;
+              let color: string;
+              if (op >= 0.1 && vh >= 0) {
+                line = `${codename} outperformed holding SUI.`;
+                color = EMERALD;
+              } else if (op >= 0.1) {
+                line = `${codename} grew, but trailed holding SUI.`;
+                color = INK;
+              } else if (op > -0.1) {
+                line = `${codename} preserved capital${worstDD <= 3 ? " through the swings" : ""}.`;
+                color = EMERALD;
+              } else {
+                line = `${codename} is down, but stayed within its limits.`;
+                color = worstDD > 5 ? AMBER : INK;
+              }
+              return (
+                <p className="mt-7 font-sans text-[26px] font-medium leading-snug tracking-tight sm:text-[32px]" style={{ color }}>
+                  {line}
+                </p>
+              );
+            })()}
+
             {/* The headline · the comparison IS the story: what would have
                 happened if you'd done nothing? */}
             {bench && (

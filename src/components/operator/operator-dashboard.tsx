@@ -337,7 +337,12 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
         <CapitalCard stream={stream} bv={bv} spanDays={scorecard?.spanDays ?? null} />
 
-        {/* OUTCOME first · performance + the actions behind it */}
+        {/* Custody first · users care about their funds before reasoning.
+            Always shown (even in a shared ?policy= view): withdrawal is
+            owner-gated on-chain and the card self-checks the connected wallet,
+            so it appears only for the owner and is a no-op for anyone else. */}
+        {spot && <WithdrawFunds policyId={policyId} />}
+
         {spot && (
           <OperatorPerformance
             scorecard={scorecard}
@@ -349,14 +354,10 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           />
         )}
 
-        {spot && <OperatorLedgerCard ledger={ledger} now={now} />}
-
         {spot && <ProtectedBySui policyId={policyId} />}
 
-        {/* Always shown (even in a shared ?policy= view): withdrawal is
-            owner-gated on-chain and the card self-checks the connected wallet,
-            so it appears only for the owner and is a no-op for anyone else. */}
-        {spot && <WithdrawFunds policyId={policyId} />}
+        {/* Detail · collapsed by default, one click away. */}
+        {spot && <OperatorLedgerCard ledger={ledger} now={now} />}
 
         {/* REASONING · supporting evidence, collapsed by default (outcome > how) */}
         {spot ? (
@@ -386,48 +387,45 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           <MarketState signals={stream.signals} dec={stream.decision} assetLabel={bv.asset} />
         )}
 
-        <SectionCard title="Right now">
-          <NowTab
-            stream={stream}
-            journal={journal}
-            stale={stale}
-            now={now}
-            policy={policy}
-            traderName={traderName}
-            revoked={revoked}
-            assetLabel={bv.asset}
-            isSpot={spot}
-            dispatchError={props.dispatchError}
-            onDispatchAgain={props.onDispatchAgain}
-            dispatching={props.dispatching}
-          />
-        </SectionCard>
-
-        <SectionCard
-          title="Timeline · its experience"
-          action={
-            policyId ? (
-              <Link
-                href={`/brain?policy=${policyId}`}
-                className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-60"
-                style={{ color: NAVY }}
-              >
-                Full replay →
-              </Link>
-            ) : null
-          }
-        >
-          {spot ? (
-            <OperatorTimeline
-              decisions={decisions}
+        <Collapsible title="Live activity" subtitle="watch it work">
+          <div className="space-y-8">
+            <NowTab
               stream={stream}
-              traderName={codename}
+              journal={journal}
+              stale={stale}
               now={now}
+              policy={policy}
+              traderName={traderName}
+              revoked={revoked}
+              assetLabel={bv.asset}
+              isSpot={spot}
+              dispatchError={props.dispatchError}
+              onDispatchAgain={props.onDispatchAgain}
+              dispatching={props.dispatching}
             />
-          ) : (
-            <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} isSpot={spot} />
-          )}
-        </SectionCard>
+            <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: 24 }}>
+              <div className="mb-4 flex items-center justify-between">
+                <span className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+                  Timeline · its experience
+                </span>
+                {policyId && (
+                  <Link
+                    href={`/brain?policy=${policyId}`}
+                    className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-60"
+                    style={{ color: NAVY }}
+                  >
+                    Full replay →
+                  </Link>
+                )}
+              </div>
+              {spot ? (
+                <OperatorTimeline decisions={decisions} stream={stream} traderName={codename} now={now} />
+              ) : (
+                <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} isSpot={spot} />
+              )}
+            </div>
+          </div>
+        </Collapsible>
 
         <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
           <summary
@@ -792,13 +790,15 @@ function BenchCell({ label, pct, strong }: { label: string; pct: number; strong?
 // "10:14 PM · Moved into SUI · Breakout · +1.8%". The thin/empty state is
 // honest: holding through every regime IS the track record so far.
 function OperatorLedgerCard({ ledger, now }: { ledger: LedgerEvent[]; now: number }) {
+  const count = ledger.length;
   return (
-    <SectionCard title="Operator ledger · every allocation">
-      {ledger.length === 0 ? (
-        <p className="py-2 text-[13px] leading-relaxed" style={{ color: SUB }}>
-          No allocation moves in the current window · the operator has held its
-          position through every regime. Holding is a decision too; each one is in
-          the timeline below.
+    <Collapsible
+      title="Operator ledger"
+      subtitle={count > 0 ? `${count} allocation${count === 1 ? "" : "s"}` : "every allocation"}
+    >
+      {count === 0 ? (
+        <p className="text-[13px] leading-relaxed" style={{ color: SUB }}>
+          No allocation moves in the current window. Holding is a decision too.
         </p>
       ) : (
         <div className="space-y-0">
@@ -807,7 +807,7 @@ function OperatorLedgerCard({ ledger, now }: { ledger: LedgerEvent[]; now: numbe
           ))}
         </div>
       )}
-    </SectionCard>
+    </Collapsible>
   );
 }
 
@@ -1144,12 +1144,6 @@ function ProtectedBySui({ policyId }: { policyId: string | null }) {
     { node: "Operator", note: "Decides + signs trades", cannot: "Cannot exceed budget" },
     { node: "DeepBook", note: "Trades settle on-chain", can: "Verifiable on Sui" },
   ];
-  const guarantees = [
-    "Can trade",
-    "Cannot withdraw",
-    "Can be revoked anytime",
-    "Cannot exceed budget",
-  ];
   return (
     <section className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
       <div className="flex items-center justify-between">
@@ -1202,21 +1196,6 @@ function ProtectedBySui({ policyId }: { policyId: string | null }) {
               </div>
             )}
           </div>
-        ))}
-      </div>
-
-      <div className="mt-5 flex flex-wrap gap-2" style={{ borderTop: "1px solid #E5E5EA", paddingTop: 14 }}>
-        {guarantees.map((g) => (
-          <span
-            key={g}
-            className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em]"
-            style={{ color: SUB }}
-          >
-            <span style={{ color: EMERALD }} aria-hidden>
-              ✓
-            </span>
-            {g}
-          </span>
         ))}
       </div>
     </section>
@@ -1394,6 +1373,38 @@ function SectionCard({ title, action, children }: { title: string; action?: Reac
       </div>
       <div className="px-5 py-6 sm:px-8 sm:py-7">{children}</div>
     </section>
+  );
+}
+
+// Progressive disclosure: a section collapsed by default, expanded on intent.
+// Keeps the primary scroll calm while every detail stays one click away.
+function Collapsible({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+      <summary
+        className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 sm:px-8"
+        style={{ color: NAVY }}
+      >
+        <span className="font-mono text-[10px] uppercase tracking-[0.24em]">
+          {title}
+          {subtitle && <span className="ml-2 normal-case tracking-normal" style={{ color: MUTED }}>{subtitle}</span>}
+        </span>
+        <span className="font-mono text-[10px] transition-transform group-open:rotate-90" aria-hidden>
+          ›
+        </span>
+      </summary>
+      <div className="px-5 pb-7 sm:px-8" style={{ borderTop: "1px solid #E5E5EA" }}>
+        <div className="pt-6">{children}</div>
+      </div>
+    </details>
   );
 }
 

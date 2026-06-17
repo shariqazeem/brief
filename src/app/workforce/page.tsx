@@ -1530,16 +1530,16 @@ function OperatorHomeCard({ op }: { op: TraderIdentity }) {
   return (
     <a
       href={`/workforce?policy=${op.policyId}`}
-      className="group flex flex-col bg-bg-elev p-5 shadow-[0_1px_3px_rgba(0,0,0,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] sm:p-6"
+      className="group flex flex-col bg-bg-elev p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] sm:p-8"
       style={{ borderTop: `3px solid ${status.color}` }}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <span className="font-sans text-[30px] leading-none text-ink" aria-hidden>
+        <div className="flex items-center gap-3">
+          <span className="font-sans text-[34px] leading-none text-ink" aria-hidden>
             {mode?.glyph ?? "◇"}
           </span>
           <div>
-            <p className="font-sans text-[17px] font-semibold tracking-tight text-ink">
+            <p className="font-sans text-[20px] font-semibold tracking-tight text-ink">
               {operatorCodename(op.policyId)}
             </p>
             <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-muted">
@@ -1549,20 +1549,20 @@ function OperatorHomeCard({ op }: { op: TraderIdentity }) {
         </div>
         <span className="inline-flex shrink-0 items-center gap-1.5">
           <span
-            className={`h-1.5 w-1.5 rounded-full ${status.live ? "animate-pulse" : ""}`}
+            className={`h-2 w-2 rounded-full ${status.live ? "animate-pulse" : ""}`}
             style={{ background: status.color }}
             aria-hidden
           />
-          <span className="font-mono text-[9px] uppercase tracking-[0.18em]" style={{ color: status.color }}>
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: status.color }}>
             {status.word}
           </span>
         </span>
       </div>
       {/* comparison metrics · objective · return · drawdown */}
-      <div className="mt-5">
+      <div className="mt-6">
         <p className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-muted">{objective}</p>
-        <div className="mt-1.5 flex items-baseline gap-3">
-          <span className="font-sans text-[26px] font-medium tabular-nums leading-none tracking-tight" style={{ color: retColor }}>
+        <div className="mt-2 flex items-baseline gap-3">
+          <span className="font-sans text-[34px] font-semibold tabular-nums leading-none tracking-tight" style={{ color: retColor }}>
             {ret == null ? "-" : `${ret > 0 ? "+" : ""}${ret.toFixed(1)}%`}
           </span>
           <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">return</span>

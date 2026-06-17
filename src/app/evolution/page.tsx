@@ -62,9 +62,7 @@ function Evolution() {
           How {codename} evolved.
         </h1>
         <p className="mt-3 text-[14px] leading-relaxed" style={{ color: SUB }}>
-          The operator doesn&apos;t just remember · it builds operating procedures from
-          what actually happened, and gets better at choosing when to act and when to
-          wait. This is that growth, derived entirely from its real record.
+          Operating procedures built from what actually happened. All from its real record.
         </p>
 
         {!loaded ? (

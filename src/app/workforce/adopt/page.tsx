@@ -56,7 +56,7 @@ const MODES: {
     intent: "Protect my capital",
     label: "Protect",
     cadence: "Most days: no trade",
-    behavior: ["Stays in cash unless the edge is obvious.", "Capital preservation first."],
+    behavior: ["Act only when the edge is clear."],
     dot: "#10B981",
     glyph: "◈",
     personality: "conservative",
@@ -67,7 +67,7 @@ const MODES: {
     intent: "Grow steadily",
     label: "Grow",
     cadence: "Most days: 1–3 decisions",
-    behavior: ["Balanced cash↔SUI allocation.", "Targets genuine, confirmed trends."],
+    behavior: ["Balanced cash and SUI allocation."],
     dot: "#4DA2FF",
     glyph: "◇",
     personality: "momentum",
@@ -78,7 +78,7 @@ const MODES: {
     intent: "Beat passive SUI",
     label: "Aggressive",
     cadence: "Most days: several decisions",
-    behavior: ["Higher SUI ceiling, acts earlier.", "Accepts more uncertainty for upside."],
+    behavior: ["Higher risk for higher upside."],
     dot: "#F59E0B",
     glyph: "◆",
     personality: "contrarian",
@@ -377,9 +377,7 @@ function AdoptWizard() {
           <section className="mt-16 animate-fade-up">
             <SectionLabel n="02" title="Set the leash · maximum total spend" />
             <p className="mt-2 max-w-prose text-[14px] leading-relaxed text-ink-2">
-              This is a Move contract, not a setting. If your operator tries to
-              spend past this amount, the transaction reverts on-chain. No override.
-              No exception. Not even we can change it.
+              Budget is enforced on-chain. Exceeding it reverts the transaction.
             </p>
             <div className="mt-5 flex items-baseline gap-3">
               <span className="font-mono text-[40px] font-medium tabular-nums tracking-tight text-ink">
@@ -422,10 +420,7 @@ function AdoptWizard() {
           <section className="mt-16 animate-fade-up">
             <SectionLabel n="02b" title="Set a mandate · optional" />
             <p className="mt-2 max-w-prose text-[14px] leading-relaxed text-ink-2">
-              Give your operator a goal, not just a budget. It acts toward this
-              objective and <span className="text-ink">stands down if the drawdown
-              guard trips</span> · it will not open new risk that violates the
-              mandate. The mandate is anchored on Walrus, verifiable by anyone.
+              Optional objective guardrail, stored on Walrus.
             </p>
             <button
               type="button"
@@ -459,11 +454,9 @@ function AdoptWizard() {
             <SectionLabel n="03" title="Deposit your capital" />
             <div className="mt-4 border-l-[3px] border-emerald-500 bg-emerald-50/40 px-4 py-3">
               <p className="text-[13px] leading-relaxed text-ink-2">
-                Your {unitLabel} goes into{" "}
-                <span className="text-ink">your BalanceManager on DeepBook</span>. The
-                operator can trade it via the <span className="text-ink">TradeCap</span> -
-                it <span className="text-ink">cannot withdraw</span>; only you hold the
-                WithdrawCap. The chain enforces this, not our backend.
+                Your {unitLabel} stays in <span className="text-ink">your own BalanceManager</span>.
+                The operator can <span className="text-ink">trade it</span>, never{" "}
+                <span className="text-ink">withdraw it</span> · enforced by the chain, not our backend.
               </p>
             </div>
 
@@ -509,11 +502,6 @@ function AdoptWizard() {
               </p>
             )}
 
-            <p className="mt-4 font-mono text-[10.5px] leading-relaxed text-muted">
-              <span className="text-ink-2">⛽ Includes fuel.</span> Trading fees on
-              DeepBook are paid in DEEP · your operator is fueled automatically, so
-              you never touch it.
-            </p>
           </section>
         )}
 

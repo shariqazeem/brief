@@ -775,8 +775,7 @@ export default function OperatorLandingV2() {
           <br className="hidden sm:block" /> are controlled by on-chain law.
         </h2>
         <p className="mt-6 max-w-xl text-center text-[15px] leading-relaxed text-[#666666] sm:text-[16px]">
-          <span className="text-[#111111]">Halcyon is the first operator.</span> Finance is the
-          proof. The first 100 operators on mainnet will be onboarded by hand.
+          <span className="text-[#111111]">Halcyon is the first operator.</span> Finance is the proof.
         </p>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-7 font-mono text-[12px]">
@@ -792,6 +791,9 @@ export default function OperatorLandingV2() {
             {hasOperator ? "Open your operator →" : "Try it on testnet →"}
           </a>
         </div>
+        <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.22em] text-[#999999]">
+          First 100 operators onboarded by hand
+        </p>
 
         <div className="mt-16 flex flex-wrap items-center justify-center gap-3">
           {["Objective", "Trust", "Proof", "Evolution"].map((t) => (

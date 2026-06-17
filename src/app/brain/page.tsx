@@ -212,14 +212,14 @@ function FocusedDecision({
 
   return (
     <div>
-      {/* prev/next header */}
+      {/* prev/next header · browse decisions like stories */}
       <div className="flex items-center justify-between">
         <button
           type="button"
           onClick={onPrev}
           disabled={index >= total - 1}
-          className="font-mono text-[11px] uppercase tracking-[0.18em] transition-opacity hover:opacity-60 disabled:opacity-25"
-          style={{ color: MUTED }}
+          className="border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors hover:border-ink disabled:opacity-25"
+          style={{ borderColor: LINE, color: INK }}
         >
           ← older
         </button>
@@ -230,8 +230,8 @@ function FocusedDecision({
           type="button"
           onClick={onNext}
           disabled={index <= 0}
-          className="font-mono text-[11px] uppercase tracking-[0.18em] transition-opacity hover:opacity-60 disabled:opacity-25"
-          style={{ color: MUTED }}
+          className="border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors hover:border-ink disabled:opacity-25"
+          style={{ borderColor: LINE, color: INK }}
         >
           newer →
         </button>
@@ -445,18 +445,11 @@ function LearningState({ policyId }: { policyId: string | null }) {
 // ── stats + helpers ─────────────────────────────────────────────────────────
 
 function EvolveBar({ stats }: { stats: ReturnType<typeof computeStats> }) {
-  const evolving = stats.recentWinRate != null && stats.priorWinRate != null;
-  const delta = evolving ? stats.recentWinRate! - stats.priorWinRate! : 0;
+  // Two numbers only · the rest is noise here (full stats live on Results).
   return (
-    <div className="mt-8 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-4" style={{ background: LINE }}>
+    <div className="mt-8 grid grid-cols-2 gap-px overflow-hidden" style={{ background: LINE }}>
       <Stat label="Decisions" value={String(stats.total)} />
       <Stat label="Capital preserved" value={`${stats.preservedPct.toFixed(0)}%`} color={AMBER} />
-      <Stat label="Win rate" value={stats.winRate == null ? "-" : `${stats.winRate.toFixed(0)}%`} color={stats.winRate != null && stats.winRate >= 50 ? EMERALD : INK} />
-      <Stat
-        label="Evolving"
-        value={evolving ? `${stats.priorWinRate!.toFixed(0)}→${stats.recentWinRate!.toFixed(0)}%` : "building"}
-        color={evolving ? (delta >= 0 ? EMERALD : RED) : MUTED}
-      />
     </div>
   );
 }
