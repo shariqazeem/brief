@@ -270,8 +270,9 @@ export async function saveExperience(
   recs: ExperienceRecord[],
 ): Promise<void> {
   await fs.mkdir(DIR, { recursive: true });
-  // Keep the most recent 500 — ample for recall, bounded on disk.
-  await fs.writeFile(fileFor(policyId), JSON.stringify(recs.slice(-500), null, 2));
+  // Keep the most recent 2000 — ample for recall + playbook stats, still
+  // bounded on disk. Allocation events live in the permanent ledger separately.
+  await fs.writeFile(fileFor(policyId), JSON.stringify(recs.slice(-2000), null, 2));
 }
 
 // Normalized distance between two regimes (lower = more similar). Each axis is

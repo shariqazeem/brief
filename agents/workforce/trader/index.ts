@@ -110,6 +110,15 @@ import {
   type ExperienceRecord,
 } from "./experience.js";
 import {
+  ensureStats,
+  loadLedger,
+  loadStats,
+  recordCycle,
+  saveLedger,
+  saveStats,
+  settleLedger,
+} from "./ledger.js";
+import {
   evalMandate,
   loadMandateState,
   mandateSummary,
@@ -2427,6 +2436,24 @@ async function runGatedOperator(
   // verifiable — not just claimed.
   await maybePublishExperience(ctx, e, experience, taskId, matured.settled > 0);
 
+  // ---- LIFETIME STATS + LEDGER SETTLEMENT — persist beyond the archive cap so
+  // counts/benchmarks reflect the operator's whole life, and pending allocation
+  // events settle into win/loss as their horizon elapses.
+  try {
+    const value = portfolio?.value ?? 0;
+    const ledgerSide = rebalanceSide === "up" ? "buy" : rebalanceSide === "down" ? "sell" : null;
+    let stats = ensureStats(await loadStats(e.policyId), Date.now(), midUsd, value);
+    stats = recordCycle(stats, { acted: willRebalance, side: ledgerSide, value, now: Date.now() });
+    await saveStats(e.policyId, stats);
+    const led = await loadLedger(e.policyId);
+    const s = settleLedger(led, midUsd, Date.now(), SPOT_HORIZON_MS);
+    if (s.settled > 0) await saveLedger(e.policyId, s.ledger);
+  } catch (err) {
+    console.warn(
+      `[trader-gated] ledger/stats update skipped: ${String((err as Error)?.message ?? err).slice(0, 100)}`,
+    );
+  }
+
   // Held — already where it wants to be, or no confident edge. A first-class
   // outcome: capital is positioned, none at NEW risk. The reason is stated in
   // allocation terms ("Bearish — already in cash") so the user never has to
@@ -2576,6 +2603,28 @@ async function runGatedOperator(
   if (expRecord.detail) {
     expRecord.detail.txDigest = digest;
     await saveExperience(e.policyId, experience).catch(() => {});
+  }
+  // Append the allocation event to the PERMANENT ledger (never trimmed) — the
+  // operator's decision → action → outcome track record.
+  try {
+    const led = await loadLedger(e.policyId);
+    led.push({
+      ts: Date.now(),
+      seq: expRecord.seq ?? led.length + 1,
+      regimeKind: marketRegime.kind,
+      regimeLabel: eng.regimeLabel,
+      side: isBid ? "buy" : "sell",
+      fromExposurePct: curExposurePct,
+      targetPct: eng.targetExposurePct ?? 0,
+      mid: midUsd,
+      qtySui: GATED_BASE_QTY,
+      reason: `${eng.regimeLabel} — ${eng.thesis}`,
+      txDigest: digest,
+      outcome: "pending",
+    });
+    await saveLedger(e.policyId, led);
+  } catch {
+    /* ledger append best-effort — never block the trade path */
   }
   emitAgentEvent("spot_opened", {
     policyId: e.policyId,

@@ -51,6 +51,13 @@ import {
   type DecisionRecord,
 } from "@/lib/operator-scorecard";
 import { operatorCodename, objectiveLabel } from "@/lib/operator-identity";
+import {
+  useOperatorLedger,
+  computeBenchmark,
+  type LedgerEvent,
+  type OperatorStats,
+  type Benchmark,
+} from "@/lib/operator-ledger";
 import type { TraderPersonality } from "@/lib/workforce-client";
 import { walrusBlobUrl } from "@/lib/work-object";
 
@@ -262,8 +269,11 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   const bv = budgetView(policy);
   const journal = useOperatorJournal(policyId, bv.asset, spot);
   const { scorecard, decisions } = useOperatorScorecard(policyId);
+  const { ledger, stats } = useOperatorLedger(policyId);
   const codename = operatorCodename(policyId);
   const objective = objectiveLabel(goal ?? null);
+  const currentMid = stream.spotUsd ?? stream.decision?.spotUsd ?? null;
+  const benchmark = computeBenchmark(stats, stream.decision?.portfolio?.pnlPct ?? null, currentMid);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -312,14 +322,27 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
         <CapitalCard stream={stream} bv={bv} spanDays={scorecard?.spanDays ?? null} />
 
+        {/* OUTCOME first — performance + the actions behind it */}
+        {spot && (
+          <OperatorPerformance
+            scorecard={scorecard}
+            stats={stats}
+            benchmark={benchmark}
+            stream={stream}
+            revoked={revoked}
+            assetLabel={bv.asset}
+          />
+        )}
+
+        {spot && <OperatorLedgerCard ledger={ledger} now={now} />}
+
         {spot && (
           <GoalCard goal={goal ?? null} stream={stream} spanDays={scorecard?.spanDays ?? null} />
         )}
 
-        {spot && <OperatorScorecard scorecard={scorecard} stream={stream} revoked={revoked} />}
-
         {spot && <ProtectedBySui policyId={policyId} />}
 
+        {/* REASONING below — how it got there */}
         <MarketState signals={stream.signals} dec={stream.decision} assetLabel={bv.asset} />
 
         {spot && <AllocationMatrix dec={stream.decision} />}
@@ -616,40 +639,55 @@ function CapitalCard({
   );
 }
 
-// Operator Scorecard — the track record. The answer to "why should I trust
-// this with money?" — measurable, not an agent count. PnL headline over the
-// real counts: decisions, reallocations, abstentions, mandate compliance,
-// policy violations (0 — chain-enforced), and the regime it reads best.
-function OperatorScorecard({
+// Operator Performance — outcome, not explanation. The return BENCHMARKED
+// against buy-and-hold SUI and cash (a "+1.4%" means nothing without it), over
+// honest LIFETIME counts (from persisted stats, so a buy that aged out of the
+// decision window still counts) — observations / allocations / abstentions —
+// plus worst drawdown, mandate compliance, and 0 policy violations.
+function OperatorPerformance({
   scorecard,
+  stats,
+  benchmark,
   stream,
   revoked,
+  assetLabel,
 }: {
   scorecard: Scorecard | null;
+  stats: OperatorStats | null;
+  benchmark: Benchmark | null;
   stream: AgentStreamState;
   revoked: boolean;
+  assetLabel: string;
 }) {
   const sc = scorecard;
-  if (!sc || sc.decisions === 0) return null;
-  const p = stream.decision?.portfolio ?? null;
-  const pnlPct = p?.pnlPct ?? 0;
+  const pnlPct = stream.decision?.portfolio?.pnlPct ?? 0;
+  // Need *something* to show — either the live mark or the archive.
+  if (!sc && !stats) return null;
   const flat = Math.abs(pnlPct) < 0.05;
   const pnlColor = revoked ? IDLE : flat ? SUB : pnlPct > 0 ? EMERALD : RED;
   const m = stream.decision?.mandate ?? null;
   const mandateHealthy = !m || !m.breached;
-  const days = sc.spanDays != null ? Math.round(sc.spanDays) : null;
+
+  // Lifetime counts: prefer persisted stats (survives the archive cap), else
+  // fall back to the (windowed) archive. Allocations = buys + sells.
+  const observations = stats?.decisions ?? sc?.decisions ?? 0;
+  const allocations = stats ? stats.buys + stats.sells : sc?.reallocations ?? 0;
+  const abstentions = stats?.abstentions ?? sc?.abstentions ?? 0;
+  const worstDD = stats?.worstDrawdownPct ?? null;
+  const days = sc?.spanDays != null ? Math.round(sc.spanDays) : null;
   const spanLabel = days != null && days >= 1 ? `over ${days} day${days === 1 ? "" : "s"}` : "since launch";
+
   return (
     <section
-      className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9"
+      className="bg-bg-elev px-6 py-7 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9 sm:py-8"
       style={{ borderTop: `3px solid ${NAVY}` }}
     >
       <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: SUB }}>
-        Track record
+        Performance
       </p>
       <div className="mt-2 flex items-baseline gap-2.5">
         <span
-          className="font-sans text-[34px] font-medium tabular-nums leading-none tracking-tight sm:text-[40px]"
+          className="font-sans text-[36px] font-medium tabular-nums leading-none tracking-tight sm:text-[44px]"
           style={{ color: pnlColor }}
         >
           {flat ? "±0.0%" : `${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(1)}%`}
@@ -658,31 +696,138 @@ function OperatorScorecard({
           {spanLabel}
         </span>
       </div>
-      <div
-        className="mt-5 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-3"
-        style={{ background: "#E5E5EA" }}
-      >
-        <HeroStat label="Decisions" value={`${sc.decisions}`} />
-        <HeroStat label="Reallocations" value={`${sc.reallocations}`} />
-        <HeroStat label="Abstentions" value={`${sc.abstentions}`} />
+
+      {/* Benchmark — vs holding SUI, vs cash. The number now means something. */}
+      {benchmark && (
+        <div className="mt-4 grid grid-cols-3 gap-px overflow-hidden" style={{ background: "#E5E5EA" }}>
+          <BenchCell label="Operator" pct={benchmark.operatorPct} strong />
+          <BenchCell label={`Hold ${assetLabel}`} pct={benchmark.holdPct} />
+          <BenchCell label="Cash" pct={benchmark.cashPct} />
+        </div>
+      )}
+      {benchmark && (
+        <p className="mt-2.5 text-[13px] leading-relaxed" style={{ color: SUB }}>
+          <span style={{ color: benchmark.vsHold >= 0 ? EMERALD : RED }}>
+            {benchmark.vsHold >= 0 ? "+" : ""}{benchmark.vsHold.toFixed(1)}% vs holding {assetLabel}
+          </span>{" "}
+          · {benchmark.vsCash >= 0 ? "+" : ""}{benchmark.vsCash.toFixed(1)}% vs cash.
+        </p>
+      )}
+
+      {/* Honest activity counts — never "0 reallocations" while it holds SUI. */}
+      <div className="mt-5 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-3" style={{ background: "#E5E5EA" }}>
+        <HeroStat label="Observations" value={`${observations}`} />
+        <HeroStat label="Allocations" value={`${allocations}`} />
+        <HeroStat label="Abstentions" value={`${abstentions}`} />
         <HeroStat
-          label="Mandate"
-          value={mandateHealthy ? "100%" : "Breached"}
-          color={mandateHealthy ? EMERALD : RED}
+          label="Worst drawdown"
+          value={worstDD != null ? `-${worstDD.toFixed(1)}%` : "—"}
+          color={worstDD != null && worstDD > 5 ? AMBER : INK}
         />
+        <HeroStat label="Mandate" value={mandateHealthy ? "100%" : "Breached"} color={mandateHealthy ? EMERALD : RED} />
         <HeroStat label="Policy violations" value="0" color={EMERALD} />
-        <HeroStat
-          label="Win rate"
-          value={sc.winRate != null ? `${Math.round(sc.winRate)}%` : "—"}
-        />
       </div>
-      {sc.bestRegime && (
+      {sc?.bestRegime && (
         <p className="mt-3 font-mono text-[11.5px] tabular-nums" style={{ color: SUB }}>
           <span style={{ color: NAVY }}>Best regime</span> · {sc.bestRegime.label} ·{" "}
           {Math.round(sc.bestRegime.winRate ?? 0)}% success over {sc.bestRegime.wins + sc.bestRegime.losses} settled
         </p>
       )}
     </section>
+  );
+}
+
+function BenchCell({ label, pct, strong }: { label: string; pct: number; strong?: boolean }) {
+  const flat = Math.abs(pct) < 0.05;
+  const color = flat ? SUB : pct > 0 ? EMERALD : RED;
+  return (
+    <div className="bg-bg-elev px-3 py-2.5">
+      <p className="font-mono text-[9px] uppercase tracking-[0.14em]" style={{ color: SUB }}>
+        {label}
+      </p>
+      <p
+        className={`mt-1 tabular-nums ${strong ? "font-sans text-[18px] font-medium" : "font-mono text-[15px]"}`}
+        style={{ color }}
+      >
+        {flat ? "±0.0%" : `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`}
+      </p>
+    </div>
+  );
+}
+
+// Operator Ledger — every capital ALLOCATION as decision → action → outcome.
+// "10:14 PM · Moved into SUI · Breakout · +1.8%". The thin/empty state is
+// honest: holding through every regime IS the track record so far.
+function OperatorLedgerCard({ ledger, now }: { ledger: LedgerEvent[]; now: number }) {
+  return (
+    <SectionCard title="Operator ledger · every allocation">
+      {ledger.length === 0 ? (
+        <p className="py-2 text-[13px] leading-relaxed" style={{ color: SUB }}>
+          No allocation moves in the current window — the operator has held its
+          position through every regime. Holding is a decision too; each one is in
+          the timeline below.
+        </p>
+      ) : (
+        <div className="space-y-0">
+          {ledger.slice(0, 20).map((ev, i) => (
+            <LedgerRow key={`${ev.ts}-${i}`} ev={ev} now={now} isFirst={i === 0} />
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+function LedgerRow({ ev, now, isFirst }: { ev: LedgerEvent; now: number; isFirst: boolean }) {
+  const action = ev.side === "buy" ? `Moved into ${ev.regimeLabel ? "SUI" : "SUI"}` : "Moved to cash";
+  const headline = ev.side === "buy" ? `Added ${ev.qtySui} SUI` : `Sold ${ev.qtySui} SUI → cash`;
+  const settled = ev.outcome === "win" || ev.outcome === "loss";
+  const favorPct = (ev.outcomePct ?? 0) * 100;
+  const outcomeText = !settled
+    ? "settling…"
+    : ev.side === "buy"
+      ? favorPct >= 0
+        ? `+${favorPct.toFixed(1)}% — SUI rose after`
+        : `${favorPct.toFixed(1)}% — SUI fell after`
+      : favorPct >= 0
+        ? `avoided ${Math.abs(favorPct).toFixed(1)}% drop`
+        : `missed ${Math.abs(favorPct).toFixed(1)}% upside`;
+  const outcomeColor = !settled ? "#4DA2FF" : favorPct >= 0 ? EMERALD : RED;
+  const dotColor = ev.side === "buy" ? EMERALD : NAVY;
+  return (
+    <div className="flex gap-3.5 py-3" style={{ borderTop: isFirst ? "none" : "1px solid #F0F0F0" }}>
+      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: dotColor }} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="font-mono text-[10px] tabular-nums" style={{ color: MUTED }}>
+          {dateLabel(ev.ts)} · {relTime(ev.ts, now)}
+        </p>
+        <p className="mt-0.5 text-[14px] font-medium tracking-tight" style={{ color: INK }}>
+          {headline}
+          <span className="ml-2 font-sans text-[12px] font-normal" style={{ color: SUB }}>
+            {action} · {ev.fromExposurePct}% → {ev.targetPct}%
+          </span>
+        </p>
+        {ev.reason && (
+          <p className="mt-0.5 text-[12.5px] leading-snug" style={{ color: SUB }}>
+            {ev.reason}
+          </p>
+        )}
+        <p className="mt-0.5 font-mono text-[11.5px] tabular-nums" style={{ color: outcomeColor }}>
+          {outcomeText}
+        </p>
+      </div>
+      {ev.txDigest && (
+        <a
+          href={explorerUrl("txblock", ev.txDigest)}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 shrink-0 font-mono text-[9px] uppercase tracking-[0.18em] underline-offset-2 hover:underline"
+          style={{ color: SUB }}
+        >
+          tx ↗
+        </a>
+      )}
+    </div>
   );
 }
 
@@ -906,21 +1051,28 @@ function GoalShell({ eyebrow, title, children }: { eyebrow: string; title: strin
   );
 }
 
-// Protected by Sui — the "why Sui" answer, visible every day (not buried in
-// Proof). These are not features; they are the guarantees the chain enforces.
+// Protected by Sui — the real moat, made VISUAL: the custody chain your money
+// flows through, and what each link can and cannot do. This is the "why Sui"
+// answer, visible every day (not buried in Proof).
 function ProtectedBySui({ policyId }: { policyId: string | null }) {
-  const items = [
-    "Budget enforced on-chain — it cannot overspend its cap",
-    "Funds never leave your account — non-custodial, delegated trade-only",
-    "Mandate enforced by Move — your risk limit is law, not a setting",
-    "Revoke anytime — one signature stops it immediately",
-    "Every decision verifiable — reasoning on Walrus, trades on Sui",
+  const flow: { node: string; note: string; can?: string; cannot?: string }[] = [
+    { node: "Your wallet", note: "You deposit. You always own it." },
+    { node: "BalanceManager", note: "Holds your USDC + SUI", cannot: "Operator cannot withdraw" },
+    { node: "TradeCap", note: "Delegated to the operator", can: "Trade only", cannot: "Never withdraw" },
+    { node: "Operator", note: "Decides + signs trades", cannot: "Cannot exceed budget" },
+    { node: "DeepBook", note: "Trades settle on-chain", can: "Verifiable on Sui" },
+  ];
+  const guarantees = [
+    "Can trade",
+    "Cannot withdraw",
+    "Can be revoked anytime",
+    "Cannot exceed budget",
   ];
   return (
     <section className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
       <div className="flex items-center justify-between">
         <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
-          Protected by Sui
+          Protected by Sui · the custody chain
         </p>
         {policyId && (
           <Link
@@ -932,16 +1084,59 @@ function ProtectedBySui({ policyId }: { policyId: string | null }) {
           </Link>
         )}
       </div>
-      <ul className="mt-3 space-y-1.5">
-        {items.map((it) => (
-          <li key={it} className="flex items-start gap-2 text-[13px] leading-relaxed" style={{ color: SUB }}>
-            <span className="mt-0.5 font-sans" style={{ color: EMERALD }} aria-hidden>
+
+      {/* The flow — your money down through the custody chain. */}
+      <div className="mt-4 space-y-0">
+        {flow.map((f, i) => (
+          <div key={f.node}>
+            <div className="flex items-start gap-3">
+              <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: i === 0 ? INK : NAVY }} aria-hidden />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-x-2.5">
+                  <span className="font-sans text-[14px] font-medium tracking-tight" style={{ color: INK }}>
+                    {f.node}
+                  </span>
+                  <span className="text-[12.5px]" style={{ color: SUB }}>
+                    {f.note}
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {f.can && (
+                    <span className="border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em]" style={{ borderColor: "#CDEBD9", color: "#047857" }}>
+                      ✓ {f.can}
+                    </span>
+                  )}
+                  {f.cannot && (
+                    <span className="border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em]" style={{ borderColor: "#F2D6D6", color: RED }}>
+                      ✕ {f.cannot}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            {i < flow.length - 1 && (
+              <div className="ml-[3px] flex h-4 items-center" aria-hidden>
+                <span className="w-px" style={{ background: "#D8D8DE", height: "100%" }} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-2" style={{ borderTop: "1px solid #E5E5EA", paddingTop: 14 }}>
+        {guarantees.map((g) => (
+          <span
+            key={g}
+            className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em]"
+            style={{ color: SUB }}
+          >
+            <span style={{ color: EMERALD }} aria-hidden>
               ✓
             </span>
-            <span>{it}</span>
-          </li>
+            {g}
+          </span>
         ))}
-      </ul>
+      </div>
     </section>
   );
 }
