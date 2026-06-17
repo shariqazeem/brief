@@ -353,7 +353,10 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
         {spot && <ProtectedBySui policyId={policyId} />}
 
-        {spot && !props.readOnly && <WithdrawFunds policyId={policyId} />}
+        {/* Always shown (even in a shared ?policy= view): withdrawal is
+            owner-gated on-chain and the card self-checks the connected wallet,
+            so it appears only for the owner and is a no-op for anyone else. */}
+        {spot && <WithdrawFunds policyId={policyId} />}
 
         {/* REASONING — supporting evidence, collapsed by default (outcome > how) */}
         {spot ? (
