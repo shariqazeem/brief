@@ -317,42 +317,149 @@ function ProofStat({ n, l, good }: { n: string; l: string; good?: boolean }) {
   );
 }
 
-// ── the operator mind circle ─────────────────────────────────────────────
-function MindCircle({
-  state,
-}: {
-  state: "idle" | "processing" | "act" | "preserve";
-}) {
-  const dot =
-    state === "act" ? EMERALD : state === "preserve" ? AMBER : state === "processing" ? EMERALD : IDLE;
-  const sweeping = state === "processing";
+// ── THE LEASH ─────────────────────────────────────────────────────────────
+// The entire company in one animation: a warm-gold autonomous operator moves
+// intelligently inside a thin grey boundary it can never cross. It explores,
+// approaches the edge, the edge quietly resists, it changes course — never
+// escaping, never stopping. Freedom within rules; intelligence controlled by
+// law. No glow, no crypto, no sci-fi — museum-grade restraint. Reduced-motion
+// renders a single resting frame.
+const GOLD = "#C49A2C";
+function LeashHero() {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const reduce =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+    const SIZE = 240;
+    const dpr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 2);
+    canvas.width = SIZE * dpr;
+    canvas.height = SIZE * dpr;
+    ctx.scale(dpr, dpr);
+
+    const cx = SIZE / 2;
+    const cy = SIZE / 2;
+    const R = SIZE / 2 - 10; // the boundary (the law)
+    const EDGE = 18; // where resistance begins
+
+    // The operator.
+    let x = cx + 6;
+    let y = cy - 4;
+    let vx = 0.55;
+    let vy = -0.4;
+    let t = Math.random() * 1000;
+    const trail: { x: number; y: number }[] = [];
+    let raf = 0;
+
+    function draw(edgeT: number, ang: number) {
+      if (!ctx) return;
+      ctx.clearRect(0, 0, SIZE, SIZE);
+      // boundary — thin, grey, calm
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.strokeStyle = "#E6E6EA";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // the law resists — a faint gold arc only where it's being pushed
+      if (edgeT > 0.02) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, ang - 0.42, ang + 0.42);
+        ctx.strokeStyle = `rgba(196,154,44,${(0.22 * edgeT).toFixed(3)})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      // a whisper of a trail — motion, not glow
+      for (let i = 0; i < trail.length; i++) {
+        const p = trail[i];
+        const a = (i / trail.length) * 0.09;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 1.3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(196,154,44,${a.toFixed(3)})`;
+        ctx.fill();
+      }
+      // the operator
+      ctx.beginPath();
+      ctx.arc(x, y, 3.3, 0, Math.PI * 2);
+      ctx.fillStyle = GOLD;
+      ctx.fill();
+    }
+
+    function step() {
+      t += 1;
+      // organic intent — layered slow oscillators give non-repeating wander
+      const dir =
+        Math.sin(t * 0.0123) * 2.3 + Math.cos(t * 0.0071) * 1.6 + Math.sin(t * 0.0033) * 3.0;
+      let ax = Math.cos(dir) * 0.021;
+      let ay = Math.sin(dir) * 0.021;
+
+      // the boundary pushes back, harder the closer it gets — never crosses
+      const dx = x - cx;
+      const dy = y - cy;
+      const d = Math.hypot(dx, dy) || 1;
+      let edgeT = 0;
+      if (d > R - EDGE) {
+        const over = (d - (R - EDGE)) / EDGE;
+        edgeT = Math.min(1, over);
+        const k = 0.085 * over * over;
+        ax -= (dx / d) * k;
+        ay -= (dy / d) * k;
+      }
+
+      vx = (vx + ax) * 0.986;
+      vy = (vy + ay) * 0.986;
+
+      // keep it alive but unhurried
+      const sp = Math.hypot(vx, vy);
+      const MAX = 0.8;
+      const MIN = 0.16;
+      if (sp > MAX) {
+        vx = (vx / sp) * MAX;
+        vy = (vy / sp) * MAX;
+      } else if (sp < MIN && sp > 0) {
+        vx = (vx / sp) * MIN;
+        vy = (vy / sp) * MIN;
+      }
+
+      x += vx;
+      y += vy;
+
+      // hard guarantee: it never escapes the law
+      const d2 = Math.hypot(x - cx, y - cy);
+      if (d2 > R - 3) {
+        const f = (R - 3) / d2;
+        x = cx + (x - cx) * f;
+        y = cy + (y - cy) * f;
+        vx *= -0.35;
+        vy *= -0.35;
+      }
+
+      trail.push({ x, y });
+      if (trail.length > 28) trail.shift();
+      draw(edgeT, Math.atan2(dy, dx));
+      raf = requestAnimationFrame(step);
+    }
+
+    if (reduce) {
+      x = cx + R * 0.32;
+      y = cy - R * 0.12;
+      draw(0, 0);
+    } else {
+      raf = requestAnimationFrame(step);
+    }
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   return (
-    <div className="relative h-[200px] w-[200px]" aria-hidden>
-      {/* static thin ring */}
-      <div className="absolute inset-0 rounded-full border border-[#E5E5E5]" />
-      {/* radar sweep arc — only while processing */}
-      {sweeping && (
-        <div
-          className="v2-sweep absolute inset-0 rounded-full border border-transparent"
-          style={{ borderTopColor: EMERALD }}
-        />
-      )}
-      {/* core */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="relative flex items-center justify-center">
-          {state !== "idle" && (
-            <span
-              className="v2-halo absolute h-3 w-3 rounded-full"
-              style={{ backgroundColor: dot }}
-            />
-          )}
-          <span
-            className={state !== "idle" ? "v2-core h-2.5 w-2.5 rounded-full" : "h-2.5 w-2.5 rounded-full"}
-            style={{ backgroundColor: dot }}
-          />
-        </div>
-      </div>
-    </div>
+    <canvas
+      ref={ref}
+      aria-hidden
+      style={{ width: 240, height: 240, display: "block" }}
+    />
   );
 }
 
@@ -442,7 +549,7 @@ export default function OperatorLandingV2() {
     >
       {/* ════ SECTION 1 — THE HOOK ════ */}
       <section className="flex min-h-screen snap-start flex-col items-center justify-center px-6">
-        <MindCircle state={circleState} />
+        <LeashHero />
         <h1 className="mt-14 max-w-2xl text-center text-[34px] font-medium leading-[1.1] tracking-[-0.02em] sm:text-[52px]">
           Adopt an operator.
           <br />
