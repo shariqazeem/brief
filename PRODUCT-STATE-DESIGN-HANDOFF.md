@@ -1,111 +1,104 @@
 # Brief — Product State, Design & Agent Handoff
 
 > **Adopt an operator. The chain holds the leash.**
-> An autonomous, non-custodial financial operator on Sui. It allocates real
+> An autonomous financial operator on Sui that *cannot steal your funds, cannot
+> exceed its budget, and can be fired with one transaction.* It allocates real
 > capital between cash and SUI on DeepBook v3, thinks in public, remembers on
-> Walrus, and is gated on every action by a Move `OperatorPolicy` the owner can
-> revoke in one tap. The AI is never trusted with custody — the chain enforces
-> the limits.
+> Walrus, learns over time, and is gated on every action by a Move
+> `OperatorPolicy` the owner can revoke instantly. The AI is never trusted with
+> custody — the chain enforces the limits.
 
-Single source of truth for *what exists today*, *how it's designed*, *how it
-works technically*, *how it behaves on mainnet*, and *how to operate/continue it*.
-Last updated by the build session that shipped the withdraw flow + mainnet audit.
+Single source of truth for *what exists*, *how it's designed*, *how it works
+technically*, *how it behaves on mainnet*, and *how to operate/continue it*.
+Updated through: Evolution pillar, public leaderboard, "The Leash" hero,
+above-the-fold proof, withdraw flow, and the mainnet `pay_with_deep` change.
 
-Company framing: Brief is **Kyvernlabs'** Sui product. Positioning is **"Brief
-builds autonomous operators"** — finance (the operator "Halcyon") is the first
-vertical, not the whole company.
+**Positioning (authoritative):** Brief is **the first platform where autonomous
+agents are controlled by on-chain law.** **Halcyon** is the first operator;
+finance is the proof, not the whole company. Brief is **Kyvernlabs'** Sui
+product. Four pillars: **Objective · Trust · Proof · Evolution.**
 
 ---
 
-## 1. The thesis (what makes it different)
+## 1. The thesis (why it's different)
 
 Most agent projects = *AI + wallet + it can spend your money.* Brief inverts the
-trust model: **the chain controls the agent.** The operator can trade your funds
-but **physically cannot** withdraw them, overspend a budget, trade a disallowed
-venue, or survive a revocation — because Move aborts the transaction. That's the
-moat, and it's verifiable on-chain (the `/proof` page).
+trust model: **the chain controls the agent.** It can trade your funds but
+physically cannot withdraw them, overspend a budget, trade a disallowed venue,
+or survive a revocation — Move aborts the transaction. That's the moat, and it's
+verifiable on `/proof`. The product is **owner-first**: every page leads with
+*your objective* and whether the operator is beating the alternative.
 
-The product is **owner-first**: the page leads with *your objective* and whether
-the operator is beating the alternative — the operator works *for* the owner's
-goal, not the other way around.
+The 20-second judge story: **(1) What's my objective? (2) Is it beating the
+alternative? (3) Why can I trust it with money?** — answered by Objective,
+Performance/Results, and Proof.
 
 ---
 
-## 2. Current state (what's real vs not)
+## 2. Current state (real vs not)
 
 **Live & chain-real (testnet):**
-- One live operator — **Halcyon** ("Grow Operator 87"), policy
-  `0x5253106a…`, BalanceManager `0x609089ef…`, owner `0xca3d6f42…`, operator/
-  treasury key `0xa9f24640…`. Brief Move package (testnet) `0xe550ace8…`.
-- Real DeepBook v3 spot orders from the user's own BalanceManager via a delegated
-  TradeCap, gated atomically by `operator_policy::record_spend`.
-- Non-custodial deposit + **owner-gated withdraw** (one real LIVE buy executed;
-  current state ≈ 1.0 DBUSDC, ~79% in SUI).
-- On-chain revoke (kill switch). Walrus-anchored reasoning + experience memory.
-- Continuous agent loop (`brief-trader`, every 45s) — observe → classify regime →
-  recall playbook → target allocation → check mandate/policy → rebalance.
+- Live operator **Halcyon** ("Grow Operator 87") — policy `0x5253106a…`,
+  BalanceManager `0x609089ef…`, owner `0xca3d6f42…`, operator/treasury key
+  `0xa9f24640…`. Brief Move package (testnet) `0xe550ace8…`.
+- Real DeepBook v3 spot orders from the user's own BM via a delegated TradeCap,
+  gated atomically by `operator_policy::record_spend`. One real LIVE buy executed
+  (tx `E3u4uWTmig…`).
+- `brief-trader` runs continuously (~every 45s); **800+ real decisions**, stable
+  for hours, no crash loop, abstaining/allocating cleanly.
+- Non-custodial deposit + **owner-gated withdraw** (UI shipped). On-chain revoke.
+  Walrus reasoning + experience memory. SSE live cascade.
 
-**Deterministic / heuristic (honest, not theater):**
-- The decision engine is deterministic over real signals (ROC/RSI/MA/vol). Regime
-  classifier, playbooks, allocator are all computed from real data.
-- AI narration (`/api/operators/narrate`) is **on-demand only** (Brain "Narrate"
-  button); CommonStack key IS configured on the VM, so it returns live AI text.
-  It NEVER runs in the 24/7 loop (respects the ~$0.50/wk budget).
+**Deterministic / honest (not theater):** the decision engine, regime
+classifier, playbooks, allocator, evolution, scorecard, benchmarks are all real
+computation over real signals/outcomes. AI narration is **on-demand only**
+(Brain "Narrate" button; CommonStack key configured) — never in the 24/7 loop
+(respects ~$0.50/wk).
 
-**Not built / deferred (see §11):** mainnet flip (needs user keys), multiple live
-operators (architecture ready; only Halcyon adopted), AI inside the decision loop.
+**Not yet:** mainnet flip (needs owner keys/funds), a *real signed* withdraw
+(devInspect-proven; do one in the UI before mainnet), multiple live operators
+(architecture ready), AI inside the decision loop (deliberately out).
 
 ---
 
-## 3. Architecture at a glance
+## 3. Architecture
 
 ```
-  Browser (Vercel: brief-olive.vercel.app  +  VM/Caddy: 141-148-215-239.sslip.io)
-        │  React/Next 14 App Router, @mysten/dapp-kit wallet
-        ▼
-  Next API routes (server, on the VM)  ── read .cursors/*.json (registry, ledger,
-        │                                  stats, experience), serve SSE
-        ▼
-  .cursors/  (shared fs state)  ◀── written by ──  brief-trader (pm2, tsx)
-        ▲                                              │ signs as treasury key
-        │                                              ▼
-   Sui testnet  ◀───────────  DeepBook v3 + Brief Move package (operator_policy,
-                               gated_spot)  +  Walrus (reasoning/experience blobs)
+ Browser — Vercel (brief-olive.vercel.app)  +  VM/Caddy (141-148-215-239.sslip.io)
+   │  Next 14 App Router · Tailwind · @mysten/dapp-kit / zkLogin signer
+   │  (Vercel sets NEXT_PUBLIC_API_BASE_URL → the VM, so API calls hit the VM)
+   ▼
+ Next API routes (on the VM) ── read .cursors/*.json (registry, ledger, stats,
+   │                             experience) · serve SSE · query chain
+   ▼
+ .cursors/ (shared fs)  ◀── written by ──  brief-trader (pm2, tsx, treasury key)
+   ▲                                           │
+   │                                           ▼
+ Sui testnet ◀── DeepBook v3 + Brief Move (operator_policy, gated_spot) + Walrus
 ```
 
-- **Frontend:** Next.js 14 (App Router), Tailwind, TS, React 18; `@mysten/dapp-kit`
-  + a zkLogin/wallet signer abstraction (`src/lib/zklogin/signer.ts`).
-- **Agent runtime:** Node + `tsx` (no build), `@mysten/sui` (`SuiJsonRpcClient`),
-  `@mysten/deepbook-v3`, `@mysten/walrus`. Runs on a VM under pm2.
-- **State bus:** `.cursors/*.json` on the VM filesystem — the trader writes,
-  the Next API reads. SSE (`/api/agent-events`) streams the live decision cascade.
-
-**pm2 processes (VM):** `brief-web` (Next `next start -p 3000`), `brief-trader`
-(the operator loop), `brief-treasury`, `brief-research`, `brief-planner-service`,
+**pm2 (VM):** `brief-web` (`next start -p 3000`), `brief-trader` (the operator
+loop), `brief-treasury`, `brief-research`, `brief-planner-service`,
 `brief-warden` (gas auto-shuffle). All should be `online`.
 
 ---
 
-## 4. The on-chain layer (custody + guarantees)
+## 4. On-chain layer (custody + guarantees)
 
-**Move modules** (`move/sources/`): `operator_policy.move` (the budget/leash),
-`gated_spot.move` (atomic gate+order), plus `task`, `settlement`, `agent_registry`,
-`work_object`, `lineage` (the earlier Predict/work path, still present).
+**Move** (`move/sources/`): `operator_policy.move` (budget/leash + revoke),
+`gated_spot.move` (atomic gate + DeepBook order).
 
-**Custody model (DeepBook BalanceManager):**
-- The **user owns** the BalanceManager (shared object; `owner = tx.sender`).
-- The **operator holds only** a `TradeCap` (trade) + `DepositCap` (deposit DEEP
-  fuel). It is *never* given a WithdrawCap and cannot generate an owner proof.
-- Adopt PTB (`src/lib/deepbook-adopt.ts`): one signature → create BM → deposit
-  capital → mint+delegate TradeCap & DepositCap to the operator → create the
-  shared `OperatorPolicy` (agent = operator, owner = user).
+**Custody (DeepBook BalanceManager):** the **user owns** the BM (shared object,
+`owner = tx.sender`); the **operator holds only** a `TradeCap` (+ `DepositCap`
+for DEEP fuel on testnet) — never a WithdrawCap, and cannot generate an owner
+proof. Adopt is one signature (`src/lib/deepbook-adopt.ts`): create BM → deposit
+→ delegate caps → create shared OperatorPolicy.
 
-**The atomic trade** (`gated_spot::gated_spot_market_order`):
-`record_spend(policy, …)` (aborts on revoke/expiry/over-budget/disallowed-venue
-and asserts sender == policy.agent) **→** `pool::place_market_order(…)`. If the
-gate aborts, no order; if the order aborts, the spend rolls back.
+**Atomic trade** (`gated_spot_market_order`): `record_spend` (aborts on
+revoke/expiry/over-budget/disallowed-venue, asserts sender == agent) → DeepBook
+`place_market_order`. Gate aborts → no order; order aborts → spend rolls back.
 
-**Guarantees — PROVEN on testnet via `devInspect` (no keys needed):**
+**Guarantees — PROVEN on testnet (devInspect, no keys):**
 | Guarantee | Result |
 |---|---|
 | Owner can always withdraw | ✅ `withdraw_all` as owner → `success` |
@@ -113,160 +106,169 @@ gate aborts, no order; if the order aborts, the spend rolls back.
 | No overspend | ✅ `record_spend` aborts atomically |
 | Revoke stops trading, funds stay withdrawable | ✅ `revoke` only flips a flag |
 
-**Withdraw** (`src/lib/deepbook-withdraw.ts`, shipped this session): owner-gated
-`withdraw_all` sweeps USDC + SUI + DEEP back to the owner's wallet in one tx;
-safe on zero balances. UI in `withdraw-funds.tsx` (owner-only).
+**Withdraw** (`src/lib/deepbook-withdraw.ts` + `withdraw-funds.tsx`): owner-gated
+`withdraw_all` sweeps USDC + SUI + DEEP to the owner in one tx; safe on zero
+balances; the card self-checks ownership and renders even in the shared
+`?policy=` view (owner-only, no-op for anyone else).
 
 ---
 
-## 5. The agent (technical)
+## 5. The agent (technical) — one 45s cycle
 
-**The loop** (`agents/workforce/trader/index.ts`, `runGatedOperator`, every 45s
-per operator). One cycle:
-
-1. **Observe** — read SUI/USDC mid via DeepBook (`spot-handler.ts readSpotMid`),
-   append to rolling price history, compute the **signal bundle**
-   (`signals.ts`: ROC 5/30/60m, SMA 15/60m, RSI 60m Wilder, realized vol 60m).
+`agents/workforce/trader/index.ts` `runGatedOperator`:
+1. **Observe** — DeepBook mid (`spot-handler.readSpotMid`) + signal bundle
+   (`signals.ts`: ROC 5/30/60m, SMA 15/60m, RSI 60m, realized vol 60m).
 2. **Classify regime** (`regime.ts`) — trending-up/down · breakout · range-bound ·
-   mean-reversion, from scale-stable ROC/RSI/MA thresholds. Non-tradeable regimes
-   (range-bound, mean-reversion) stand the operator aside.
-3. **Recall** — `experience.ts` recalls structurally similar past situations
-   (regime fingerprint distance) and a per-regime **playbook**
-   (`playbookFor`: seen N× · acted/stood-aside · win rate · best action).
-4. **Decide** (`decision-engine.ts`, two passes) — thesis → counterargument →
-   confidence (shaped by memory) → risk/policy/execution review → **target SUI
-   allocation %** (`targetExposurePct`, sized by confidence × mode ceiling).
-   Modes = Protect (≤30%) / Grow (≤55%) / Aggressive (≤85%).
-5. **Mandate guard** (`mandate.ts`) — optional owner drawdown limit; breach = hard
-   stand-down.
-6. **Allocate, not trade** — compare current exposure (BM balances) to target;
+   mean-reversion; non-tradeable regimes stand aside.
+3. **Recall** (`experience.ts`) — similar past situations + per-regime
+   **playbook** (`playbookFor`: seen N× · acted/stood-aside · win rate · best play).
+4. **Decide** (`decision-engine.ts`, 2 passes) — thesis → counter → confidence
+   (shaped by memory) → risk/policy/exec review → **target SUI allocation %**
+   (`targetExposurePct`, sized by confidence × mode ceiling: Protect ≤30 / Grow
+   ≤55 / Aggressive ≤85).
+5. **Mandate guard** (`mandate.ts`) — optional owner drawdown limit (hard stop).
+6. **Allocate, not trade** — compare current exposure (BM balances) vs target;
    rebalance only past a 15-pt band; **feasibility gate** (a 1-SUI min-lot must
    fit) so it never claims a move it can't make.
-7. **Execution analysis** (`spot-handler.ts readSpotExecution`) — only when a
-   rebalance is needed: simulate the order against the live book (slippage/depth/
-   DEEP fee); a thin book vetoes.
-8. **Fuel** — keep the DEEP tank funded via the delegated DepositCap (deposit-
-   not-withdraw); amber "awaiting fuel" if dry.
+7. **Execution analysis** (`spot-handler.readSpotExecution`) — when rebalancing,
+   simulate vs the live book (slippage/depth/fee); thin book vetoes.
+8. **Fuel (testnet only)** — keep the DEEP tank topped via DepositCap. **On
+   mainnet the order pays its fee from the traded asset (`pay_with_deep=false`),
+   so the operator needs NO DEEP** and never idles on fuel.
 9. **Execute** — one atomic PTB (`record_spend` + `place_market_order`).
-10. **Record** — write the decision to the **experience archive** (capped 2000),
-    append allocation events to the **permanent ledger** (`ledger.ts`, never
-    trimmed) + update **lifetime stats** (launch mid, deposit, counts, peak/
-    worst-drawdown, lastMid, mode), settle pending outcomes vs horizon, anchor a
-    memory snapshot on **Walrus**, and emit the whole cascade over **SSE**.
+10. **Record** — experience archive (capped 2000) + **permanent ledger**
+    (`ledger.ts`, allocation events never trimmed) + **lifetime stats** (launchMid,
+    deposit, decisions/buys/sells, peak/worst-drawdown, lastMid, mode) + settle
+    outcomes vs horizon + Walrus snapshot + SSE cascade.
 
-**Honest-first principle:** every layer is real computation over real inputs;
-abstention (holding, "capital preserved") is a first-class success, not a failure.
+Honest-first: abstention ("capital preserved") is a first-class success.
 
 ---
 
 ## 6. Product surfaces & UX/flow
 
-Design language: **Apple/institutional** — white surfaces, navy accent
-(`#1a2c4e`), emerald/red/amber semantics, mono eyebrows + tight sans headlines,
-generous whitespace, one big statement per section.
+Design language: **Apple/institutional** — white surfaces, navy `#1a2c4e`,
+warm gold `#C49A2C` (the operator), emerald/red/amber semantics, mono eyebrows +
+tight sans headlines, generous whitespace, one statement per section. Restraint
+is the brand.
 
-**The journey:**
-1. **Landing (`/`)** — the thesis + "Watch it think" + "The leash" + adaptive CTA
-   ("Adopt an operator" → `/workforce/adopt`, or "Open your operator" if one
-   exists).
-2. **Adopt (`/workforce/adopt`)** — owner picks a **goal** (not a strategy):
-   *Protect my capital / Grow steadily / Beat passive SUI* → sets the leash
-   (budget cap + optional drawdown mandate) → deposits → **one signature** that
-   builds the whole non-custodial setup. Stepwise "what the chain enforces" trust
-   copy.
-3. **Workforce dashboard (`/workforce`, `?policy=…`)** — the main surface,
-   reweighted **outcome-first (≈70/30)**:
-   - **Your Objective** (lead) — objective + live progress (vs passive SUI / % of
-     target / drawdown) + "Operator Halcyon · Working".
-   - **Operator hero** — live status + the allocation statement ("Bearish. Holding
-     cash." / "Adding to SUI — toward 40%.") + 4 stats.
-   - **Capital** — marked-to-market value, PnL vs deposit, SUI/cash split, budget
-     remaining, deposited + lifetime.
-   - **Performance** — return **benchmarked vs Hold SUI vs Cash**, honest lifetime
-     counts (observations / allocations / abstentions), worst drawdown, 0 policy
-     violations, best regime.
-   - **Operator ledger** — every allocation as decision → action → outcome.
-   - **Protected by Sui** — the custody chain visual (wallet → BalanceManager →
-     TradeCap → operator → DeepBook) with can/cannot chips.
-   - **Your funds → Withdraw** — one-tap owner-gated withdrawal.
-   - **How it thinks** (collapsed) — market regime, allocation matrix, playbooks
-     (supporting evidence, demoted).
-   - **Right now** + **Timeline** — the live pipeline + the decision history
-     (driven by the real archive), price tape.
-   - Multiple operators → the page becomes a **comparison** (objective + return +
-     drawdown per operator). One operator → "Operator #001 … adopt more".
-4. **Brain (`/brain`)** — cinematic, one decision at a time, 5 huge blocks: *What
-   it saw / remembered / feared / did / happened*, navigable like a black-box
-   replay; reasoning anchored on Walrus; "Narrate this decision" (on-demand AI).
-5. **Results (`/results`)** — "Did it work?": Operator vs Passive SUI vs Cash, max
-   drawdown, capital preserved, trades made/avoided, 0 violations, a Now→Next→Then
-   mainnet roadmap, and "Big moments" from the ledger. Public, no wallet.
-6. **Proof (`/proof`)** — the on-chain enforcement evidence (the moat).
-- **Floating kill switch** — revoke from anywhere.
+1. **Landing (`/`)** — **"The Leash" hero**: a warm-gold autonomous particle
+   wanders inside a thin grey boundary that resists at the edge — never escapes,
+   never stops (canvas, reduced-motion safe, no glow). The thesis before a word.
+   Below: subline ("cannot steal / cannot exceed / can be fired"); **above-the-
+   fold proof strip** (operators · decisions · managed · 0 policy violations · 0
+   custody incidents, live from `/api/network/proof`); "Watch it think" live
+   cascade; "The leash" 3-step; a closing **platform/mainnet** section ("the
+   first platform where autonomous agents are controlled by on-chain law" +
+   **Join mainnet access**).
+2. **Adopt (`/workforce/adopt`)** — pick a **goal** (Protect my capital / Grow
+   steadily / Beat passive SUI) → set the leash (budget cap + optional drawdown
+   mandate) → deposit → **one signature**.
+3. **Workforce dashboard (`/workforce?policy=…`)** — outcome-first order:
+   **Your Objective** (progress vs benchmark / target / drawdown + "Operator
+   Halcyon · Working") → **Capital** (mark-to-market + SUI/cash split) →
+   **Performance** (return **vs Hold SUI vs Cash** + lifetime observations/
+   allocations/abstentions + worst drawdown + 0 violations) → **Operator Ledger**
+   (decision→action→outcome) → **Protected by Sui** (custody-chain visual) →
+   **Your funds → Withdraw** (owner-gated) → **How it thinks** (collapsed: regime,
+   allocation matrix, playbooks) → **Right now** (live pipeline) → **Timeline**.
+   Top bar: Brain · Evolution · Results · Proof · Revoke. Multiple operators →
+   comparison; one → "Operator #001 … adopt more".
+4. **Brain (`/brain`)** — cinematic 5-block replay: *What it saw / remembered /
+   feared / did / happened*, navigable; "Narrate this decision" (on-demand AI).
+5. **Evolution (`/evolution`)** — **Pillar 4**: lessons learned, the single most
+   valuable lesson, and a day-by-day growth timeline — all from the real archive
+   (`operator-evolution.ts`). Makes it feel *alive*.
+6. **Results (`/results`)** — "Did it work?": the comparison is the hero —
+   *"What would have happened if you'd done nothing?"* Operator vs Held SUI vs
+   Did-nothing; max drawdown; capital preserved; trades made/avoided; 0
+   violations; a Now→Next→Then mainnet roadmap; "Big moments" from the ledger.
+   Public, no wallet.
+7. **Leaderboard (`/leaderboard`)** — "The operator workforce" network view:
+   real on-chain operators, codename identity; one today, a network tomorrow.
+8. **Proof (`/proof`)** — the on-chain enforcement evidence (the moat).
+- Floating kill switch — revoke from anywhere.
 
 ---
 
 ## 7. Money flow & custody UX
 
-`Deposit (1 sig) → operator trades (gated) → owner can Revoke (1 sig) → owner can
-Withdraw (1 sig)`. Funds always live in the owner's BalanceManager; revoke blocks
-new trades but never locks funds; withdraw sweeps everything home. The "Protected
-by Sui" + "Your funds" sections make this tangible on the dashboard.
+`Deposit (1 sig) → operator allocates (gated) → Revoke (1 sig) → Withdraw (1 sig)`.
+Funds always live in the owner's BM; revoke blocks new trades, never locks funds;
+withdraw sweeps everything home. Made tangible by "Protected by Sui" + "Your
+funds" on the dashboard.
 
 ---
 
 ## 8. Data model / APIs
 
-- `POST /api/operators/register` — record an adopted operator (registry).
-  `GET …?policy_id=` — public custody info (BM id, owner, network) for withdraw.
-- `GET /api/operators/decisions?policy_id=` — the experience archive (Brain,
-  scorecard, playbooks, timeline).
+- `POST /api/operators/register` (record an operator) · `GET …?policy_id=`
+  (public custody info for withdraw: bm_id, owner, network).
+- `GET /api/operators/decisions?policy_id=` — experience archive (Brain,
+  scorecard, playbooks, timeline, evolution).
 - `GET /api/operators/ledger?policy_id=` — permanent allocation ledger + lifetime
-  stats (Performance, Results, benchmark, comparison).
+  stats (Performance, Results, benchmark, comparison, evolution).
+- `GET /api/operators/proof?policy_id=` — per-operator on-chain proof (policy,
+  PolicySpend/PolicyRevoked events, Walrus manifesto) for `/proof`.
+- `GET /api/network/proof` — aggregate trust strip (operators, decisions, under
+  management, 0 violations, 0 custody) for the homepage.
 - `POST /api/operators/narrate` — on-demand narration (CommonStack if key set,
-  deterministic fallback otherwise). Never in the loop.
-- `GET /api/agent-events?policy_id=` (SSE) — the live decision cascade
-  (`src/lib/use-agent-stream.ts` reduces it).
-- Client libs: `operator-ledger.ts`, `operator-scorecard.ts`, `operator-identity.ts`
-  (deterministic codenames), `deepbook-adopt.ts`, `deepbook-withdraw.ts`,
-  `operator-policy-client.ts` (revoke), `brief-client.ts` (network/package config).
+  deterministic fallback). Never in the loop.
+- `GET /api/agent-events` (SSE) — live decision cascade (`use-agent-stream.ts`).
+- `GET /api/leaderboard` — on-chain operator enumeration + P&L.
+- Client libs: `operator-ledger.ts`, `operator-scorecard.ts`,
+  `operator-evolution.ts`, `operator-identity.ts` (codenames),
+  `deepbook-adopt.ts`, `deepbook-withdraw.ts`, `operator-policy-client.ts`
+  (revoke), `brief-client.ts`, `api-base.ts`.
 
 ---
 
-## 9. Mainnet — what it looks like & how people interact
+## 9. Mainnet — how it looks & how people interact
 
-**Same code, same DeepBook v3, same caps.** Verified mainnet constants
-(`src/lib/deepbook-adopt.ts`, confirmed against live mainnet):
-- DeepBook package (calls) `0xf48222c4…`; USDC `0xdba34672…::usdc::USDC`
-  (canonical); live SUI/USDC pool `0xe05dafb5…`; DEEP `0xdeeb7a46…::deep::DEEP`.
+**Same code, same DeepBook v3, same caps; DBUSDC → USDC.** Verified vs live
+mainnet (`src/lib/deepbook-adopt.ts`): DeepBook pkg `0xf48222c4…`; USDC
+`0xdba34672…::usdc::USDC` (canonical); live SUI/USDC pool `0xe05dafb5…`.
 
-**How a user interacts on mainnet:** connect wallet → adopt a goal → deposit real
-**USDC** → one signature creates their own BalanceManager + delegates a trade-only
-cap + writes the policy. The operator then allocates their USDC↔SUI on DeepBook
-under the budget/mandate; the user watches Objective/Performance/Ledger live,
-can **revoke** any time, and **withdraw** their USDC back in one tap. Nothing
-about custody changes from testnet — DBUSDC is simply replaced by USDC.
+**Onboarding is two tokens only** (we set `pay_with_deep=false` on mainnet → the
+fee comes from the traded asset, so **no DEEP needed**):
+- **USDC** — operator capital, **~$20–25** (start small; ≥$20 so a 1‑SUI lot
+  isn't the whole portfolio → real multi-step allocation).
+- **SUI** — gas, **~4–5** (one-time Move publish ~2–3 + ongoing ~1–2).
 
-**The flip (see `MAINNET-FLIP.md` for the exact, verified steps):** publish Brief
-on mainnet → set `NEXT_PUBLIC_SUI_NETWORK=mainnet` + package id + funded keys →
-fund treasury (gas + DEEP reserve) → restart (`brief-trader` auto-enables mainnet
-operators, which it currently skips) → adopt the first operator with a small USDC
-amount → verify one gated fill + one withdraw before scaling. **The publish/fund/
-first-deposit signatures are the owner's** (no agent handling of mainnet keys).
+**User journey on mainnet:** connect → pick goal → deposit USDC → one signature
+builds their own BM + delegates a trade-only cap + writes the policy → operator
+allocates under the budget/mandate → owner watches Objective/Performance/
+Evolution/Results live → **revoke** any time → **withdraw** USDC in one tap.
+Custody is identical to testnet.
+
+**The flip (owner-signed; see `MAINNET-FLIP.md`):** publish Brief on mainnet →
+set `NEXT_PUBLIC_SUI_NETWORK=mainnet` + package id + funded keys → fund treasury
+(SUI gas) → restart (`brief-trader` auto-enables mainnet operators) → adopt
+Operator #001 with ~$20 USDC → verify one gated fill + one withdraw, then scale.
+**The assistant does not sign mainnet publish/fund/first-deposit — those are the
+owner's.**
 
 ---
 
-## 10. What's NOT built / honest gaps
+## 10. What's done / what's next
 
-- **Mainnet not flipped** — config verified + checklist ready; needs the owner's
-  signatures + funding.
-- **One live operator** — multi-operator UI is ready; only Halcyon adopted. A
-  larger deposit would also make allocation richer (a 1-SUI lot ≈ 79% of a $1
-  portfolio → near-binary; bigger capital → multi-step rebalancing + a fuller
-  ledger).
-- **AI is on-demand only**, not inside the decision loop (deliberate, budget).
-- Adaptive playbooks are an honest "edge vs cash" from settled outcomes — thin
-  until more trades settle.
+**Done:** the product. Decision engine → regime → playbook → allocator;
+Objective/Performance/Ledger/Evolution/Results/Proof/Leaderboard; non-custodial
+deposit + withdraw + revoke (proven); Walrus memory; The Leash hero +
+above-the-fold proof; mainnet config verified + no-DEEP onboarding.
+
+**Next (go-to-market, mostly owner-driven — STOP building features):**
+1. One real **testnet withdraw** in the UI (validates the signed path).
+2. **Mainnet flip** + Operator #001 (~$20) → one trade + one withdraw.
+3. **Brief X** account (`@briefonchain`/`@briefagents`; bio: "Autonomous
+   operators that work for you. The chain holds the leash. Built on Sui.").
+4. **Demo video** (0–180s: what is it → why trust it → watch it think → watch it
+   trade → watch me revoke → why Sui; script in `SUBMISSION-NARRATIVE.md`).
+5. **3–5 real operators** → "N operators · $X managed · 0 violations" screenshot.
+6. Submit.
+
+**Do NOT add:** chat/copilot, token, governance, marketplace, social, agent
+swarm, mobile, AI-in-the-decision-loop. Restraint is the brand.
 
 ---
 
@@ -274,46 +276,47 @@ first-deposit signatures are the owner's** (no agent handling of mainnet keys).
 
 **VM:** `ssh -i ~/Downloads/ssh-key-2025-10-14.key ubuntu@141.148.215.239` ·
 project `/home/ubuntu/brief` · logs `~/.pm2/logs/brief-*-{out,error}.log`.
-**Frontend:** Vercel `brief-olive.vercel.app` (auto-deploys on push to `main`) +
-the VM/Caddy canonical host.
+**Frontend:** Vercel `brief-olive.vercel.app` (auto-deploys on push to `main`;
+its `NEXT_PUBLIC_API_BASE_URL` → the VM) + the VM/Caddy canonical host.
 
-**Deploy flow (frontend or agent change):**
+**Deploy flow:**
 ```
-git push origin main                       # local, after gates
-ssh … 'cd /home/ubuntu/brief && git pull --rebase && npm run build && \
-       pm2 restart brief-web'              # web (build BEFORE restart)
-ssh … 'pm2 restart brief-trader'          # only if agent code changed (tsx, no build)
+git push origin main                         # after all four gates
+ssh … 'cd /home/ubuntu/brief && git pull --rebase && npm run build && pm2 restart brief-web'
+ssh … 'pm2 restart brief-trader'             # only if agent code changed (tsx, no build)
 ```
-- **Gates before every commit (all four):** `npm run typecheck`,
-  `npm run typecheck:agents`, `npm run lint`, `npm run build`.
-- **Deploy gotchas learned:** (1) backgrounded SSH buffers stdout — don't poll the
-  output file; verify with **direct synchronous** checks (`git rev-parse`, pm2
-  status, route `curl`, `.next/static` grep). (2) Restarting `brief-web` *while*
-  `next build` is still writing `.next` causes a `MODULE_NOT_FOUND` race — always
-  let the build fully finish, then restart; avoid overlapping deploy commands.
+- **Gates before every commit:** `npm run typecheck`, `npm run typecheck:agents`,
+  `npm run lint`, `npm run build`.
+- **Deploy gotchas (learned the hard way):**
+  1. Backgrounded SSH buffers stdout — don't poll the output file; verify with
+     **direct synchronous** checks (`git rev-parse`, pm2 status, route `curl`,
+     `.next/static` grep).
+  2. On a loaded VM, `next build` can take ~7 min **and** the deploy chain's
+     `pm2 restart` step sometimes drops (SSH exit 255), leaving `brief-web` on the
+     OLD bundle. **Always finish with a manual `pm2 restart brief-web` once `ps`
+     shows no `next build`**, then verify HEAD + uptime<30s + routes 200.
+  3. New routes (e.g. `/evolution`) 404 until `brief-web` restarts (Next registers
+     routes at boot).
+  4. The assistant's own repeated SSH checks add to VM load — check sparingly.
 
-**Secrets / safety rails:**
-- `.env.local` (gitignored, on the VM + locally) holds secret keys. NEVER commit
-  it. NEVER log secret keys. NEVER force-push `main`.
-- The assistant does **not** handle mainnet keys / sign real-fund transactions —
-  the owner runs publish/fund/first-deposit.
-- Delete one-off scripts after use. Tail logs ~30s after any `brief-trader`
-  restart to confirm no crash loop.
-- Never fabricate data — every metric on the site is derived from the real
-  archive/ledger/chain.
+**Secrets / safety rails:** `.env.local` (gitignored, on VM + local) holds secret
+keys — NEVER commit/log them, NEVER force-push `main`. The assistant does **not**
+handle mainnet keys / sign real-fund txs. Delete one-off scripts after use. Tail
+trader logs ~30s after a restart. **Never fabricate data** — every metric is
+derived from the real archive/ledger/chain.
 
-**Key files:**
-- Agent: `agents/workforce/trader/{index,decision-engine,regime,experience,ledger,
-  signals,mandate,spot-handler}.ts`; `agents/workforce/lib/deepbook-spot.ts`;
-  `agents/lib/{sui,env}.ts`.
-- Move: `move/sources/{operator_policy,gated_spot}.move`.
-- Frontend: `src/app/{page,workforce/page,workforce/adopt/page,brain/page,
-  results/page,proof/page}.tsx`; `src/components/operator/*`; `src/lib/*`.
-- Docs: `MAINNET-FLIP.md`, `SUBMISSION-NARRATIVE.md`, this file.
+**Key files:** Agent `agents/workforce/trader/{index,decision-engine,regime,
+experience,ledger,signals,mandate,spot-handler}.ts`,
+`agents/workforce/lib/deepbook-spot.ts`, `agents/lib/{sui,env}.ts`. Move
+`move/sources/{operator_policy,gated_spot}.move`. Frontend
+`src/app/{page,workforce/page,workforce/adopt/page,brain/page,evolution/page,
+results/page,leaderboard/page,proof/page}.tsx`, `src/components/operator/*`,
+`src/lib/*`, `src/app/api/**`. Docs `MAINNET-FLIP.md`, `SUBMISSION-NARRATIVE.md`,
+this file.
 
 ---
 
-## 12. Tracks & positioning (Sui Overflow)
+## 12. Tracks (Sui Overflow)
 
 - **Agentic Web — Autonomous Agent Wallet:** real DeepBook orders + self-enforced
   budget + on-chain decision log + one-tap revocation.
@@ -321,6 +324,5 @@ ssh … 'pm2 restart brief-trader'          # only if agent code changed (tsx, n
 - **Walrus:** verifiable reasoning + experience memory.
 - **DeFi / Intent:** the owner adopts an objective; the operator manages it.
 
-The 20-second judge story: **(1) What's my objective? (2) Is the operator beating
-the alternative? (3) Why can I trust it with money?** — answered by Objective,
-Performance/Results, and Proof respectively.
+The strongest version isn't "look how much we built" — it's *"we figured out how
+autonomous agents can safely manage real money."*
