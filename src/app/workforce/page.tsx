@@ -1476,14 +1476,15 @@ function OperatorsHome({ ops }: { ops: TraderIdentity[] }) {
       <header className="flex flex-wrap items-end justify-between gap-5">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-            Brief · your operators
+            Brief · autonomous operators
           </p>
           <h1 className="mt-3 font-sans text-[40px] font-medium leading-[1.04] tracking-tightest text-ink sm:text-[60px]">
-            Your operators.
+            {ops.length === 1 ? "Your operator." : "Your operators."}
           </h1>
-          <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
-            A workforce of {ops.length} autonomous operator{ops.length === 1 ? "" : "s"} — each
-            with its own objective, return, and on-chain leash. Compare them below.
+          <p className="mt-3 max-w-prose text-[14px] leading-relaxed text-ink-2">
+            {ops.length === 1
+              ? "Operator #001 is live and managing capital under your mandate. Each operator is non-custodial, on its own on-chain leash — adopt more, each with a different objective, and compare them here."
+              : `${ops.length} autonomous operators — each with its own objective, return, and on-chain leash. Compare them below.`}
           </p>
         </div>
         <Link

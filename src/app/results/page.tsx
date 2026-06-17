@@ -175,6 +175,11 @@ function Results() {
                 enforcement, and revocation have run {dayLabel} on testnet without a single
                 violation. <span style={{ color: INK }}>Ready for mainnet capital.</span>
               </p>
+              <div className="mt-4 grid gap-px overflow-hidden sm:grid-cols-3" style={{ background: LINE }}>
+                <Phase n="Now" label="Testnet validation" note="Live operators, real DeepBook orders, zero violations" done />
+                <Phase n="Next" label="Limited mainnet" note="Invite operators, capped budgets, real USDC" />
+                <Phase n="Then" label="Operator workforce" note="Open adoption across objectives + verticals" />
+              </div>
             </div>
 
             {/* Big moments */}
@@ -206,6 +211,22 @@ function Results() {
         )}
       </div>
     </main>
+  );
+}
+
+function Phase({ n, label, note, done }: { n: string; label: string; note: string; done?: boolean }) {
+  return (
+    <div className="bg-bg-elev px-3.5 py-3">
+      <p className="font-mono text-[9px] uppercase tracking-[0.14em]" style={{ color: done ? EMERALD : MUTED }}>
+        {done ? "✓ " : ""}{n}
+      </p>
+      <p className="mt-1 font-sans text-[13px] font-medium tracking-tight" style={{ color: INK }}>
+        {label}
+      </p>
+      <p className="mt-0.5 text-[11.5px] leading-snug" style={{ color: SUB }}>
+        {note}
+      </p>
+    </div>
   );
 }
 
