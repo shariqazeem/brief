@@ -1494,18 +1494,25 @@ function TopBar({
           {policyId && (
             <>
               <Link
-                href={`/results?policy=${policyId}`}
-                className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
-                style={{ color: NAVY }}
-              >
-                Results →
-              </Link>
-              <Link
                 href={`/brain?policy=${policyId}`}
                 className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
                 style={{ color: NAVY }}
               >
                 Brain →
+              </Link>
+              <Link
+                href={`/evolution?policy=${policyId}`}
+                className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
+                style={{ color: NAVY }}
+              >
+                Evolution →
+              </Link>
+              <Link
+                href={`/results?policy=${policyId}`}
+                className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
+                style={{ color: NAVY }}
+              >
+                Results →
               </Link>
               <Link
                 href={`/proof?policy=${policyId}`}

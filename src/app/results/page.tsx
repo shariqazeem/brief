@@ -75,6 +75,9 @@ function Results() {
               <Link href={`/brain?policy=${policyId}`} className="transition-opacity hover:opacity-60" style={{ color: MUTED }}>
                 Brain
               </Link>
+              <Link href={`/evolution?policy=${policyId}`} className="transition-opacity hover:opacity-60" style={{ color: MUTED }}>
+                Evolution
+              </Link>
               <Link href={`/proof?policy=${policyId}`} className="transition-opacity hover:opacity-60" style={{ color: NAVY }}>
                 Proof →
               </Link>
@@ -107,12 +110,18 @@ function Results() {
               {objective} · running {dayLabel}
             </p>
 
-            {/* The headline: did it beat the alternative? */}
+            {/* The headline — the comparison IS the story: what would have
+                happened if you'd done nothing? */}
             {bench && (
-              <div className="mt-8 grid grid-cols-3 gap-px overflow-hidden" style={{ background: LINE }}>
-                <BigNum label="Operator" pct={bench.operatorPct} strong />
-                <BigNum label="Passive SUI" pct={bench.holdPct} />
-                <BigNum label="Cash" pct={bench.cashPct} />
+              <p className="mt-8 font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+                What would have happened if you&apos;d done nothing?
+              </p>
+            )}
+            {bench && (
+              <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden" style={{ background: LINE }}>
+                <BigNum label="The operator" pct={bench.operatorPct} strong />
+                <BigNum label="Held SUI" pct={bench.holdPct} />
+                <BigNum label="Did nothing (cash)" pct={bench.cashPct} />
               </div>
             )}
             {bench && (

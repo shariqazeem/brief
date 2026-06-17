@@ -15,6 +15,7 @@ import { useCurrentAccount } from "@mysten/dapp-kit";
 import { apiUrl } from "@/lib/api-base";
 import { SystemHealthDot } from "@/components/system-health";
 import { WalletBoundary } from "@/components/wallet-boundary";
+import { operatorCodename } from "@/lib/operator-identity";
 
 type LeaderboardRow = {
   policy_id: string;
@@ -230,13 +231,14 @@ function LeaderboardConsole() {
             Live · Sui testnet · {data?.rows.length ?? "—"} operators adopted
           </p>
           <h1 className="font-sans text-[34px] font-medium leading-[1.05] tracking-tightest text-ink sm:text-[44px]">
-            Whose operator is winning?
+            The operator workforce.
           </h1>
           <p className="max-w-2xl text-[14.5px] leading-relaxed text-ink-2 sm:text-[15.5px]">
-            Every row is a real adopted operator on chain. Every trade, every
-            policy spend, every realized P&amp;L digest is verifiable on
-            Suiscan. Rank by activity, P&amp;L, and multi-asset breadth —
-            the operator that uses its leash most carefully climbs.
+            Brief is a platform for autonomous operators — each one non-custodial,
+            constrained by Move, and verifiable on chain. Every row here is a real
+            adopted operator; every trade and policy spend is on Suiscan. One today,
+            a workforce tomorrow — and the operator that uses its leash most
+            carefully climbs.
           </p>
           {yourRowIndex >= 0 && (
             <p className="inline-flex items-center gap-2 border-2 border-emerald-600 bg-emerald-600 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-bg">
@@ -355,8 +357,8 @@ function Row({
 
       <div className="min-w-0 sm:row-span-1">
         <div className="flex items-center gap-2">
-          <p className="truncate font-sans text-[15.5px] font-medium tracking-tight text-ink">
-            {row.name || "Untitled operator"}
+          <p className="truncate font-sans text-[15.5px] font-semibold tracking-tight text-ink">
+            {operatorCodename(row.policy_id)}
           </p>
           {!row.revoked &&
             Date.now() - row.last_trade_at_ms < LIVE_PULSE_MS && (

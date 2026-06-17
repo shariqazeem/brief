@@ -108,8 +108,11 @@ function Brain() {
               <Link href={`/workforce?policy=${policyId}`} className="transition-opacity hover:opacity-60" style={{ color: MUTED }}>
                 ← Dashboard
               </Link>
-              <Link href={`/proof?policy=${policyId}`} className="transition-opacity hover:opacity-60" style={{ color: NAVY }}>
-                Proof →
+              <Link href={`/evolution?policy=${policyId}`} className="transition-opacity hover:opacity-60" style={{ color: MUTED }}>
+                Evolution
+              </Link>
+              <Link href={`/results?policy=${policyId}`} className="transition-opacity hover:opacity-60" style={{ color: NAVY }}>
+                Results →
               </Link>
             </div>
           )}

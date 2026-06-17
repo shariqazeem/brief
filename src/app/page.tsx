@@ -405,6 +405,11 @@ export default function OperatorLandingV2() {
           <br />
           The chain holds the leash.
         </h1>
+        <p className="mt-6 max-w-xl text-center text-[15px] leading-relaxed sm:text-[16.5px]" style={{ color: SUB }}>
+          An autonomous financial operator that <span style={{ color: INK }}>cannot steal your funds</span>,{" "}
+          <span style={{ color: INK }}>cannot exceed its budget</span>, and{" "}
+          <span style={{ color: INK }}>can be fired with one transaction</span>.
+        </p>
         <div className="mt-10 flex items-center gap-7 font-mono text-[12px] tracking-[0.02em]">
           <a
             href={ctaHref}
@@ -593,6 +598,49 @@ export default function OperatorLandingV2() {
             {connected ? "live wire" : "connecting"}
           </span>
         </div>
+      </section>
+
+      {/* ════ SECTION 4 — THE PLATFORM / MAINNET ════ */}
+      <section className="flex min-h-screen snap-start flex-col items-center justify-center bg-white px-6 py-24">
+        <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#666666]">
+          The platform
+        </p>
+        <h2 className="mt-8 max-w-3xl text-center text-[28px] font-medium leading-[1.12] tracking-[-0.02em] sm:text-[42px]">
+          The first platform where autonomous agents
+          <br className="hidden sm:block" /> are controlled by on-chain law.
+        </h2>
+        <p className="mt-6 max-w-xl text-center text-[15px] leading-relaxed text-[#666666] sm:text-[16px]">
+          <span className="text-[#111111]">Halcyon is the first operator.</span> Finance is the
+          proof. The first 100 operators on mainnet will be onboarded by hand.
+        </p>
+
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-7 font-mono text-[12px]">
+          <a
+            href="https://x.com/shariqshkt"
+            target="_blank"
+            rel="noreferrer"
+            className="bg-accent px-6 py-3 text-[11px] uppercase tracking-[0.28em] text-white transition-opacity hover:opacity-90"
+          >
+            Join mainnet access →
+          </a>
+          <a href={ctaHref} className="text-[#666666] transition-colors hover:text-[#111111]">
+            {hasOperator ? "Open your operator →" : "Try it on testnet →"}
+          </a>
+        </div>
+
+        <div className="mt-16 flex flex-wrap items-center justify-center gap-3">
+          {["Objective", "Trust", "Proof", "Evolution"].map((t) => (
+            <span
+              key={t}
+              className={`bg-white px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-[#666666] ${CARD}`}
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+        <p className="mt-10 max-w-md text-center font-mono text-[10px] uppercase tracking-[0.22em] text-[#999999]">
+          Brief, by Kyvernlabs · built on Sui
+        </p>
       </section>
     </main>
   );
