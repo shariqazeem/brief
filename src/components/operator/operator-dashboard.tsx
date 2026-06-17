@@ -352,15 +352,32 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
         {spot && <ProtectedBySui policyId={policyId} />}
 
-        {/* REASONING below — how it got there */}
-        <MarketState signals={stream.signals} dec={stream.decision} assetLabel={bv.asset} />
-
-        {spot && <AllocationMatrix dec={stream.decision} />}
-
-        {spot && scorecard && scorecard.playbooks.length > 0 && (
-          <SectionCard title="What it's learned · playbooks">
-            <PlaybookIntelligence playbooks={scorecard.playbooks} />
-          </SectionCard>
+        {/* REASONING — supporting evidence, collapsed by default (outcome > how) */}
+        {spot ? (
+          <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+            <summary
+              className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 sm:px-8"
+              style={{ color: NAVY }}
+            >
+              <span className="font-mono text-[10px] uppercase tracking-[0.24em]">How it thinks · reasoning &amp; evidence</span>
+              <span className="font-mono text-[10px] transition-transform group-open:rotate-90" aria-hidden>
+                ›
+              </span>
+            </summary>
+            <div className="space-y-6 px-3 pb-6 sm:px-4" style={{ borderTop: "1px solid #E5E5EA" }}>
+              <div className="pt-6">
+                <MarketState signals={stream.signals} dec={stream.decision} assetLabel={bv.asset} />
+              </div>
+              <AllocationMatrix dec={stream.decision} />
+              {scorecard && scorecard.playbooks.length > 0 && (
+                <SectionCard title="What it's learned · playbooks">
+                  <PlaybookIntelligence playbooks={scorecard.playbooks} />
+                </SectionCard>
+              )}
+            </div>
+          </details>
+        ) : (
+          <MarketState signals={stream.signals} dec={stream.decision} assetLabel={bv.asset} />
         )}
 
         <SectionCard title="Right now">
@@ -1473,6 +1490,13 @@ function TopBar({
         <div className="ml-auto flex items-center gap-5">
           {policyId && (
             <>
+              <Link
+                href={`/results?policy=${policyId}`}
+                className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
+                style={{ color: NAVY }}
+              >
+                Results →
+              </Link>
               <Link
                 href={`/brain?policy=${policyId}`}
                 className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"

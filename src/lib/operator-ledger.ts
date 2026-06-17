@@ -31,6 +31,8 @@ export type LedgerEvent = {
 export type OperatorStats = {
   launchTs: number;
   launchMid: number;
+  deposit?: number;
+  mode?: string;
   decisions: number;
   abstentions: number;
   buys: number;
@@ -38,6 +40,7 @@ export type OperatorStats = {
   peakValue: number;
   worstDrawdownPct: number;
   lastValue: number;
+  lastMid?: number;
   updatedTs: number;
 };
 
@@ -65,6 +68,23 @@ export function computeBenchmark(
     currentMid != null && stats.launchMid > 0
       ? (currentMid / stats.launchMid - 1) * 100
       : 0;
+  return {
+    operatorPct,
+    holdPct,
+    cashPct: 0,
+    vsHold: operatorPct - holdPct,
+    vsCash: operatorPct,
+  };
+}
+
+/** Benchmark computed purely from persisted stats — for the public Results
+ *  page (no live SSE). operator = value vs deposit; hold = lastMid vs launchMid. */
+export function benchmarkFromStats(stats: OperatorStats | null): Benchmark | null {
+  if (!stats) return null;
+  const deposit = stats.deposit && stats.deposit > 0 ? stats.deposit : stats.lastValue;
+  const operatorPct = deposit > 0 ? (stats.lastValue / deposit - 1) * 100 : 0;
+  const holdPct =
+    stats.lastMid != null && stats.launchMid > 0 ? (stats.lastMid / stats.launchMid - 1) * 100 : 0;
   return {
     operatorPct,
     holdPct,

@@ -44,6 +44,15 @@ export function operatorCodename(policyId: string | null | undefined): string {
   return CODENAMES[h % CODENAMES.length];
 }
 
+/** Objective from the operator mode — used where only the mode is known
+ *  (Results page, fleet comparison) rather than the full goal. */
+export function objectiveFromMode(mode: string | null | undefined): string {
+  if (mode === "protect") return "Protect capital";
+  if (mode === "aggressive") return "Beat passive SUI";
+  if (mode === "grow") return "Grow steadily";
+  return "Manage capital under mandate";
+}
+
 /** A human objective line from the user's goal — what this operator is FOR. */
 export function objectiveLabel(goal: OperatorGoal | null | undefined): string {
   if (!goal) return "Manage capital under your mandate";

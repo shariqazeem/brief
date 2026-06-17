@@ -32,7 +32,8 @@ import {
   GOAL_HORIZONS,
   type OperatorGoal,
 } from "@/lib/operator-goal";
-import { operatorCodename } from "@/lib/operator-identity";
+import { operatorCodename, objectiveFromMode } from "@/lib/operator-identity";
+import { useOperatorLedger, benchmarkFromStats } from "@/lib/operator-ledger";
 import {
   BRIEF_OPERATOR_ADDRESS,
   WORKFORCE_TEMPLATES,
@@ -1481,8 +1482,8 @@ function OperatorsHome({ ops }: { ops: TraderIdentity[] }) {
             Your operators.
           </h1>
           <p className="mt-3 text-[14px] leading-relaxed text-ink-2">
-            {ops.length} operator{ops.length === 1 ? "" : "s"} — each non-custodial, each on
-            its own on-chain leash.
+            A workforce of {ops.length} autonomous operator{ops.length === 1 ? "" : "s"} — each
+            with its own objective, return, and on-chain leash. Compare them below.
           </p>
         </div>
         <Link
@@ -1504,6 +1505,12 @@ function OperatorsHome({ ops }: { ops: TraderIdentity[] }) {
 
 function OperatorHomeCard({ op }: { op: TraderIdentity }) {
   const { policy } = usePolicy(op.policyId);
+  const { stats } = useOperatorLedger(op.policyId);
+  const bench = benchmarkFromStats(stats);
+  const ret = bench?.operatorPct ?? null;
+  const dd = stats?.worstDrawdownPct ?? null;
+  const objective = objectiveFromMode(stats?.mode);
+  const retColor = ret == null || Math.abs(ret) < 0.05 ? "#525560" : ret > 0 ? "#10B981" : "#EF4444";
   const mode = MODE_FOR_PERSONALITY[op.strategy];
   const spot = (policy?.allowedVenues ?? []).some((v) => v.startsWith("spot"));
   const div = spot ? 1e6 : 1e9;
@@ -1550,7 +1557,22 @@ function OperatorHomeCard({ op }: { op: TraderIdentity }) {
           </span>
         </span>
       </div>
-      <div className="mt-6">
+      {/* comparison metrics — objective · return · drawdown */}
+      <div className="mt-5">
+        <p className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-muted">{objective}</p>
+        <div className="mt-1.5 flex items-baseline gap-3">
+          <span className="font-sans text-[26px] font-medium tabular-nums leading-none tracking-tight" style={{ color: retColor }}>
+            {ret == null ? "—" : `${ret > 0 ? "+" : ""}${ret.toFixed(1)}%`}
+          </span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">return</span>
+          {dd != null && (
+            <span className="ml-auto font-mono text-[11px] tabular-nums text-muted">
+              max DD -{dd.toFixed(1)}%
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="mt-5">
         <div className="mb-1 flex items-center justify-between font-mono text-[10px] tabular-nums text-muted">
           <span>budget</span>
           <span>

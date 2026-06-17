@@ -124,20 +124,19 @@ function statFor(recs: DecisionRecord[], kind: RegimeKind): PlaybookStat {
   else if (winRate != null && winRate >= 55) bestAction = "act";
   else bestAction = "stand-aside";
 
-  // The learned behavior, in plain English.
+  // The learned behavior, in plain English — adaptive: where there's settled
+  // evidence, it states the realized EDGE (acting vs sitting in cash = 0%).
   let learned: string;
   if (inReg.length === 0) {
     learned = "Not seen yet.";
   } else if (!TRADEABLE[kind]) {
     learned = "Best action: hold — no directional edge.";
+  } else if (bestAction === "act" && avgOutcomePct != null) {
+    const verb = avgOutcomePct >= 0 ? "beat cash by" : "trailed cash by";
+    learned = `Acting ${verb} ${Math.abs(avgOutcomePct).toFixed(1)}% on average over ${settled.length} settled.`;
   } else if (bestAction === "act") {
-    const where =
-      preferredExposurePct != null
-        ? preferredExposurePct === 0
-          ? "move to cash"
-          : `~${preferredExposurePct}% SUI`
-        : "take exposure";
-    learned = `Best action: ${where}${avgOutcomePct != null ? ` · ${avgOutcomePct >= 0 ? "+" : ""}${avgOutcomePct.toFixed(1)}% avg` : ""}.`;
+    const where = preferredExposurePct != null && preferredExposurePct > 0 ? `~${preferredExposurePct}% SUI` : "take exposure";
+    learned = `Best action: ${where} — building the track record.`;
   } else {
     learned =
       kind === "trending-down"

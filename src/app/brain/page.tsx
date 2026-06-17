@@ -178,6 +178,35 @@ function FocusedDecision({
   const reg = d.regime;
   const detail = d.detail ?? {};
 
+  // On-demand narration (budget-safe: one call per click, never in the loop).
+  const [narration, setNarration] = useState<string | null>(null);
+  const [narrating, setNarrating] = useState(false);
+  useEffect(() => {
+    setNarration(null);
+  }, [d.seq, d.ts]);
+  const narrate = async () => {
+    setNarrating(true);
+    try {
+      const r = await fetch(apiUrl("/api/operators/narrate"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          regime: detail.regimeLabel,
+          thesis: detail.thesis,
+          counter: detail.counterargument,
+          action: act ? (up ? "added to SUI" : "trimmed SUI") : "held its position",
+          target: d.targetExposurePct != null ? `${d.targetExposurePct}% SUI` : undefined,
+          outcome: oc.headline,
+        }),
+      });
+      const j = (await r.json()) as { narration?: string };
+      setNarration(j.narration ?? "Narration unavailable.");
+    } catch {
+      setNarration("Narration unavailable.");
+    }
+    setNarrating(false);
+  };
+
   return (
     <div>
       {/* prev/next header */}
@@ -267,6 +296,25 @@ function FocusedDecision({
             {short(detail.txDigest, 6)} on Suiscan ↗
           </a>
         )}
+
+        {/* On-demand narration — plain English, in a click */}
+        <div className="mt-8" style={{ borderTop: `1px solid ${LINE}`, paddingTop: 16 }}>
+          {narration ? (
+            <p className="text-[15px] leading-relaxed" style={{ color: INK }}>
+              {narration}
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={narrate}
+              disabled={narrating}
+              className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-60 disabled:opacity-40"
+              style={{ color: NAVY }}
+            >
+              {narrating ? "Narrating…" : "Narrate this decision →"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* slim jump rail — recent decisions as dots */}

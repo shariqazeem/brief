@@ -44,6 +44,10 @@ export type OperatorStats = {
   launchTs: number;
   /** SUI mid at launch — the buy-and-hold benchmark baseline. */
   launchMid: number;
+  /** Deposited capital (quote units) — the return baseline. */
+  deposit: number;
+  /** Operator mode (protect | grow | aggressive) — drives the objective label. */
+  mode?: string;
   /** Cumulative decision count (survives the experience-archive cap). */
   decisions: number;
   abstentions: number;
@@ -55,6 +59,8 @@ export type OperatorStats = {
   worstDrawdownPct: number;
   /** Last marked value. */
   lastValue: number;
+  /** Last SUI mid seen — for the live buy-and-hold benchmark. */
+  lastMid: number;
   updatedTs: number;
 };
 
@@ -100,11 +106,18 @@ export function ensureStats(
   now: number,
   mid: number,
   value: number,
+  deposit: number,
 ): OperatorStats {
-  if (prev) return prev;
+  if (prev) {
+    // Backfill fields added after this operator's stats were first written.
+    if (prev.deposit == null) prev.deposit = deposit > 0 ? deposit : value;
+    if (prev.lastMid == null) prev.lastMid = mid;
+    return prev;
+  }
   return {
     launchTs: now,
     launchMid: mid,
+    deposit: deposit > 0 ? deposit : value,
     decisions: 0,
     abstentions: 0,
     buys: 0,
@@ -112,14 +125,15 @@ export function ensureStats(
     peakValue: value,
     worstDrawdownPct: 0,
     lastValue: value,
+    lastMid: mid,
     updatedTs: now,
   };
 }
 
-/** Fold one cycle into the lifetime stats (counts + drawdown). */
+/** Fold one cycle into the lifetime stats (counts + drawdown + live mid). */
 export function recordCycle(
   stats: OperatorStats,
-  opts: { acted: boolean; side: LedgerSide | null; value: number; now: number },
+  opts: { acted: boolean; side: LedgerSide | null; value: number; mid: number; now: number },
 ): OperatorStats {
   const next = { ...stats };
   next.decisions += 1;
@@ -132,6 +146,7 @@ export function recordCycle(
     next.worstDrawdownPct = Math.max(next.worstDrawdownPct, dd);
     next.lastValue = opts.value;
   }
+  if (opts.mid > 0) next.lastMid = opts.mid;
   next.updatedTs = opts.now;
   return next;
 }

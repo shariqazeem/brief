@@ -2441,9 +2441,11 @@ async function runGatedOperator(
   // events settle into win/loss as their horizon elapses.
   try {
     const value = portfolio?.value ?? 0;
+    const depositUsd = budget.cap > 0 ? Number(budget.cap) / 1e6 : value;
     const ledgerSide = rebalanceSide === "up" ? "buy" : rebalanceSide === "down" ? "sell" : null;
-    let stats = ensureStats(await loadStats(e.policyId), Date.now(), midUsd, value);
-    stats = recordCycle(stats, { acted: willRebalance, side: ledgerSide, value, now: Date.now() });
+    let stats = ensureStats(await loadStats(e.policyId), Date.now(), midUsd, value, depositUsd);
+    stats = recordCycle(stats, { acted: willRebalance, side: ledgerSide, value, mid: midUsd, now: Date.now() });
+    stats.mode = mode;
     await saveStats(e.policyId, stats);
     const led = await loadLedger(e.policyId);
     const s = settleLedger(led, midUsd, Date.now(), SPOT_HORIZON_MS);
