@@ -57,9 +57,13 @@ export async function GET() {
   const warden = await readJson<WardenStatus>(
     path.join(root, ".cursors", "warden-status.json"),
   );
-  const priceAgeMs = await fileAgeMs(
-    path.join(root, ".cursors", "price-history-btc.json"),
-  );
+  // Price-feed freshness comes from whichever feed the active network actually
+  // polls: on mainnet the gated loop refreshes the SUI/USDC history every cycle;
+  // on testnet the predict poller refreshes BTC. (BTC is never polled on mainnet,
+  // so checking it there would always read "stale".)
+  const isMainnet = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet").trim() === "mainnet";
+  const priceFeedFile = isMainnet ? "price-history-sui-mainnet.json" : "price-history-btc.json";
+  const priceAgeMs = await fileAgeMs(path.join(root, ".cursors", priceFeedFile));
   const eventsAgeMs = await fileAgeMs(
     path.join(root, ".cursors", "agent-events.ndjson"),
   );
