@@ -326,6 +326,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           stream={stream}
           revoked={revoked}
           withdrawn={stats?.withdrawn === true}
+          frozenValue={stats?.withdrawn ? stats.lastValue : null}
           stale={stale}
           now={now}
           bv={bv}
@@ -477,6 +478,7 @@ function OperatorHero({
   stream,
   revoked,
   withdrawn,
+  frozenValue,
   stale,
   now,
   bv,
@@ -487,6 +489,7 @@ function OperatorHero({
   stream: AgentStreamState;
   revoked: boolean;
   withdrawn: boolean;
+  frozenValue: number | null;
   stale: boolean;
   now: number;
   bv: { cap: number; spent: number; unit: string };
@@ -550,11 +553,15 @@ function OperatorHero({
   // shown right in the status surface so "what is it managing right now" is
   // answered without scrolling.
   const pf = dec?.portfolio ?? null;
-  const value = pf?.value ?? bv.cap;
+  // When the owner has withdrawn, the live mark collapses toward 0 (the
+  // BalanceManager is drained) · that is NOT a loss. Show the frozen funded
+  // value at ±0% (capital was returned in full), regardless of any stale
+  // live event that still carries the collapse.
+  const value = withdrawn && frozenValue != null ? frozenValue : pf?.value ?? bv.cap;
   const deposit = pf?.deposit ?? bv.cap;
-  const pnl = value - deposit;
-  const pnlPct = pf?.pnlPct ?? 0;
-  const flatPnl = Math.abs(pnl) < 0.005;
+  const pnl = withdrawn ? 0 : value - deposit;
+  const pnlPct = withdrawn ? 0 : pf?.pnlPct ?? 0;
+  const flatPnl = withdrawn || Math.abs(pnl) < 0.005;
   const pnlColor = flatPnl ? SUB : pnl > 0 ? EMERALD : RED;
   const ASSET_COLOR: Record<string, string> = { SUI: NAVY, WAL: AMBER, DEEP: EMERALD };
   const held = (dec?.holdings ?? []).filter((h) => h.valueUsd > 0.01);
@@ -800,7 +807,12 @@ function OperatorPerformance({
   assetLabel: string;
 }) {
   const sc = scorecard;
-  const pnlPct = stream.decision?.portfolio?.pnlPct ?? 0;
+  // Single source of truth = the stats-based benchmark (uses the real deposit
+  // baseline + is withdrawal-aware via frozen lastValue), so this headline can
+  // never disagree with the "Operator" cell below it or show a withdrawal as a
+  // loss. Falls back to the live mark only when stats aren't loaded yet.
+  const pnlPct =
+    benchmark?.operatorPct ?? stream.decision?.portfolio?.pnlPct ?? 0;
   // Need *something* to show · either the live mark or the archive.
   if (!sc && !stats) return null;
   const flat = Math.abs(pnlPct) < 0.05;
