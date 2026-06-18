@@ -73,7 +73,11 @@ module.exports = {
       autorestart: true,
       max_restarts: 30,
       restart_delay: 5000,
-      env: baseEnv,
+      // The trader runs the LLM advisor as a load-bearing layer (the AI shapes
+      // conviction; the Move policy still gates execution). Budget-safe by
+      // construction: it only calls on a tradeable regime for a funded operator,
+      // rate-limited per operator + capped per week. Set to "mock" to disable.
+      env: { ...baseEnv, BRIEF_LLM_MODE: "llm" },
     },
     {
       // Gas warden: keeps Planner/Treasury/Research solvent by

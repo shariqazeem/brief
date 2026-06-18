@@ -14,7 +14,7 @@
 // stays inside the small LLM budget. Returns null (→ deterministic) on mock
 // mode, a missing key, or any error.
 
-import { callLlm, extractJson, llmMode } from "../../lib/llm.js";
+import { callLlm, llmMode } from "../../lib/llm.js";
 import { activeLlmKey, loadEnv } from "../../lib/env.js";
 
 export type AiAdvice = {
@@ -90,7 +90,10 @@ export async function maybeAiAdvise(
   if (now - (lastAiAt.get(input.policyId) ?? 0) < AI_MIN_INTERVAL_MS) return null;
   if (!withinWeeklyBudget(now)) return null;
 
-  const model = process.env.COMMONSTACK_MODEL || "claude-haiku-4-5";
+  // Use a JSON-clean model for the advisor. Reasoning models (e.g.
+  // deepseek-v4-flash) emit their scratchpad in `content` → unparseable JSON.
+  // COMMONSTACK_MODEL stays for narration; the advisor needs structured output.
+  const model = process.env.BRIEF_AI_ADVISOR_MODEL || "claude-haiku-4-5";
   const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
   const prompt = [
     `You are the risk-and-conviction advisor for an autonomous on-chain trading operator on Sui DeepBook.`,
@@ -109,43 +112,60 @@ export async function maybeAiAdvise(
 
   const schema = `{"direction":"up|down|abstain","confidenceMod":<number -0.30..0.20>,"veto":<boolean>,"thesis":"<=160 chars","counterargument":"<=160 chars","rationale":"<=200 chars"}`;
 
+  // Make the call, then RATE-LIMIT immediately (success OR failure) so a parse
+  // error can never retry every cycle and burn the budget. A timeout guards a
+  // slow model from stalling the 15s loop.
+  let raw: string;
   try {
-    const raw = await callLlm({
-      apiKey,
-      model,
-      prompt,
-      jsonSchemaHint: schema,
-      maxTokens: 320,
-    });
-    const j = extractJson<{
-      direction?: string;
-      confidenceMod?: number;
-      veto?: boolean;
-      thesis?: string;
-      counterargument?: string;
-      rationale?: string;
-    }>(raw);
-    lastAiAt.set(input.policyId, now);
-    weekCalls++;
-    const dir =
-      j.direction === "up" || j.direction === "down" ? j.direction : "abstain";
-    const mod = Math.max(-0.3, Math.min(0.2, Number(j.confidenceMod) || 0));
-    return {
-      thesis: (j.thesis ?? "").slice(0, 200) || "Conviction reviewed by the AI advisor.",
-      counterargument:
-        (j.counterargument ?? "").slice(0, 200) || "Downside weighed by the AI advisor.",
-      confidenceMod: mod,
-      direction: dir,
-      veto: j.veto === true,
-      rationale: (j.rationale ?? "").slice(0, 240),
-      source: model,
-      prompt,
-      raw,
-    };
+    raw = await Promise.race([
+      callLlm({ apiKey, model, prompt, jsonSchemaHint: schema, maxTokens: 320 }),
+      new Promise<string>((_, rej) =>
+        setTimeout(() => rej(new Error("ai-advisor timeout")), 12_000),
+      ),
+    ]);
   } catch (e) {
+    lastAiAt.set(input.policyId, now); // back off transient failures too
     console.warn(
-      `[ai-advisor] skipped: ${String((e as Error)?.message ?? e).slice(0, 120)}`,
+      `[ai-advisor] call failed: ${String((e as Error)?.message ?? e).slice(0, 120)}`,
     );
     return null;
   }
+  lastAiAt.set(input.policyId, now);
+  weekCalls++;
+  // Loose JSON extraction · pull the first {...} block even if the model wrapped
+  // it in prose/reasoning.
+  let j: {
+    direction?: string;
+    confidenceMod?: number;
+    veto?: boolean;
+    thesis?: string;
+    counterargument?: string;
+    rationale?: string;
+  };
+  try {
+    const s = raw.indexOf("{");
+    const eIdx = raw.lastIndexOf("}");
+    if (s < 0 || eIdx <= s) throw new Error("no JSON object in response");
+    j = JSON.parse(raw.slice(s, eIdx + 1));
+  } catch (e) {
+    console.warn(
+      `[ai-advisor] parse failed: ${String((e as Error)?.message ?? e).slice(0, 120)}`,
+    );
+    return null;
+  }
+  const dir =
+    j.direction === "up" || j.direction === "down" ? j.direction : "abstain";
+  const mod = Math.max(-0.3, Math.min(0.2, Number(j.confidenceMod) || 0));
+  return {
+    thesis: (j.thesis ?? "").slice(0, 200) || "Conviction reviewed by the AI advisor.",
+    counterargument:
+      (j.counterargument ?? "").slice(0, 200) || "Downside weighed by the AI advisor.",
+    confidenceMod: mod,
+    direction: dir,
+    veto: j.veto === true,
+    rationale: (j.rationale ?? "").slice(0, 240),
+    source: model,
+    prompt,
+    raw,
+  };
 }
