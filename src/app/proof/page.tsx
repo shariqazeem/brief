@@ -14,20 +14,25 @@ import { apiUrl } from "@/lib/api-base";
 import { BRIEF_NETWORK } from "@/lib/brief-client";
 import { EMERALD, RED } from "@/lib/ui";
 
-// ── verified artifacts (each checked `success`/`failure` on the fullnode) ──
+// ── verified MAINNET artifacts (each checked success/failure on the fullnode) ──
 const DEFAULT_POLICY =
-  "0x15425bdd16f2ba819bc8dbbbada2bf501493cf52f7c1928b1787f64827be57d3";
+  "0x3e3b9690c3e2fee624206e26d4545a41432693f04efdd269b335d39530f5605f"; // Solis · live
 // The over-budget revert: record_spend aborted EBudgetExceeded; no trade ran.
-const OVERBUDGET_TX = "9YqyCqFjF2zgQsvYd1ady1y94EFJ9GoYEG3a4C1swdVw";
-// A real on-chain revoke + the policy it retired (reference when the queried
-// operator is still active).
-const REVOKE_TX = "4yBvc6qVwoXugmZu1jNgNjHRC8ZtqMtoVefsuQZyB4YL";
+const OVERBUDGET_TX = "FZJLSN2i9mDfFoX8iswsRYfyuMz7oaDJgz6Wzvi7WJ37";
+// The owner's revoke + the policy it retired (shown when the queried operator
+// is still active, so every visitor sees the kill switch is real).
+const REVOKE_TX = "AcX4Y1bH2rSXad9fCnNtp4P7Afqzw4qvH6DWaoBp5eTr";
 const REVOKED_POLICY =
-  "0x60f7e0a4f26401f5911ba9ce8a9516ac1a19dd9748481f568b5d909967e910c8";
+  "0x5b8fd9d8fd51b2c52533b9e6c2e8342d431d92741765b4c7a57082bb86d99c6d";
+// THE failure demonstration: the exact trade that filled, re-attempted AFTER
+// revoke, aborted EPolicyRevoked — the order never reached DeepBook, funds
+// untouched. This is the courtroom centerpiece.
+const ABORT_TX = "7zAL1kJp64CVvmrNMUzd5xjYrMBYBNnEcYZ977YUZGVY";
 
-const txUrl = (d: string) => `https://suiscan.xyz/testnet/tx/${d}`;
-const objUrl = (id: string) => `https://suiscan.xyz/testnet/object/${id}`;
-const addrUrl = (a: string) => `https://suiscan.xyz/testnet/account/${a}`;
+const EXPLORER = BRIEF_NETWORK === "mainnet" ? "mainnet" : "testnet";
+const txUrl = (d: string) => `https://suiscan.xyz/${EXPLORER}/tx/${d}`;
+const objUrl = (id: string) => `https://suiscan.xyz/${EXPLORER}/object/${id}`;
+const addrUrl = (a: string) => `https://suiscan.xyz/${EXPLORER}/account/${a}`;
 const blobUrl = (b: string) =>
   `https://aggregator.walrus-testnet.walrus.space/v1/blobs/${b}`;
 const short = (s: string, h = 6, t = 4) =>
@@ -300,22 +305,29 @@ export default function ProofPage() {
               line="One on-chain transaction and the operator can never trade again. No backend call. No API-key rotation. The chain revoked the leash."
             >
               {data.revoke ? (
-                <>
-                  <p className="mt-4 font-mono text-[10.5px] text-ink-2">
-                    This operator was revoked {fmtTime(data.revoke.ms)}.
-                  </p>
-                  <CardLink href={txUrl(data.revoke.tx)}>Revocation transaction on Suiscan →</CardLink>
-                </>
+                <p className="mt-4 font-mono text-[10.5px] text-ink-2">
+                  This operator was revoked {fmtTime(data.revoke.ms)}.{" "}
+                  <a href={txUrl(data.revoke.tx)} target="_blank" rel="noreferrer" className="text-ink underline decoration-line underline-offset-2 hover:decoration-ink">view tx →</a>
+                </p>
               ) : (
-                <>
-                  <p className="mt-4 font-mono text-[10.5px] leading-relaxed text-ink-2">
-                    This operator is active. Revocation is one transaction · here is a
-                    real one, and the policy it retired forever:
-                  </p>
-                  <CardLink href={txUrl(REVOKE_TX)}>Revoke transaction on Suiscan →</CardLink>
-                  <CardLink href={objUrl(REVOKED_POLICY)}>Revoked policy (revoked = true) →</CardLink>
-                </>
+                <p className="mt-4 font-mono text-[10.5px] leading-relaxed text-ink-2">
+                  This operator is active. Revocation is one transaction · here is a
+                  real one, and the policy it retired forever:
+                </p>
               )}
+              <CardLink href={txUrl(REVOKE_TX)}>Revoke transaction on Suiscan →</CardLink>
+              <CardLink href={objUrl(REVOKED_POLICY)}>Revoked policy (revoked = true) →</CardLink>
+              {/* THE failure demonstration · the enforcement, not just the toggle. */}
+              <p className="mt-4 font-mono text-[10.5px] leading-relaxed" style={{ color: RED }}>
+                Then the agent tried to trade again — the exact order that had filled
+                before. The chain refused it:
+              </p>
+              <p className="mt-1 font-mono text-[10.5px] leading-relaxed text-ink-2">
+                record_spend aborted in <span className="text-ink">assert_can_spend</span>{" "}
+                (abort code 3 · EPolicyRevoked). The order never reached DeepBook; no
+                funds moved.
+              </p>
+              <CardLink href={txUrl(ABORT_TX)}>Refused trade · EPolicyRevoked on Suiscan →</CardLink>
             </ProofCard>
 
             {/* ── 5 · The Manifesto (Walrus) ─────────────────────────── */}

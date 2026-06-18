@@ -2226,6 +2226,18 @@ async function runGatedOperator(
     data: { signals },
   });
 
+  // Publish the operator's manifesto to Walrus ONCE per policy (idempotent),
+  // regardless of whether it ever trades — so the proof page's "reasoning is
+  // immutable on Walrus" card is real even for an operator that mostly holds
+  // (or has spent its budget). Best-effort; never blocks the cycle.
+  await publishManifestoOnce(
+    ctx,
+    { policyId: e.policyId, traderName: undefined, goal, strategy, markets: "sui_ecosystem" },
+    strategy,
+    asset,
+    taskId,
+  ).catch(() => {});
+
   // The Brief Operator's decision engine · ONE operator, mode-calibrated, a
   // transparent 7-step pipeline over the real signals (Observe → Thesis →
   // Counterargument → Risk → Policy → Execution → Decision). AI reasoning,

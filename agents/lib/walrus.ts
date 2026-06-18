@@ -5,8 +5,8 @@
 // Toggle via env: BRIEF_USE_WALRUS=true|false (default false).
 
 import { WalrusClient } from "@mysten/walrus";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import type { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 
 export const WALRUS_TESTNET_RELAY = "https://upload-relay.testnet.walrus.space";
 export const WALRUS_TESTNET_AGGREGATOR =
@@ -18,13 +18,29 @@ export type WalrusUploadResult = {
   uploadMs: number;
 };
 
+// Walrus is on TESTNET (the free, public Walrus). The trader agent now runs on
+// the SUI MAINNET RPC, so we must NOT hand the mainnet client to the Walrus
+// client (it would look up the testnet Walrus system objects on mainnet and
+// fail). Use a dedicated testnet Sui client for all Walrus interactions. The
+// signer (treasury) holds testnet SUI + WAL to pay for storage.
+let _walrusSui: SuiJsonRpcClient | null = null;
+function walrusSui(): SuiJsonRpcClient {
+  if (!_walrusSui) {
+    _walrusSui = new SuiJsonRpcClient({
+      network: "testnet",
+      url: "https://fullnode.testnet.sui.io:443",
+    } as unknown as ConstructorParameters<typeof SuiJsonRpcClient>[0]);
+  }
+  return _walrusSui;
+}
+
 let _walrusClient: WalrusClient | null = null;
 
-function getWalrusClient(sui: SuiJsonRpcClient): WalrusClient {
+function getWalrusClient(): WalrusClient {
   if (_walrusClient) return _walrusClient;
   _walrusClient = new WalrusClient({
     network: "testnet",
-    suiClient: sui as unknown as ConstructorParameters<typeof WalrusClient>[0]["suiClient"],
+    suiClient: walrusSui() as unknown as ConstructorParameters<typeof WalrusClient>[0]["suiClient"],
     uploadRelay: {
       host: WALRUS_TESTNET_RELAY,
       sendTip: { max: 10_000 },
@@ -46,11 +62,11 @@ export function walrusEnabled(): boolean {
  * specialist wallet hasn't been topped up with WAL yet.
  */
 export async function hasWalrusFunding(
-  sui: SuiJsonRpcClient,
+  _sui: SuiJsonRpcClient,
   owner: string,
 ): Promise<boolean> {
   try {
-    const coins = await sui.getCoins({
+    const coins = await walrusSui().getCoins({
       owner,
       coinType:
         "0x8270feb7375eee355e64fdb69c50abb6b5f9393a722883c1cf45f8e26048810a::wal::WAL",
@@ -63,11 +79,11 @@ export async function hasWalrusFunding(
 
 export async function uploadToWalrus(
   payload: Uint8Array,
-  sui: SuiJsonRpcClient,
+  _sui: SuiJsonRpcClient,
   signer: Ed25519Keypair,
   epochs = 5,
 ): Promise<WalrusUploadResult> {
-  const walrus = getWalrusClient(sui);
+  const walrus = getWalrusClient();
   const start = Date.now();
   const result = await walrus.writeBlob({
     blob: payload,
