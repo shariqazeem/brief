@@ -251,7 +251,7 @@ function FocusedDecision({
           label="What it saw"
           headline={detail.regimeLabel ?? (reg.trend > 0 ? "Trending higher" : reg.trend < 0 ? "Trending lower" : "Flat tape")}
           color={regimeColor(detail.regimeLabel, reg.trend)}
-          sub={`$${d.mid.toFixed(3)} · momentum ${momentumLabel(reg.rsi).toLowerCase()} · ${reg.vol < 0.008 ? "low" : reg.vol < 0.02 ? "moderate" : "high"} volatility`}
+          sub={`${asset} $${d.mid < 1 ? d.mid.toFixed(4) : d.mid.toFixed(2)} · momentum ${momentumLabel(reg.rsi).toLowerCase()} · ${reg.vol < 0.008 ? "low" : reg.vol < 0.02 ? "moderate" : "high"} volatility`}
         />
 
         <BigBlock

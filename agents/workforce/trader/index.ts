@@ -122,6 +122,7 @@ import {
   saveLedger,
   saveStats,
   settleLedger,
+  type OperatorStats,
 } from "./ledger.js";
 import {
   evalMandate,
@@ -2195,6 +2196,8 @@ async function runGatedOperator(
   signals: SignalBundle,
   pf: GatedPortfolio,
   refMid: number,
+  mids: Record<string, number>,
+  priorStats: OperatorStats | null,
 ): Promise<void> {
   // `refMid` is the SUI benchmark reference (the "vs holding SUI" baseline),
   // kept consistent across all assets so the benchmark never compares one
@@ -2259,7 +2262,7 @@ async function runGatedOperator(
   // most similar past regimes so their outcomes reshape confidence.
   const regime = regimeOf(signals);
   let experience = await loadExperience(e.policyId);
-  const matured = settlePending(experience, midUsd, Date.now(), SPOT_HORIZON_MS);
+  const matured = settlePending(experience, mids, Date.now(), SPOT_HORIZON_MS);
   experience = matured.history;
   const recall = recallSimilar(experience, regime);
 
@@ -2269,6 +2272,11 @@ async function runGatedOperator(
   const mandate: Mandate | null = normalizeMandate(e.mandate);
   let mandateEval: MandateEval | null = null;
   let portfolio: { value: number; deposit: number; pnlPct: number } | null = null;
+  // The REAL marked value this cycle (the live BalanceManager total). Kept
+  // separate from `portfolio.value`, which may be frozen for display when the
+  // owner has withdrawn · `markValue` is what stats/recordCycle must see so the
+  // withdrawal is actually detected.
+  let markValue = 0;
   // Where capital currently LIVES · from the full multi-asset portfolio (pf).
   // Exposure is THIS asset's value as a fraction of TOTAL capital (0–1) · the
   // allocator decides this asset's share vs the whole book, not vs cash alone.
@@ -2283,13 +2291,35 @@ async function runGatedOperator(
     baseBalSui = held?.qty ?? 0;
     const assetValue = held?.valueUsd ?? baseBalSui * midUsd;
     const currentValue = pf.totalValue > 0 ? pf.totalValue : quoteBalUsd + assetValue;
+    markValue = currentValue;
     currentExposure = currentValue > 0 ? assetValue / currentValue : 0;
-    const deposit = budget.cap > 0 ? Number(budget.cap) / 1e6 : currentValue;
-    portfolio = {
-      value: currentValue,
-      deposit,
-      pnlPct: deposit > 0 ? ((currentValue - deposit) / deposit) * 100 : 0,
-    };
+    // Return baseline = the operator's actual deposited CAPITAL (its launch
+    // portfolio value, persisted as stats.deposit) · NOT the policy budget cap.
+    // The cap is a cumulative-turnover allowance (often many× the capital), so
+    // using it here would understate every operator's value massively.
+    const deposit =
+      priorStats?.deposit && priorStats.deposit > 0
+        ? priorStats.deposit
+        : currentValue > 0
+          ? currentValue
+          : budget.cap > 0
+            ? Number(budget.cap) / 1e6
+            : 0;
+    // Withdrawal-aware mark: the owner can pull capital anytime (non-custodial),
+    // which drains the BalanceManager → currentValue collapses toward 0. That is
+    // NOT a trading loss. If the operator WAS funded and value has collapsed
+    // below half its capital, freeze the displayed mark at the last funded value
+    // and show 0% · never a -100% "loss" for the owner taking their money back.
+    const wasFunded =
+      priorStats != null && deposit > 0 && priorStats.peakValue >= deposit * 0.8;
+    const looksWithdrawn = wasFunded && currentValue < deposit * 0.5;
+    portfolio = looksWithdrawn
+      ? { value: priorStats!.lastValue, deposit, pnlPct: 0 }
+      : {
+          value: currentValue,
+          deposit,
+          pnlPct: deposit > 0 ? ((currentValue - deposit) / deposit) * 100 : 0,
+        };
     if (mandate && budget.cap > 0) {
       const prev = await loadMandateState(e.policyId);
       const peakValue = Math.max(prev?.peakValue ?? 0, currentValue, deposit);
@@ -2513,8 +2543,11 @@ async function runGatedOperator(
   // counts/benchmarks reflect the operator's whole life, and pending allocation
   // events settle into win/loss as their horizon elapses.
   try {
-    const value = portfolio?.value ?? 0;
-    const depositUsd = budget.cap > 0 ? Number(budget.cap) / 1e6 : value;
+    // Use the REAL mark (not the possibly-frozen display value) so recordCycle
+    // can detect a withdrawal collapse. Deposit baseline = actual launch capital.
+    const value = markValue;
+    const depositUsd =
+      priorStats?.deposit && priorStats.deposit > 0 ? priorStats.deposit : value;
     const ledgerSide = rebalanceSide === "up" ? "buy" : rebalanceSide === "down" ? "sell" : null;
     // Benchmark mid = SUI reference (refMid), consistent across assets · the
     // "vs holding SUI" baseline. `value` is the real multi-asset portfolio total.
@@ -2523,7 +2556,7 @@ async function runGatedOperator(
     stats.mode = mode;
     await saveStats(e.policyId, stats);
     const led = await loadLedger(e.policyId);
-    const s = settleLedger(led, midUsd, Date.now(), SPOT_HORIZON_MS);
+    const s = settleLedger(led, mids, Date.now(), SPOT_HORIZON_MS);
     if (s.settled > 0) await saveLedger(e.policyId, s.ledger);
   } catch (err) {
     console.warn(
@@ -2845,6 +2878,29 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
 
   for (const e of registry) {
     try {
+      // Retire operators whose owner has WITHDRAWN their capital. Withdrawal is
+      // a normal, non-custodial owner action (not a policy abort), but it drains
+      // the BalanceManager · there's nothing left to manage. Stop cycling so the
+      // operator retires cleanly instead of looping forever as a zombie (which,
+      // at scale, would burn RPC + emit misleading "still holding" events).
+      const priorStats = await loadStats(e.policyId);
+      if (priorStats?.withdrawn) {
+        gatedSkip.add(e.policyId);
+        emitAgentEvent("mint_failed", {
+          policyId: e.policyId,
+          taskId: gatedTaskId(e),
+          asset: "SUI",
+          data: {
+            error: "owner withdrew capital · operator retired (funds returned in full)",
+            terminal: true,
+            withdrawn: true,
+          },
+        });
+        console.log(
+          `[trader-gated] operator ${e.policyId.slice(0, 10)}… RETIRED (owner withdrew capital)`,
+        );
+        continue;
+      }
       // Evaluate every asset this operator can trade, then pick ONE to act on.
       const ctxs: AssetCtx[] = [];
       for (const a of gatedAssetsFor(e.network)) {
@@ -2871,7 +2927,7 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
       // SUI is the benchmark reference ("vs holding SUI"), consistent across
       // whatever asset the operator actually trades this cycle.
       const refMid = mids["SUI"] ?? chosen.mid;
-      await runGatedOperator(ctx, e, chosen.asset, chosen.market, chosen.mid, chosen.signals, pf, refMid);
+      await runGatedOperator(ctx, e, chosen.asset, chosen.market, chosen.mid, chosen.signals, pf, refMid, mids, priorStats);
     } catch (err) {
       if (isTerminalPolicyAbort(err)) {
         gatedSkip.add(e.policyId);

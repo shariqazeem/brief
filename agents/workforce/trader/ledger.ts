@@ -184,15 +184,25 @@ export function recordCycle(
  *  by avoiding a drop). */
 export function settleLedger(
   ledger: LedgerEvent[],
-  currentMid: number,
+  mids: Record<string, number>,
   now: number,
   horizonMs: number,
 ): { ledger: LedgerEvent[]; settled: number } {
   let settled = 0;
   const out = ledger.map((ev) => {
     if (ev.outcome !== "pending" || now - ev.ts < horizonMs) return ev;
-    const moved = (currentMid - ev.mid) / (ev.mid || 1);
+    // Settle against THIS event's OWN asset's current mid · NEVER another
+    // asset's price. Each operator trades SUI/WAL/DEEP (wildly different price
+    // scales); settling a DEEP buy against SUI's mid produced absurd
+    // ±thousands-% outcomes. If this asset isn't priced this cycle, leave it
+    // pending (it settles correctly on a later cycle that prices it).
+    const cur = mids[ev.asset ?? "SUI"];
+    if (cur == null || cur <= 0) return ev;
+    const moved = (cur - ev.mid) / (ev.mid || 1);
     const favor = ev.side === "buy" ? moved : -moved; // sell-to-cash favours a drop
+    // Sanity guard: a >100% move over a ~1h spot horizon is physically
+    // impossible for these tokens → corrupt/stale data, leave pending.
+    if (!Number.isFinite(favor) || Math.abs(favor) > 1) return ev;
     settled++;
     return {
       ...ev,

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { BRIEF_PACKAGE_ID } from "@/lib/brief-client";
-import { buildRevokeTx } from "@/lib/operator-policy-client";
+import { BRIEF_NETWORK, BRIEF_PACKAGE_ID } from "@/lib/brief-client";
+import { buildRevokeTx, useOperatorPolicies } from "@/lib/operator-policy-client";
 import {
   loadLatestTraderIdentity,
   markIdentityRevoked,
@@ -11,7 +11,7 @@ import {
 } from "@/lib/workforce-client";
 import { useAccountSigner } from "@/lib/zklogin/signer";
 
-const txUrl = (d: string) => `https://suiscan.xyz/testnet/tx/${d}`;
+const txUrl = (d: string) => `https://suiscan.xyz/${BRIEF_NETWORK}/tx/${d}`;
 
 // The "chain holds the leash" thesis as UI: a floating REVOKE button in the
 // bottom-right of every operator surface, so the owner can yank the leash at
@@ -20,7 +20,11 @@ const txUrl = (d: string) => `https://suiscan.xyz/testnet/tx/${d}`;
 // backend call, no API-key rotation · a transaction.
 export function FloatingKillSwitch() {
   const signer = useAccountSigner();
-  const [op, setOp] = useState<TraderIdentity | null>(null);
+  // Resolve the revocable operator from CHAIN ownership (address-scoped), so the
+  // owner sees the kill switch on ANY device or a shared ?policy= link · not
+  // only in the browser that adopted it. localStorage is a fast-path fallback.
+  const { policies } = useOperatorPolicies(signer.address ?? undefined);
+  const [localOp, setLocalOp] = useState<TraderIdentity | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [phase, setPhase] = useState<"idle" | "revoking" | "revoked" | "error">("idle");
   const [revokedTx, setRevokedTx] = useState<string | null>(null);
@@ -29,11 +33,29 @@ export function FloatingKillSwitch() {
   // Local-storage is client-only; re-read on focus so adopting/revoking in
   // another tab keeps this in sync.
   useEffect(() => {
-    const read = () => setOp(loadLatestTraderIdentity());
+    const read = () => setLocalOp(loadLatestTraderIdentity());
     read();
     window.addEventListener("focus", read);
     return () => window.removeEventListener("focus", read);
   }, []);
+
+  // Prefer the operator being viewed (?policy=), else the newest ACTIVE operator
+  // this wallet owns on-chain; fall back to the local identity.
+  const op = useMemo<{ policyId: string; name: string } | null>(() => {
+    const active = policies.filter(
+      (p) => !p.revoked && Date.now() < Number(p.expiresAtMs),
+    );
+    const urlPolicy =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("policy")
+        : null;
+    const viewed = urlPolicy ? active.find((p) => p.id === urlPolicy) : undefined;
+    const chosen = viewed ?? active[0];
+    if (chosen) return { policyId: chosen.id, name: chosen.name || "Operator" };
+    return localOp && !localOp.revoked
+      ? { policyId: localOp.policyId, name: localOp.name }
+      : null;
+  }, [policies, localOp]);
 
   if (!signer.address) return null;
 
@@ -59,7 +81,7 @@ export function FloatingKillSwitch() {
         <button
           type="button"
           onClick={() => {
-            setOp(null);
+            setLocalOp(null);
             setPhase("idle");
           }}
           className="mt-3 text-[10px] uppercase tracking-[0.22em] text-muted transition-colors hover:text-ink"

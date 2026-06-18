@@ -325,6 +325,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           glyph={personality?.glyph ?? "◇"}
           stream={stream}
           revoked={revoked}
+          withdrawn={stats?.withdrawn === true}
           stale={stale}
           now={now}
           bv={bv}
@@ -475,6 +476,7 @@ function OperatorHero({
   glyph,
   stream,
   revoked,
+  withdrawn,
   stale,
   now,
   bv,
@@ -484,6 +486,7 @@ function OperatorHero({
   glyph: string;
   stream: AgentStreamState;
   revoked: boolean;
+  withdrawn: boolean;
   stale: boolean;
   now: number;
   bv: { cap: number; spent: number; unit: string };
@@ -511,7 +514,9 @@ function OperatorHero({
             : "holding · no edge worth the risk"
         }.`
       : "Reading the market · its first decision lands shortly.";
-  const heroLine = revoked
+  const heroLine = withdrawn
+    ? "Capital withdrawn by owner · returned in full, on demand."
+    : revoked
     ? "Operator grounded · past wins still redeem, no new trades."
     : dec
       ? dec.mandate?.breached
@@ -615,10 +620,12 @@ function OperatorHero({
         <span className="ml-1 font-mono text-[12px] tabular-nums" style={{ color: pnlColor }}>
           {flatPnl ? "±0.00" : `${pnl > 0 ? "+" : ""}${pnl.toFixed(2)}`}
           {!flatPnl ? ` · ${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(1)}%` : ""}
-          <span className="ml-1" style={{ color: SUB }}>vs deposit</span>
+          <span className="ml-1" style={{ color: SUB }}>
+            {withdrawn ? "withdrawn · returned in full" : "vs deposit"}
+          </span>
         </span>
       </div>
-      {allocSegs.length > 0 && (
+      {allocSegs.length > 0 && !withdrawn && (
         <div className="mt-3">
           <div className="mb-1 flex items-center justify-between font-mono text-[10px] tabular-nums" style={{ color: SUB }}>
             <span className="uppercase tracking-[0.16em]">Allocation</span>

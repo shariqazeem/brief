@@ -348,15 +348,21 @@ export function recallSimilar(
  *  mid to the current mid: a directional call wins if the market moved its way. */
 export function settlePending(
   history: ExperienceRecord[],
-  currentMid: number,
+  mids: Record<string, number>,
   now: number,
   horizonMs: number,
 ): { history: ExperienceRecord[]; settled: number } {
   let settled = 0;
   const out = history.map((r) => {
     if (r.outcome !== "pending" || now - r.ts < horizonMs) return r;
-    const moved = (currentMid - r.mid) / (r.mid || 1);
+    // Settle each decision against ITS OWN asset's mid · never another asset's
+    // (mixing SUI/WAL/DEEP scales corrupted recall with ±thousands-% outcomes).
+    const cur = mids[r.asset ?? "SUI"];
+    if (cur == null || cur <= 0) return r;
+    const moved = (cur - r.mid) / (r.mid || 1);
     const favor = r.direction === "up" ? moved : -moved;
+    // >100% over ~1h is impossible for these tokens → corrupt, leave pending.
+    if (!Number.isFinite(favor) || Math.abs(favor) > 1) return r;
     settled++;
     return {
       ...r,
