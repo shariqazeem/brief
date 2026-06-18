@@ -68,6 +68,7 @@ import { useZkLogin } from "@/lib/zklogin/state";
 import {
   buildRevokeTx,
   policyStatus,
+  useOperatorPolicies,
   type OperatorPolicyDecoded,
 } from "@/lib/operator-policy-client";
 import { apiUrl } from "@/lib/api-base";
@@ -1084,6 +1085,19 @@ function ViewOperator({ policyId }: { policyId: string }) {
   );
 }
 
+// Map a policy name → a display strategy when localStorage has no record of
+// it (e.g. the operator was adopted from another origin/device, so this
+// browser never saved it). Best-effort: the on-chain policy stores
+// risk_tolerance, not our StrategyId, so we read the mode from the name.
+function inferStrategy(name: string | null | undefined): StrategyId {
+  const n = (name ?? "").toLowerCase();
+  if (n.includes("aggress")) return "contrarian";
+  if (n.includes("grow")) return "momentum";
+  if (n.includes("protect")) return "conservative";
+  if (n.includes("quant") || n.includes("vol")) return "quant";
+  return "contrarian";
+}
+
 function Connected({ address }: { address: string }) {
   const [activation, setActivation] = useState<ActivationResult | null>(null);
   // Gate the dashboard behind a brief "your operator is live" ceremony
@@ -1102,10 +1116,32 @@ function Connected({ address }: { address: string }) {
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("predict") === "1";
 
-  // Your operators home · the fleet. /workforce shows every operator you've
-  // adopted; click one to open it live. Adoption lives in the wizard.
-  const [ops, setOps] = useState<TraderIdentity[]>([]);
-  useEffect(() => setOps(loadAllTraderIdentities()), []);
+  // Your operators home · the fleet. We discover operators from BOTH
+  // localStorage (instant, this origin) AND the chain (authoritative: the
+  // OperatorPolicy objects this wallet OWNS, regardless of which URL/device
+  // adopted them). Merging by policyId means a returning user — or one who
+  // adopted from the VM/localhost and now visits usebrief.xyz — always sees
+  // their fleet instead of the empty "adopt your first operator" screen.
+  const { policies: chainPolicies } = useOperatorPolicies(address);
+  const [localOps, setLocalOps] = useState<TraderIdentity[]>([]);
+  useEffect(() => setLocalOps(loadAllTraderIdentities()), []);
+  const ops = useMemo<TraderIdentity[]>(() => {
+    const byId = new Map<string, TraderIdentity>();
+    for (const o of localOps) byId.set(o.policyId, o);
+    for (const p of chainPolicies) {
+      const prior = byId.get(p.id);
+      byId.set(p.id, {
+        policyId: p.id,
+        name: prior?.name ?? p.name ?? "Operator",
+        strategy: prior?.strategy ?? inferStrategy(p.name),
+        adoptedAtMs: prior?.adoptedAtMs ?? Number(p.createdAtMs),
+        revoked: p.revoked,
+      });
+    }
+    return Array.from(byId.values()).sort(
+      (a, b) => b.adoptedAtMs - a.adoptedAtMs,
+    );
+  }, [localOps, chainPolicies]);
 
   if (!activation) {
     return (
