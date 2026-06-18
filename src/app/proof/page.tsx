@@ -7,11 +7,13 @@
 // Walletless + shareable: /proof?policy=0x… renders any operator. Defaults
 // to the live house demo operator. All data is read server-side from chain.
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api-base";
 import { BRIEF_NETWORK } from "@/lib/brief-client";
 import { EMERALD, RED } from "@/lib/ui";
+import { FloatingKillSwitch } from "@/components/operator/floating-kill-switch";
 
 // ── verified artifacts (each checked `success`/`failure` on the fullnode) ──
 const DEFAULT_POLICY =
@@ -123,9 +125,25 @@ export default function ProofPage() {
       <div className="mx-auto max-w-3xl px-6 py-16 sm:px-10 sm:py-24">
         {/* Header */}
         <header>
-          <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-            Brief · proof
-          </p>
+          <div className="flex items-center justify-between gap-4">
+            <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
+              Brief · proof
+            </p>
+            <nav className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.18em]">
+              <Link href={`/workforce?policy=${policyId}`} className="text-muted transition-opacity hover:opacity-60">
+                Dashboard
+              </Link>
+              <Link href={`/brain?policy=${policyId}`} className="text-muted transition-opacity hover:opacity-60">
+                Brain
+              </Link>
+              <Link href={`/evolution?policy=${policyId}`} className="text-muted transition-opacity hover:opacity-60">
+                Evolution
+              </Link>
+              <Link href={`/results?policy=${policyId}`} className="text-ink transition-opacity hover:opacity-60">
+                Results →
+              </Link>
+            </nav>
+          </div>
           <h1 className="mt-4 font-sans text-[32px] font-medium leading-[1.1] tracking-tight text-ink sm:text-[44px]">
             Verify everything.
             <br />
@@ -153,7 +171,7 @@ export default function ProofPage() {
           <div className="mt-10 border-l-[3px] border-[#EF4444] bg-red-50/40 px-4 py-3">
             <p className="font-mono text-[12px] text-[#EF4444]">
               {err === "policy not found"
-                ? `No operator with id ${short(policyId, 8, 6)} on testnet · the id may be incomplete.`
+                ? `No operator with id ${short(policyId, 8, 6)} on ${BRIEF_NETWORK} · the id may be incomplete.`
                 : err}
             </p>
             {policyId !== DEFAULT_POLICY && (
@@ -337,6 +355,8 @@ export default function ProofPage() {
           </p>
         </footer>
       </div>
+      {/* Owner kill switch · revoke the operator on-chain from any surface. */}
+      <FloatingKillSwitch />
     </main>
   );
 }

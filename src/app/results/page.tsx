@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
-import { explorerUrl } from "@/lib/brief-client";
+import { explorerUrl, BRIEF_NETWORK } from "@/lib/brief-client";
 import { INK, SUB, MUTED, NAVY, EMERALD, RED, AMBER, LINE } from "@/lib/ui";
 import { loadLatestTraderIdentity } from "@/lib/workforce-client";
 import { operatorCodename, objectiveFromMode } from "@/lib/operator-identity";
@@ -186,7 +186,7 @@ function Results() {
                   Operator status
                 </p>
                 <span className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: EMERALD }}>
-                  Testnet verified
+                  {BRIEF_NETWORK === "mainnet" ? "Mainnet · live" : "Testnet verified"}
                 </span>
               </div>
               <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 font-mono text-[12px] tabular-nums" style={{ color: SUB }}>
@@ -196,13 +196,32 @@ function Results() {
                 <span><span style={{ color: EMERALD }}>0</span> custody incidents</span>
               </div>
               <p className="mt-3 text-[13.5px] leading-relaxed" style={{ color: SUB }}>
-                {dayLabel} on testnet, zero violations.{" "}
-                <span style={{ color: INK }}>Ready for mainnet capital.</span>
+                {BRIEF_NETWORK === "mainnet" ? (
+                  <>
+                    {dayLabel} on <span style={{ color: INK }}>mainnet with real USDC</span>, zero violations ·
+                    every trade enforced on-chain.
+                  </>
+                ) : (
+                  <>
+                    {dayLabel} on testnet, zero violations.{" "}
+                    <span style={{ color: INK }}>Ready for mainnet capital.</span>
+                  </>
+                )}
               </p>
               <div className="mt-4 grid gap-px overflow-hidden sm:grid-cols-3" style={{ background: LINE }}>
-                <Phase n="Now" label="Testnet validation" note="Live operators, real DeepBook orders, zero violations" done />
-                <Phase n="Next" label="Limited mainnet" note="Invite operators, capped budgets, real USDC" />
-                <Phase n="Then" label="Operator workforce" note="Open adoption across objectives + verticals" />
+                {BRIEF_NETWORK === "mainnet" ? (
+                  <>
+                    <Phase n="Now" label="Live on mainnet" note="Real USDC, real DeepBook orders, on-chain leash" done />
+                    <Phase n="Next" label="More operators" note="Open adoption · any objective, capped budgets" />
+                    <Phase n="Then" label="Operator workforce" note="A network of operators across verticals" />
+                  </>
+                ) : (
+                  <>
+                    <Phase n="Now" label="Testnet validation" note="Live operators, real DeepBook orders, zero violations" done />
+                    <Phase n="Next" label="Limited mainnet" note="Invite operators, capped budgets, real USDC" />
+                    <Phase n="Then" label="Operator workforce" note="Open adoption across objectives + verticals" />
+                  </>
+                )}
               </div>
             </div>
 

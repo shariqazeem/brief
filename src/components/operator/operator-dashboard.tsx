@@ -54,7 +54,7 @@ import { operatorCodename } from "@/lib/operator-identity";
 import { WithdrawFunds } from "./withdraw-funds";
 import {
   useOperatorLedger,
-  computeBenchmark,
+  benchmarkFromStats,
   type LedgerEvent,
   type OperatorStats,
   type Benchmark,
@@ -278,8 +278,10 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   const { scorecard, decisions } = useOperatorScorecard(policyId);
   const { ledger, stats } = useOperatorLedger(policyId);
   const codename = operatorCodename(policyId);
-  const currentMid = stream.spotUsd ?? stream.decision?.spotUsd ?? null;
-  const benchmark = computeBenchmark(stats, stream.decision?.portfolio?.pnlPct ?? null, currentMid);
+  // Benchmark from persisted stats · SUI-anchored ("vs holding SUI") and
+  // consistent across whatever asset the operator currently trades. Avoids the
+  // multi-asset bug where a live DEEP mid was compared to SUI's launch price.
+  const benchmark = benchmarkFromStats(stats);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -325,7 +327,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             codename={codename}
             revoked={revoked}
             stale={stale}
-            assetLabel={liveAsset}
+            assetLabel={bv.asset}
           />
         )}
 
@@ -355,7 +357,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             benchmark={benchmark}
             stream={stream}
             revoked={revoked}
-            assetLabel={liveAsset}
+            assetLabel={bv.asset}
           />
         )}
 

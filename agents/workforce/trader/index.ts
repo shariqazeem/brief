@@ -2194,7 +2194,12 @@ async function runGatedOperator(
   midUsd: number,
   signals: SignalBundle,
   pf: GatedPortfolio,
+  refMid: number,
 ): Promise<void> {
+  // `refMid` is the SUI benchmark reference (the "vs holding SUI" baseline),
+  // kept consistent across all assets so the benchmark never compares one
+  // asset's launch price to another's current price. `midUsd` is the traded
+  // asset's mid (for the order + per-decision record).
   const baseQty = market.minOrderQty ?? 1;
   const baseScalar = market.baseScalar ?? 1_000_000_000;
   const venue = `spot-${asset.toLowerCase()}`;
@@ -2462,6 +2467,7 @@ async function runGatedOperator(
     regime,
     regimeKind: marketRegime.kind,
     direction,
+    asset,
     decided: willRebalance,
     targetExposurePct: eng.targetExposurePct,
     confidence: eng.confidence,
@@ -2498,8 +2504,10 @@ async function runGatedOperator(
     const value = portfolio?.value ?? 0;
     const depositUsd = budget.cap > 0 ? Number(budget.cap) / 1e6 : value;
     const ledgerSide = rebalanceSide === "up" ? "buy" : rebalanceSide === "down" ? "sell" : null;
-    let stats = ensureStats(await loadStats(e.policyId), Date.now(), midUsd, value, depositUsd);
-    stats = recordCycle(stats, { acted: willRebalance, side: ledgerSide, value, mid: midUsd, now: Date.now() });
+    // Benchmark mid = SUI reference (refMid), consistent across assets · the
+    // "vs holding SUI" baseline. `value` is the real multi-asset portfolio total.
+    let stats = ensureStats(await loadStats(e.policyId), Date.now(), refMid, value, depositUsd);
+    stats = recordCycle(stats, { acted: willRebalance, side: ledgerSide, value, mid: refMid, now: Date.now() });
     stats.mode = mode;
     await saveStats(e.policyId, stats);
     const led = await loadLedger(e.policyId);
@@ -2848,7 +2856,10 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
           ctxs.find((c) => c.asset === "SUI") ||
           ctxs[0]!;
       }
-      await runGatedOperator(ctx, e, chosen.asset, chosen.market, chosen.mid, chosen.signals, pf);
+      // SUI is the benchmark reference ("vs holding SUI"), consistent across
+      // whatever asset the operator actually trades this cycle.
+      const refMid = mids["SUI"] ?? chosen.mid;
+      await runGatedOperator(ctx, e, chosen.asset, chosen.market, chosen.mid, chosen.signals, pf, refMid);
     } catch (err) {
       if (isTerminalPolicyAbort(err)) {
         gatedSkip.add(e.policyId);

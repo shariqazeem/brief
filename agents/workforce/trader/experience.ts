@@ -61,9 +61,11 @@ export type ExperienceRecord = {
   /** Classified regime kind (the playbook key). Older records may omit it. */
   regimeKind?: RegimeKind;
   direction: "up" | "down";
+  /** Which asset this decision was about (SUI | WAL | DEEP). Older records omit it. */
+  asset?: string;
   /** Whether the operator acted (true) or abstained (false). */
   decided: boolean;
-  /** Target SUI allocation at decision time (0–100), if it set one. */
+  /** Target allocation for `asset` at decision time (0–100), if it set one. */
   targetExposurePct?: number | null;
   /** Confidence at decision time (0–1). */
   confidence: number;

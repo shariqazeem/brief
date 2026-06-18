@@ -39,12 +39,14 @@ type Decision = {
   seq?: number;
   regime: Regime;
   direction: "up" | "down";
+  /** Which token this decision was about (SUI | WAL | DEEP). Older records omit it. */
+  asset?: string;
   decided: boolean;
   confidence: number;
   mid: number;
   outcome: "win" | "loss" | "abstained" | "pending";
   outcomePct?: number;
-  /** Target SUI allocation at decision time (0–100), if it set one. */
+  /** Target allocation for `asset` at decision time (0–100), if it set one. */
   targetExposurePct?: number | null;
   detail?: Detail;
 };
@@ -177,6 +179,7 @@ function FocusedDecision({
   const oc = outcomeView(d);
   const act = d.decided;
   const up = d.direction === "up";
+  const asset = d.asset ?? "SUI";
   const verdictColor = act ? (up ? EMERALD : RED) : EMERALD;
   const reg = d.regime;
   const detail = d.detail ?? {};
@@ -197,8 +200,8 @@ function FocusedDecision({
           regime: detail.regimeLabel,
           thesis: detail.thesis,
           counter: detail.counterargument,
-          action: act ? (up ? "added to SUI" : "trimmed SUI") : "held its position",
-          target: d.targetExposurePct != null ? `${d.targetExposurePct}% SUI` : undefined,
+          action: act ? (up ? `added to ${asset}` : `trimmed ${asset}`) : "held its position",
+          target: d.targetExposurePct != null ? `${d.targetExposurePct}% ${asset}` : undefined,
           outcome: oc.headline,
         }),
       });
@@ -273,11 +276,11 @@ function FocusedDecision({
         <BigBlock
           label="What it did"
           emphasis
-          headline={act ? (up ? "Added to SUI ▲" : "Trimmed SUI ▼") : "Held position"}
+          headline={act ? (up ? `Added to ${asset} ▲` : `Trimmed ${asset} ▼`) : "Held position"}
           color={verdictColor}
           sub={
             d.targetExposurePct != null
-              ? `Target ${d.targetExposurePct}% SUI · ${100 - d.targetExposurePct}% cash · ${(d.confidence * 100).toFixed(0)}% confidence`
+              ? `Target ${d.targetExposurePct}% ${asset} · ${100 - d.targetExposurePct}% cash · ${(d.confidence * 100).toFixed(0)}% confidence`
               : `${(d.confidence * 100).toFixed(0)}% confidence`
           }
         />
