@@ -49,6 +49,11 @@ const MODES: {
   dot: string;
   glyph: string;
   personality: StrategyId;
+  /** On-chain budget cap = deposit × this. The cap is a CUMULATIVE turnover
+   *  ceiling, not the capital (capital is the deposit; only the owner can
+   *  withdraw it). A bigger allowance lets the operator buy/sell/rebalance
+   *  for weeks instead of retiring after deploying its capital once. */
+  turnoverMultiple: number;
   goal: { type: string; targetPct?: number; horizonDays?: number };
 }[] = [
   {
@@ -60,6 +65,7 @@ const MODES: {
     dot: "#10B981",
     glyph: "◈",
     personality: "conservative",
+    turnoverMultiple: 3,
     goal: { type: "preserve" },
   },
   {
@@ -71,6 +77,7 @@ const MODES: {
     dot: "#4DA2FF",
     glyph: "◇",
     personality: "momentum",
+    turnoverMultiple: 5,
     goal: { type: "grow", targetPct: 5, horizonDays: 30 },
   },
   {
@@ -82,6 +89,7 @@ const MODES: {
     dot: "#F59E0B",
     glyph: "◆",
     personality: "contrarian",
+    turnoverMultiple: 8,
     goal: { type: "edge" },
   },
 ];
@@ -229,7 +237,12 @@ function AdoptWizard() {
           operator: BRIEF_TRADER_ADDRESS,
           capitalCoin,
           name,
-          budgetCap: base,
+          // Capital deposited = `base` (only the owner can withdraw it). The
+          // on-chain budget cap is a CUMULATIVE turnover allowance = capital ×
+          // the mode's multiple, so the operator can rebalance for weeks rather
+          // than retiring after deploying its capital once. The chain still
+          // reverts anything past it; the agent still cannot withdraw.
+          budgetCap: base * BigInt(modeCfg.turnoverMultiple),
           expiresAtMs: BigInt(Date.now() + TRADER_EXPIRY_HOURS * 3600_000),
         });
         signer.signAndExecute(tx, {
@@ -375,9 +388,10 @@ function AdoptWizard() {
         {/* ─── Section 3 · Set the budget (the leash) ───────────────── */}
         {showBudget && modeCfg && (
           <section className="mt-16 animate-fade-up">
-            <SectionLabel n="02" title="Set the leash · maximum total spend" />
+            <SectionLabel n="02" title="Fund your operator · set the leash" />
             <p className="mt-2 max-w-prose text-[14px] leading-relaxed text-ink-2">
-              Budget is enforced on-chain. Exceeding it reverts the transaction.
+              You fund the capital — only you can ever withdraw it. The chain
+              caps how much your operator can trade and reverts anything past it.
             </p>
             <div className="mt-5 flex items-baseline gap-3">
               <span className="font-mono text-[40px] font-medium tabular-nums tracking-tight text-ink">
@@ -409,7 +423,12 @@ function AdoptWizard() {
               />
             </div>
             <p className="mt-3 font-mono text-[10.5px] leading-relaxed text-ink-2">
-              Hard cap: <span className="text-ink">{amount} {unitLabel}</span> total -
+              Capital <span className="text-ink">{amount} {unitLabel}</span> · on-chain
+              trading allowance{" "}
+              <span className="text-ink">
+                {amount * modeCfg.turnoverMultiple} {unitLabel}
+              </span>{" "}
+              ({modeCfg.turnoverMultiple}× turnover) — room to rebalance for weeks;
               the chain reverts anything past it.
             </p>
           </section>

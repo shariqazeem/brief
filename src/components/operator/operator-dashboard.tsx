@@ -644,7 +644,7 @@ function OperatorHero({
         <HeroStat label="Last decision" value={lastWhen} />
         <HeroStat label="Confidence" value={conf} />
         <HeroStat label="Mandate" value={mandateHealth} color={mandateColor} />
-        <HeroStat label="Budget left" value={budgetRem} />
+        <HeroStat label="Allowance left" value={budgetRem} />
       </div>
     </section>
   );
@@ -758,7 +758,7 @@ function CapitalCard({
       <div className="mt-4">
         <div className="mb-1 flex items-center justify-between">
           <span className="font-mono text-[9px] uppercase tracking-[0.16em]" style={{ color: SUB }}>
-            Budget remaining
+            Trading allowance left
           </span>
           <span className="font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
             {budgetRem.toFixed(0)}%
@@ -1783,7 +1783,7 @@ function NowTab({
             label="Risk"
           >
             <p className="font-mono text-[12px] tabular-nums" style={{ color: SUB }}>
-              Budget {policy ? `${Math.round((sui(policy.spent) / Math.max(1e-9, sui(policy.budgetCap))) * 100)}% used` : "-"}
+              Allowance {policy ? `${Math.round((sui(policy.spent) / Math.max(1e-9, sui(policy.budgetCap))) * 100)}% used` : "-"}
               {" · "}
               Policy {policy?.revoked ? "revoked" : "clear"}
               {dec ? ` · Conviction ${(dec.conviction * 100).toFixed(0)}%` : ""}
