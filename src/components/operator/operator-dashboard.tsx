@@ -337,6 +337,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           stale={stale}
           now={now}
           bv={bv}
+          fallback={{ latest: decisions[0] ?? null, count: decisions.length, liveAsset }}
         />
 
         <CapitalCard stream={stream} bv={bv} spanDays={scorecard?.spanDays ?? null} />
@@ -488,6 +489,7 @@ function OperatorHero({
   stale,
   now,
   bv,
+  fallback,
 }: {
   name: string;
   glyph: string;
@@ -496,20 +498,37 @@ function OperatorHero({
   stale: boolean;
   now: number;
   bv: { cap: number; spent: number; unit: string };
+  fallback: { latest: DecisionRecord | null; count: number; liveAsset: string };
 }) {
   const dec = stream.decision;
+  // When the live (SSE) feed is absent/stale but the operator HAS a recorded
+  // history (polled every 15s), reflect that instead of "first decision lands
+  // shortly" · the dashboard must always tell the truth about whether it works.
+  const hasHistory = fallback.count > 0;
+  const fb = fallback.latest;
+  const fbLabel = fb?.regimeKind ? REGIME_LABEL[fb.regimeKind] : null;
   const status = revoked
     ? { word: "Grounded", color: IDLE, live: false }
     : stream.mode === "live" && !stale
       ? { word: "Executing", color: EMERALD, live: true }
       : { word: "Observing", color: NAVY, live: true };
+  const fallbackLine =
+    fb && fbLabel
+      ? `${fbLabel} · ${
+          fb.decided
+            ? fb.direction === "up"
+              ? `added ${fallback.liveAsset} exposure`
+              : "moved to cash"
+            : "holding · no edge worth the risk"
+        }.`
+      : "Reading the market · its first decision lands shortly.";
   const heroLine = revoked
     ? "Operator grounded · past wins still redeem, no new trades."
-    : !dec
-      ? "Reading the market · its first decision lands shortly."
-      : dec.mandate?.breached
+    : dec
+      ? dec.mandate?.breached
         ? "Mandate guard tripped · standing down to honour your limit."
-        : allocationHeadline(dec);
+        : allocationHeadline(dec)
+      : fallbackLine;
   // The allocation sub-line · "what your money is doing" in one tabular glance.
   const curEx = dec?.currentExposurePct ?? null;
   const tgtEx = dec?.targetExposurePct ?? null;
@@ -518,8 +537,16 @@ function OperatorHero({
     dec && !revoked && curEx != null
       ? `${curEx}% ${heroAsset} · ${100 - curEx}% cash${tgtEx != null ? ` · target ${tgtEx}% ${heroAsset}` : ""}`
       : null;
-  const lastWhen = stream.lastEventTs ? relTime(stream.lastEventTs, now) : "-";
-  const conf = dec ? `${Math.round(dec.conviction * 100)}%` : "-";
+  const lastWhen = stream.lastEventTs
+    ? relTime(stream.lastEventTs, now)
+    : fb?.ts
+      ? relTime(fb.ts, now)
+      : "-";
+  const conf = dec
+    ? `${Math.round(dec.conviction * 100)}%`
+    : fb
+      ? `${Math.round((fb.confidence ?? 0) * 100)}%`
+      : "-";
   const m = dec?.mandate ?? null;
   const mandateHealth = m ? (m.breached ? "Guard tripped" : "Healthy") : "-";
   const mandateColor = m ? (m.breached ? RED : EMERALD) : SUB;
