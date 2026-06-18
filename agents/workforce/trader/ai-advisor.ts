@@ -55,7 +55,9 @@ export type AiAdvisorInput = {
 };
 
 const AI_MIN_INTERVAL_MS = 8 * 60_000; // ≥8 min between AI calls per operator
-const WEEKLY_CAP = 800; // hard backstop well under the LLM budget
+const WEEKLY_CAP = 500; // hard backstop · ~$0.35/wk worst-case on a cheap model,
+// safely under the ~$0.50/wk LLM budget. Real usage is far lower (the gates
+// below mean it only fires on a tradeable regime for a funded operator).
 const BASE_CONF_FLOOR = 0.18; // don't spend AI on obvious no-ops
 
 const lastAiAt = new Map<string, number>();
