@@ -625,6 +625,23 @@ function OperatorHero({
         {heroLine}
       </p>
 
+      {/* Risk Guardian · the second autonomous agent. Shows it watching, or the
+          moment it stands the operator down (the trader respects its pause). */}
+      {dec && !revoked && !withdrawn && (
+        <div
+          className="mt-3 inline-flex flex-wrap items-center gap-x-2 font-mono text-[10px] uppercase tracking-[0.18em]"
+          style={{ color: dec.guardianPaused ? AMBER : SUB }}
+        >
+          <span aria-hidden>◈</span>
+          Risk Guardian · {dec.guardianPaused ? "paused" : "monitoring"}
+          {dec.guardianPaused && dec.guardianReason && (
+            <span className="normal-case tracking-normal" style={{ color: SUB }}>
+              · {dec.guardianReason}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Capital + live allocation · what it is managing RIGHT NOW. */}
       <div className="mt-6 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <span className="font-sans text-[32px] font-medium tabular-nums leading-none tracking-tight sm:text-[38px]" style={{ color: INK }}>

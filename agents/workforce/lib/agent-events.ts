@@ -35,6 +35,8 @@ export type AgentEventType =
   | "task_failed"
   | "asset_fallback"
   | "warden_topup"
+  | "guardian_pause"
+  | "guardian_resume"
   | "fuel";
 
 export type AgentEvent = {

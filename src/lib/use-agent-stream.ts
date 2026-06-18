@@ -64,6 +64,9 @@ export type StreamDecision = {
   executionReview: string | null;
   verdict: string | null;
   aiReasoned: boolean;
+  // Risk Guardian (second agent) · paused this operator + why.
+  guardianPaused: boolean;
+  guardianReason: string | null;
   // Market regime · classified before deciding.
   regimeKind: string | null;
   regimeLabel: string | null;
@@ -310,6 +313,8 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         executionReview: str(d.execution_review),
         verdict: str(d.verdict),
         aiReasoned: d.ai_reasoned === true,
+        guardianPaused: d.guardian_paused === true,
+        guardianReason: (d.guardian_reason as string | null) ?? null,
         regimeKind: str(d.regime),
         regimeLabel: str(d.regime_label),
         regimeReview: str(d.regime_review),

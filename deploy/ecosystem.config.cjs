@@ -80,6 +80,21 @@ module.exports = {
       env: { ...baseEnv, BRIEF_LLM_MODE: "llm" },
     },
     {
+      // Risk Guardian: Brief's SECOND autonomous agent. Independently watches
+      // each operator's volatility + drawdown and writes a pause/resume signal
+      // the trader respects before any trade · real multi-agent coordination,
+      // read-only (no keypair, never touches funds).
+      name: "brief-guardian",
+      cwd: REPO_ROOT,
+      script: "node_modules/.bin/tsx",
+      args: tsxArgs("agents/workforce/guardian/index.ts"),
+      max_memory_restart: "250M",
+      autorestart: true,
+      max_restarts: 30,
+      restart_delay: 5000,
+      env: baseEnv,
+    },
+    {
       // Gas warden: keeps Planner/Treasury/Research solvent by
       // rebalancing SUI between them (faucet fallback w/ cooldown) and
       // writes .cursors/warden-status.json for /api/system/health.

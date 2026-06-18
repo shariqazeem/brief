@@ -125,6 +125,7 @@ import {
   type OperatorStats,
 } from "./ledger.js";
 import { maybeAiAdvise, type AiAdvice } from "./ai-advisor.js";
+import { loadGuardianStatus, guardianPausedFor } from "../lib/guardian-status.js";
 import {
   evalMandate,
   loadMandateState,
@@ -2489,6 +2490,24 @@ async function runGatedOperator(
     rebalanceSide = null;
   }
 
+  // ---- RISK GUARDIAN (multi-agent): the second agent can stand this operator
+  // down (vol spike / drawdown / manual circuit-break). The trader RESPECTS it
+  // before placing any order · coordination, not control (the Move policy is
+  // still the ultimate gate, and the owner's revoke overrides everything).
+  let guardianNote: string | null = null;
+  try {
+    const guardianPause = guardianPausedFor(await loadGuardianStatus(), e.policyId);
+    if (guardianPause) {
+      guardianNote = `Risk Guardian paused · ${guardianPause.reason}`;
+      if (rebalanceSide) {
+        rebalanceSide = null;
+        infeasibleNote = guardianNote;
+      }
+    }
+  } catch {
+    /* guardian unavailable → trade as normal (fail-open; the Move policy still gates) */
+  }
+
   // ---- EXECUTION ANALYSIS: only when a rebalance is actually needed, simulate
   // the real order against the live DeepBook book (slippage / depth / DEEP fee).
   // A thin book or excessive slippage can VETO it. Pass 2 folds it in, then we
@@ -2558,6 +2577,8 @@ async function runGatedOperator(
       ai_source: aiAdvice?.source ?? null,
       ai_rationale: aiAdvice?.rationale ?? null,
       ai_confidence_mod: aiAdvice?.confidenceMod ?? null,
+      guardian_paused: !!guardianNote,
+      guardian_reason: guardianNote,
       // capital-manager view · what the money should be doing, vs where it is
       allocation: eng.allocation,
       target_exposure_pct: eng.targetExposurePct,
