@@ -189,15 +189,16 @@ function deriveThesis(s: StreamSignals | null): string {
 function allocationHeadline(dec: NonNullable<AgentStreamState["decision"]>): string {
   const cur = dec.currentExposurePct ?? 0;
   const tgt = dec.targetExposurePct;
+  const a = dec.asset ?? "SUI";
   if (dec.decided && dec.rebalance === "buy") {
-    return `Adding to SUI · moving toward ${tgt ?? cur}% exposure.`;
+    return `Adding to ${a} · moving toward ${tgt ?? cur}% exposure.`;
   }
   if (dec.decided && dec.rebalance === "sell") {
-    return `Reducing risk · trimming SUI toward ${tgt ?? 0}%.`;
+    return `Reducing risk · trimming ${a} toward ${tgt ?? 0}%.`;
   }
   // Holding · state the outlook and where capital sits, no contradiction.
   const outlook = tgt == null ? "No clear edge" : tgt === 0 ? "Bearish outlook" : "Bullish outlook";
-  const where = cur < 5 ? "Holding cash." : `Holding ${cur}% in SUI.`;
+  const where = cur < 5 ? "Holding cash." : `Holding ${cur}% in ${a}.`;
   return `${outlook}. ${where}`;
 }
 
@@ -215,17 +216,19 @@ function playbookLine(pb: NonNullable<AgentStreamState["decision"]>["playbook"])
 function allocationBeat(dec: NonNullable<AgentStreamState["decision"]>): string {
   const cur = dec.currentExposurePct ?? 0;
   const tgt = dec.targetExposurePct;
-  if (tgt == null) return `Currently ${cur}% SUI · no confident target · hold.`;
-  if (dec.rebalance === "buy") return `Target ${tgt}% SUI · currently ${cur}% → buy toward ${tgt}%.`;
-  if (dec.rebalance === "sell") return `Target ${tgt}% SUI · currently ${cur}% → trim toward ${tgt}%.`;
-  return `Target ${tgt}% SUI · currently ${cur}% · within band, hold.`;
+  const a = dec.asset ?? "SUI";
+  if (tgt == null) return `Currently ${cur}% ${a} · no confident target · hold.`;
+  if (dec.rebalance === "buy") return `Target ${tgt}% ${a} · currently ${cur}% → buy toward ${tgt}%.`;
+  if (dec.rebalance === "sell") return `Target ${tgt}% ${a} · currently ${cur}% → trim toward ${tgt}%.`;
+  return `Target ${tgt}% ${a} · currently ${cur}% · within band, hold.`;
 }
 
 // The result line when the operator holds · allocation terms, no "stood down".
 function holdResult(dec: NonNullable<AgentStreamState["decision"]>): string {
   const cur = dec.currentExposurePct ?? 0;
+  const a = dec.asset ?? "SUI";
   if (dec.targetExposurePct != null)
-    return `Already aligned · ${cur}% SUI, within target. No rebalance needed.`;
+    return `Already aligned · ${cur}% ${a}, within target. No rebalance needed.`;
   return "No confident edge · capital positioned, none at new risk.";
 }
 
@@ -268,6 +271,9 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   const { state: stream } = useAgentStream(policyId);
   const spot = isSpotPolicy(policy);
   const bv = budgetView(policy);
+  // The token the operator is CURRENTLY operating (multi-asset: SUI/WAL/DEEP),
+  // from the live decision · falls back to the policy's default asset.
+  const liveAsset = stream.decision?.asset ?? stream.asset ?? bv.asset;
   const journal = useOperatorJournal(policyId, bv.asset, spot);
   const { scorecard, decisions } = useOperatorScorecard(policyId);
   const { ledger, stats } = useOperatorLedger(policyId);
@@ -319,7 +325,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             codename={codename}
             revoked={revoked}
             stale={stale}
-            assetLabel={bv.asset}
+            assetLabel={liveAsset}
           />
         )}
 
@@ -348,7 +354,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             benchmark={benchmark}
             stream={stream}
             revoked={revoked}
-            assetLabel={bv.asset}
+            assetLabel={liveAsset}
           />
         )}
 
@@ -371,7 +377,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             </summary>
             <div className="space-y-6 px-3 pb-6 sm:px-4" style={{ borderTop: "1px solid #E5E5EA" }}>
               <div className="pt-6">
-                <MarketState signals={stream.signals} dec={stream.decision} assetLabel={bv.asset} />
+                <MarketState signals={stream.signals} dec={stream.decision} assetLabel={liveAsset} />
               </div>
               <AllocationMatrix dec={stream.decision} />
               {scorecard && scorecard.playbooks.length > 0 && (
@@ -382,7 +388,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             </div>
           </details>
         ) : (
-          <MarketState signals={stream.signals} dec={stream.decision} assetLabel={bv.asset} />
+          <MarketState signals={stream.signals} dec={stream.decision} assetLabel={liveAsset} />
         )}
 
         <Collapsible title="Live activity" subtitle="watch it work">
@@ -395,7 +401,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
               policy={policy}
               traderName={traderName}
               revoked={revoked}
-              assetLabel={bv.asset}
+              assetLabel={liveAsset}
               isSpot={spot}
               dispatchError={props.dispatchError}
               onDispatchAgain={props.onDispatchAgain}
@@ -507,9 +513,10 @@ function OperatorHero({
   // The allocation sub-line · "what your money is doing" in one tabular glance.
   const curEx = dec?.currentExposurePct ?? null;
   const tgtEx = dec?.targetExposurePct ?? null;
+  const heroAsset = dec?.asset ?? "SUI";
   const allocSub =
     dec && !revoked && curEx != null
-      ? `${curEx}% SUI · ${100 - curEx}% cash${tgtEx != null ? ` · target ${tgtEx}% SUI` : ""}`
+      ? `${curEx}% ${heroAsset} · ${100 - curEx}% cash${tgtEx != null ? ` · target ${tgtEx}% ${heroAsset}` : ""}`
       : null;
   const lastWhen = stream.lastEventTs ? relTime(stream.lastEventTs, now) : "-";
   const conf = dec ? `${Math.round(dec.conviction * 100)}%` : "-";
@@ -601,9 +608,24 @@ function CapitalCard({
   const budgetRem = p?.budgetRemainingPct ?? (bv.cap > 0 ? Math.max(0, 100 - (bv.spent / bv.cap) * 100) : 100);
   const flat = Math.abs(pnl) < 0.005;
   const pnlColor = flat ? SUB : pnl > 0 ? EMERALD : RED;
-  // Where the money LIVES right now · the allocation split (SUI vs cash).
+  // Where the money LIVES right now · the allocation split. Multi-asset when
+  // the operator holds more than one token (SUI / WAL / DEEP), else the single
+  // exposure %. Colors are stable per asset.
   const suiPct = dec?.currentExposurePct ?? null;
   const tgtPct = dec?.targetExposurePct ?? null;
+  const ASSET_COLOR: Record<string, string> = { SUI: NAVY, WAL: AMBER, DEEP: EMERALD };
+  const heldAssets = (dec?.holdings ?? []).filter((h) => h.valueUsd > 0.01);
+  const multiAsset = heldAssets.length > 0 && value > 0;
+  const allocSegs = multiAsset
+    ? heldAssets
+        .map((h) => ({ asset: h.asset, pct: Math.round((h.valueUsd / value) * 100), color: ASSET_COLOR[h.asset] ?? NAVY }))
+        .filter((s) => s.pct > 0)
+    : [];
+  const cashPct = multiAsset
+    ? Math.max(0, 100 - allocSegs.reduce((s, x) => s + x.pct, 0))
+    : suiPct != null
+      ? 100 - suiPct
+      : 100;
   return (
     <section
       className="bg-bg-elev px-6 py-7 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9 sm:py-8"
@@ -631,19 +653,30 @@ function CapitalCard({
           ? ` · lifetime ${Math.round(spanDays)} day${Math.round(spanDays) === 1 ? "" : "s"}`
           : ""}
       </p>
-      {suiPct != null && (
+      {(suiPct != null || multiAsset) && (
         <div className="mt-5">
           <div className="mb-1 flex items-center justify-between">
             <span className="font-mono text-[9px] uppercase tracking-[0.16em]" style={{ color: SUB }}>
               Allocation
             </span>
             <span className="font-mono text-[11px] tabular-nums" style={{ color: SUB }}>
-              {suiPct}% SUI · {100 - suiPct}% cash
-              {tgtPct != null && tgtPct !== suiPct ? ` → ${tgtPct}%` : ""}
+              {multiAsset
+                ? `${allocSegs.map((s) => `${s.pct}% ${s.asset}`).join(" · ")} · ${cashPct}% cash`
+                : `${suiPct}% ${dec?.asset ?? "SUI"} · ${100 - (suiPct ?? 0)}% cash${tgtPct != null && tgtPct !== suiPct ? ` → ${tgtPct}%` : ""}`}
             </span>
           </div>
           <div className="flex h-1.5 w-full overflow-hidden rounded-full" style={{ background: "#E5E5EA" }}>
-            <div className="h-full transition-[width] duration-500" style={{ width: `${suiPct}%`, background: NAVY }} />
+            {multiAsset ? (
+              allocSegs.map((s) => (
+                <div
+                  key={s.asset}
+                  className="h-full transition-[width] duration-500"
+                  style={{ width: `${s.pct}%`, background: s.color }}
+                />
+              ))
+            ) : (
+              <div className="h-full transition-[width] duration-500" style={{ width: `${suiPct ?? 0}%`, background: NAVY }} />
+            )}
           </div>
         </div>
       )}

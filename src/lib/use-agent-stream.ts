@@ -92,6 +92,10 @@ export type StreamDecision = {
     pnlPct: number;
     budgetRemainingPct: number;
   } | null;
+  // Multi-asset · which token this decision is about + the full book breakdown.
+  asset: string | null;
+  holdings: Array<{ asset: string; qty: number; valueUsd: number }> | null;
+  cashUsd: number | null;
   // User mandate · objective + live drawdown guard (null when none set).
   mandateReview: string | null;
   mandate: {
@@ -339,6 +343,17 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
             budgetRemainingPct: num(p.budget_remaining_pct) ?? 100,
           };
         })(),
+        asset: str(d.asset) ?? null,
+        holdings: (() => {
+          const h = d.holdings as Array<Record<string, unknown>> | undefined;
+          if (!Array.isArray(h)) return null;
+          return h.map((x) => ({
+            asset: str(x.asset) ?? "?",
+            qty: num(x.qty) ?? 0,
+            valueUsd: num(x.value_usd) ?? 0,
+          }));
+        })(),
+        cashUsd: num(d.cash_usd),
         mandateReview: str(d.mandate_review),
         mandate: (() => {
           const m = d.mandate as Record<string, unknown> | undefined;

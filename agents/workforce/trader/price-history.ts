@@ -11,9 +11,12 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
-/** Cap each history at ~4 hours @ 30 s polling = 480 points. Plenty for
- *  hourly ROC + RSI + SMA(15m / 60m) without bloating the journal. */
-const MAX_POINTS = 600;
+/** Keep ~26 hours of history (by age) so a 4h / 24h ROC has an anchor even
+ *  right after adoption (seeded by backfillHistory). A hard count cap bounds
+ *  the file size if a fast poll ever floods it. At 15 s polling, 26h ≈ 6240
+ *  points; the cap is the safety net, not the normal limit. */
+const RETAIN_MS = 26 * 60 * 60 * 1000;
+const MAX_POINTS = 8000;
 const DIR = ".cursors";
 
 export type PricePoint = {
@@ -55,8 +58,62 @@ export async function appendPoint(
   const history = await loadHistory(asset);
   if (history.length > 0 && history[history.length - 1]!.ts === point.ts) return;
   history.push(point);
-  if (history.length > MAX_POINTS) {
-    history.splice(0, history.length - MAX_POINTS);
-  }
+  pruneInPlace(history, point.ts);
   await saveHistory(asset, history);
+}
+
+/** Drop points older than RETAIN_MS, then enforce the count cap. */
+function pruneInPlace(history: PricePoint[], nowMs: number): void {
+  const cutoff = nowMs - RETAIN_MS;
+  let firstFresh = 0;
+  while (firstFresh < history.length && history[firstFresh]!.ts < cutoff) firstFresh++;
+  if (firstFresh > 0) history.splice(0, firstFresh);
+  if (history.length > MAX_POINTS) history.splice(0, history.length - MAX_POINTS);
+}
+
+/** CoinGecko ids for the assets we backfill (verified to return chart data). */
+const COINGECKO_ID: Record<string, string> = {
+  SUI: "sui",
+  WAL: "walrus-2",
+  DEEP: "deep",
+};
+
+/** Seed an asset's rolling history with ~24h of recent real prices from
+ *  CoinGecko, so a freshly-adopted operator isn't blind for the first 30+
+ *  minutes and can see multi-hour / daily trends immediately. Best-effort:
+ *  on any failure (network, rate-limit, unknown id) it no-ops and the
+ *  history warms naturally from live polls. Only seeds when the existing
+ *  history is too thin to span the long lookback. */
+export async function backfillHistory(historyKey: string, nowMs: number): Promise<number> {
+  // historyKey may carry a network suffix ("SUI-mainnet"); the CoinGecko id
+  // comes from the bare asset.
+  const asset = historyKey.split("-")[0]!.toUpperCase();
+  const id = COINGECKO_ID[asset];
+  if (!id) return 0;
+  const existing = await loadHistory(historyKey);
+  // Already have >4h of span? leave it (live data is better than API data).
+  if (existing.length > 0 && nowMs - existing[0]!.ts > 4 * 60 * 60 * 1000) return 0;
+  try {
+    const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=1`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(12_000) });
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { prices?: Array<[number, number]> };
+    const prices = Array.isArray(json.prices) ? json.prices : [];
+    if (prices.length < 6) return 0;
+    const seeded: PricePoint[] = prices
+      .filter(([ts, p]) => Number.isFinite(ts) && Number.isFinite(p) && p > 0)
+      .map(([ts, p]) => ({ ts, price: p }))
+      .sort((a, b) => a.ts - b.ts);
+    if (seeded.length < 6) return 0;
+    // Seed is the base; keep only existing LIVE points NEWER than the seed's
+    // last candle (don't lose fresh observations). Save under historyKey.
+    const lastSeedTs = seeded[seeded.length - 1]!.ts;
+    const freshLive = existing.filter((pt) => pt.ts > lastSeedTs);
+    const out = [...seeded, ...freshLive];
+    pruneInPlace(out, nowMs);
+    await saveHistory(historyKey, out);
+    return seeded.length;
+  } catch {
+    return 0;
+  }
 }

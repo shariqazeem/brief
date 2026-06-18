@@ -29,8 +29,10 @@ export type LedgerEvent = {
   targetPct: number;
   /** Execution mid at the move. */
   mid: number;
-  /** Base SUI quantity moved. */
+  /** Base quantity moved (in the asset's units). */
   qtySui: number;
+  /** Which asset was traded (SUI | WAL | DEEP). Optional for legacy rows. */
+  asset?: string;
   /** Human reason (regime + thesis). */
   reason: string;
   txDigest: string | null;

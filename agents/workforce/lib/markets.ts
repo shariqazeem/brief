@@ -130,12 +130,75 @@ export function getMarket(asset: string): MarketSpec {
   return m;
 }
 
-/** The SUI spot market for the gated (non-custodial) path, per network:
- *  mainnet → real SUI/USDC pool; testnet → the DBUSDC mock pool. The gated
- *  loop + execution analysis use THIS (not getMarket) so a mainnet operator
- *  reads the mainnet pool's mid + book, never the testnet pool. */
+const DEEPBOOK_MAINNET_PKG =
+  "0xf48222c4e057fa468baf136bff8e12504209d43850c5778f76159292a96f621e";
+
+/** WAL/USDC on MAINNET (real Walrus token · DeepBook v3 pool). */
+export const WAL_MAINNET_MARKET: MarketSpec = {
+  asset: "WAL",
+  display: "WAL",
+  venue: "deepbook-spot",
+  spotPoolKey: "WAL_USDC",
+  spotPoolId:
+    "0x56a1c985c1f1123181d6b881714793689321ba24301b3585eec427436eb1c76d",
+  deepbookPackage: DEEPBOOK_MAINNET_PKG,
+  baseCoinType:
+    "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL",
+  baseScalar: 1_000_000_000,
+  quoteCoinType: MAINNET_USDC_TYPE,
+  quoteScalar: 1_000_000,
+  minOrderQty: 1.0,
+};
+
+/** DEEP/USDC on MAINNET (DeepBook's own token · DeepBook v3 pool). */
+export const DEEP_MAINNET_MARKET: MarketSpec = {
+  asset: "DEEP",
+  display: "DEEP",
+  venue: "deepbook-spot",
+  spotPoolKey: "DEEP_USDC",
+  spotPoolId:
+    "0xf948981b806057580f91622417534f491da5f61aeaf33d0ed8e69fd5691c95ce",
+  deepbookPackage: DEEPBOOK_MAINNET_PKG,
+  baseCoinType:
+    "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
+  baseScalar: 1_000_000,
+  quoteCoinType: MAINNET_USDC_TYPE,
+  quoteScalar: 1_000_000,
+  minOrderQty: 10.0,
+};
+
+/** The assets a mainnet operator can trade (all USDC-quoted on DeepBook v3).
+ *  Venues already allow-listed in every adopted policy: spot-sui/wal/deep. */
+export const GATED_MAINNET_ASSETS = ["SUI", "WAL", "DEEP"] as const;
+export type GatedAsset = (typeof GATED_MAINNET_ASSETS)[number];
+
+const MAINNET_GATED: Record<string, MarketSpec> = {
+  SUI: SUI_MAINNET_MARKET,
+  WAL: WAL_MAINNET_MARKET,
+  DEEP: DEEP_MAINNET_MARKET,
+};
+
+/** The spot market for the gated (non-custodial) path, per network + asset.
+ *  mainnet → real DeepBook v3 USDC pools (SUI/WAL/DEEP); testnet → the SUI
+ *  DBUSDC mock pool (the testnet fallback only trades SUI). Used by the gated
+ *  loop + execution analysis so an operator reads the right pool's mid + book. */
+export function getGatedMarket(
+  network: "mainnet" | "testnet",
+  asset = "SUI",
+): MarketSpec {
+  if (network === "mainnet") return MAINNET_GATED[asset.toUpperCase()] ?? SUI_MAINNET_MARKET;
+  return MARKETS[asset.toUpperCase()] ?? MARKETS.SUI;
+}
+
+/** The assets a gated operator evaluates on a given network. Testnet only
+ *  trades SUI (the mock pool); mainnet spans SUI/WAL/DEEP. */
+export function gatedAssetsFor(network: "mainnet" | "testnet"): string[] {
+  return network === "mainnet" ? [...GATED_MAINNET_ASSETS] : ["SUI"];
+}
+
+/** Back-compat alias · SUI-only callers. */
 export function getGatedSuiMarket(network: "mainnet" | "testnet"): MarketSpec {
-  return network === "mainnet" ? SUI_MAINNET_MARKET : MARKETS.SUI;
+  return getGatedMarket(network, "SUI");
 }
 
 /** Bundles users can pick when adopting a trader. */

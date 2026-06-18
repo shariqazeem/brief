@@ -33,6 +33,9 @@ export type Regime = {
 const SOME = 0.0025; // 0.25% · a trend exists at all
 const STRONG = 0.006; // 0.6% · a strong directional move
 const SHARP = 0.012; // 1.2% · a breakout-grade move
+// Threshold on 4h ROC · a sustained multi-hour/daily drift the 30m tape can't
+// see (a 3%/day move is ~0.06%/30m but ~0.5%/4h). 0.4%/4h ≈ 2.4%/day.
+const SOME_4H = 0.004;
 
 export function classifyRegime(s: SignalBundle): Regime {
   const roc30 = s.roc_30m ?? 0;
@@ -80,11 +83,26 @@ export function classifyRegime(s: SignalBundle): Regime {
     };
   }
 
+  // 3b) Sustained multi-hour trend · the 30m tape is quiet, but a real 4h/daily
+  //     drift is a tradeable trend (catches moves the short window misses).
+  const roc4h = s.roc_4h ?? 0;
+  const a4 = Math.abs(roc4h);
+  const up4 = roc4h >= 0;
+  if (a4 >= SOME_4H) {
+    return {
+      kind: up4 ? "trending-up" : "trending-down",
+      label: up4 ? "Trending up" : "Trending down",
+      note: `4h ROC ${(roc4h * 100).toFixed(2)}% · a sustained ${up4 ? "up" : "down"} trend${volNote}.`,
+      tradeable: true,
+      stance: "follow",
+    };
+  }
+
   // 4) Range-bound · flat tape, no trend to ride. Stand aside.
   return {
     kind: "range-bound",
     label: "Range-bound",
-    note: `Flat tape · 30m ROC ${(roc30 * 100).toFixed(2)}%, no clean direction${volNote}.`,
+    note: `Flat tape · 30m ROC ${(roc30 * 100).toFixed(2)}%, 4h ${(roc4h * 100).toFixed(2)}% · no clean direction${volNote}.`,
     tradeable: false,
     stance: "stand-aside",
   };

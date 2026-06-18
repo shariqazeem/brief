@@ -67,9 +67,11 @@ export function makeDeepBook(
 
 export type GatedNetwork = "mainnet" | "testnet";
 
-/** SUI/USDC pool key per network (the demo's directional pair). */
-export function gatedPoolKey(network: GatedNetwork): string {
-  return network === "mainnet" ? "SUI_USDC" : "SUI_DBUSDC";
+/** DeepBook pool key per network + asset. Mainnet trades SUI/WAL/DEEP vs
+ *  USDC; the testnet fallback only has the SUI/DBUSDC mock pool. */
+export function gatedPoolKey(network: GatedNetwork, asset = "SUI"): string {
+  if (network === "mainnet") return `${asset.toUpperCase()}_USDC`;
+  return "SUI_DBUSDC";
 }
 
 /** Coin types for the gated pair per network. base = SUI (what an UP bet
@@ -77,14 +79,17 @@ export function gatedPoolKey(network: GatedNetwork): string {
  *  DBUSDC testnet), deep = the fee coin (SUI/USDC is not whitelisted, so
  *  the BM must hold a little DEEP). Read straight off the SDK constants so
  *  they can never drift from what placeMarketOrder uses. */
-export function gatedCoinTypes(network: GatedNetwork): {
+export function gatedCoinTypes(network: GatedNetwork, asset = "SUI"): {
   base: string;
   quote: string;
   deep: string;
 } {
   if (network === "mainnet") {
+    const a = asset.toUpperCase();
+    const coin =
+      (mainnetCoins as Record<string, { type: string }>)[a] ?? mainnetCoins.SUI;
     return {
-      base: mainnetCoins.SUI.type,
+      base: coin.type,
       quote: mainnetCoins.USDC.type,
       deep: mainnetCoins.DEEP.type,
     };
@@ -168,7 +173,10 @@ export type GatedSpotArgs = {
   policyId: string;
   bmId: string;
   tradeCapId: string;
-  venue: string; // "spot-sui"
+  /** Which base asset to trade (SUI | WAL | DEEP). Selects the DeepBook pool.
+   *  Defaults to SUI for back-compat with the single-asset path. */
+  asset?: string;
+  venue: string; // "spot-sui" | "spot-wal" | "spot-deep"
   /** Budget units to debit from the policy (USDC base, 1e6). */
   recordSpendAmount: bigint;
   /** Base quantity in human units (e.g. 1.0 SUI), ≥ pool minSize. */
@@ -203,7 +211,7 @@ export function buildGatedSpotTx(ctx: AgentContext, args: GatedSpotArgs): Transa
   // [B] the real DeepBook order from the user's BM (delegated trader proof)
   tx.add(
     db.deepBook.placeMarketOrder({
-      poolKey: gatedPoolKey(args.network),
+      poolKey: gatedPoolKey(args.network, args.asset ?? "SUI"),
       balanceManagerKey: BM_KEY,
       clientOrderId: String(Date.now()),
       quantity: args.baseQty,

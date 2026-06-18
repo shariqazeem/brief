@@ -159,6 +159,7 @@ export function runDecisionEngine(args: {
   const regimeReview = regime ? `${regime.label} · ${regime.note}` : "";
 
   const roc30 = signals.roc_30m ?? 0;
+  const roc4h = signals.roc_4h ?? 0;
   const roc5 = signals.roc_5m ?? 0;
   const rsi = signals.rsi_60m ?? 50;
   const smaAlign =
@@ -167,16 +168,31 @@ export function runDecisionEngine(args: {
         ? 1
         : -1
       : 0;
+  // Trend can come from the short tape (30m) OR a sustained multi-hour drift
+  // (4h) the short window can't see · a 3%/day move is flat at 30m but clear
+  // at 4h. `trendRoc` carries whichever is driving, for direction + thesis.
+  const shortTrending = Math.abs(roc30) >= cfg.rocFloor;
+  const longTrending = Math.abs(roc4h) >= cfg.rocFloor * 2.5;
+  const trending = shortTrending || longTrending;
+  const trendRoc = shortTrending ? roc30 : longTrending ? roc4h : roc30;
+  // Direction follows the REGIME (the authoritative "what kind of market")
+  // when it has one, so a "Trending up" regime can never read as "selling" ·
+  // only fall back to the raw momentum sign when the regime is directionless.
+  const regimeDir: "up" | "down" | null =
+    regime?.kind === "trending-up"
+      ? "up"
+      : regime?.kind === "trending-down"
+        ? "down"
+        : null;
   const direction: "up" | "down" =
-    opts?.ai?.direction ?? (roc30 >= 0 ? "up" : "down");
-  const trending = Math.abs(roc30) >= cfg.rocFloor;
+    opts?.ai?.direction ?? regimeDir ?? (trendRoc >= 0 ? "up" : "down");
 
   // ── Thesis · the case FOR a move (AI overrides if present) ──────────────
   const thesis =
     opts?.ai?.thesis ??
-    `${asset} ${roc30 >= 0 ? "firming" : "softening"}: 30m ROC ${pct(roc30)} (5m ${pct(
-      roc5,
-    )}), spot $${spotUsd.toFixed(3)} ${
+    `${asset} ${trendRoc >= 0 ? "firming" : "softening"}: 30m ROC ${pct(roc30)}, 4h ${pct(
+      roc4h,
+    )} (5m ${pct(roc5)}), spot $${spotUsd.toFixed(3)} ${
       smaAlign >= 0 ? "above" : "below"
     } the short MA → leaning ${direction.toUpperCase()}.`;
 
@@ -203,7 +219,11 @@ export function runDecisionEngine(args: {
   if (opts?.ai) {
     confidence = clamp01(opts.ai.confidence);
   } else {
-    confidence = clamp01(Math.min(1, Math.abs(roc30) / 0.01)); // trend strength
+    // Strength from the stronger of the short tape (1% = full) or the 4h
+    // drift (4% = full) · so a sustained daily trend earns real conviction.
+    confidence = clamp01(
+      Math.min(1, Math.max(Math.abs(roc30) / 0.01, Math.abs(roc4h) / 0.04)),
+    );
     confidence *= smaAlign !== 0 ? 1 : 0.6; // MA agreement
     if (!trending) confidence *= 0.25; // flat tape kills it
     if (direction === "up" && rsi > cfg.rsiCeiling) confidence *= 0.5;

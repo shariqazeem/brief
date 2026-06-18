@@ -43,7 +43,12 @@ import {
   walrusEnabled,
 } from "../../lib/walrus.js";
 import { consolidateSuiCoins } from "../../lib/sui-coin-consolidate.js";
-import { getMarket, getGatedSuiMarket, type MarketSpec } from "../lib/markets.js";
+import {
+  getMarket,
+  getGatedMarket,
+  gatedAssetsFor,
+  type MarketSpec,
+} from "../lib/markets.js";
 import { closeSpot, openSpot, readSpotExecution, readSpotMid } from "./spot-handler.js";
 import {
   buildFuelDepositTx,
@@ -52,7 +57,7 @@ import {
   readBmAssetBalance,
   type GatedNetwork,
 } from "../lib/deepbook-spot.js";
-import { appendPoint, loadHistory } from "./price-history.js";
+import { appendPoint, loadHistory, backfillHistory } from "./price-history.js";
 import { computeSignals, type SignalBundle } from "./signals.js";
 import {
   decodeSurface,
@@ -127,7 +132,7 @@ import {
   type Mandate,
   type MandateEval,
 } from "./mandate.js";
-import { classifyRegime } from "./regime.js";
+import { classifyRegime, type Regime } from "./regime.js";
 
 const POLL_MS = 3000;
 const REDEEM_POLL_MS = 30_000;
@@ -2142,15 +2147,58 @@ async function readPolicyBudget(
   }
 }
 
-/** Run one autonomous decision cycle for a single adopted operator. May
- *  place exactly one gated order (on edge + funded) or abstain. Throws on a
- *  terminal policy abort so the caller can retire the operator. */
+type GatedHolding = { asset: string; qty: number; mid: number; valueUsd: number };
+type GatedPortfolio = { usdc: number; totalValue: number; holdings: GatedHolding[] };
+
+/** Read the operator's FULL multi-asset portfolio · USDC cash + every gated
+ *  asset's BM balance marked at its mid. The honest "how much money do I have"
+ *  across all tokens, and the denominator for per-asset exposure. */
+async function readGatedPortfolio(
+  ctx: AgentContext,
+  e: OperatorRegistryEntry,
+  mids: Record<string, number>,
+): Promise<GatedPortfolio> {
+  const assets = gatedAssetsFor(e.network);
+  const quoteType = gatedCoinTypes(e.network).quote;
+  let usdc = 0;
+  try {
+    usdc = Number(await readBmAssetBalance(ctx, e.bmId, quoteType)) / 1e6;
+  } catch {
+    /* read failure → 0 */
+  }
+  const holdings: GatedHolding[] = [];
+  for (const asset of assets) {
+    const m = getGatedMarket(e.network, asset);
+    const mid = mids[asset] ?? 0;
+    let qty = 0;
+    try {
+      qty = Number(await readBmAssetBalance(ctx, e.bmId, m.baseCoinType!)) / (m.baseScalar ?? 1e9);
+    } catch {
+      /* read failure → 0 */
+    }
+    holdings.push({ asset, qty, mid, valueUsd: qty * mid });
+  }
+  const totalValue = usdc + holdings.reduce((s, h) => s + h.valueUsd, 0);
+  return { usdc, totalValue, holdings };
+}
+
+/** Run one autonomous decision cycle for a single adopted operator on ONE
+ *  chosen asset (SUI | WAL | DEEP). May place exactly one gated order (on edge
+ *  + funded) or abstain. Throws on a terminal policy abort so the caller can
+ *  retire the operator. `pf` is the operator's full multi-asset portfolio. */
 async function runGatedOperator(
   ctx: AgentContext,
   e: OperatorRegistryEntry,
+  asset: string,
+  market: MarketSpec,
   midUsd: number,
   signals: SignalBundle,
+  pf: GatedPortfolio,
 ): Promise<void> {
+  const baseQty = market.minOrderQty ?? 1;
+  const baseScalar = market.baseScalar ?? 1_000_000_000;
+  const venue = `spot-${asset.toLowerCase()}`;
+  const coins = gatedCoinTypes(e.network, asset);
   // Legacy label kept for the journal/manifesto; the decision is the unified
   // operator engine below, calibrated by the operator's mode.
   const strategy: StrategyId = STRATEGIES[e.personality]
@@ -2163,13 +2211,13 @@ async function runGatedOperator(
   emitAgentEvent("observe", {
     policyId: e.policyId,
     taskId,
-    asset: "SUI",
+    asset,
     data: { spot_usd: midUsd, oracle_id: null },
   });
   emitAgentEvent("signals", {
     policyId: e.policyId,
     taskId,
-    asset: "SUI",
+    asset,
     data: { signals },
   });
 
@@ -2184,7 +2232,7 @@ async function runGatedOperator(
   // engine abstains as a SUCCESS (capital fully deployed) so the operator stays
   // alive rather than attempting a doomed record_spend that aborts + retires it.
   const recordSpendAmount = BigInt(
-    Math.max(1, Math.floor(GATED_BASE_QTY * midUsd * 1e6)),
+    Math.max(1, Math.floor(baseQty * midUsd * 1e6)),
   );
   const budgetExhausted =
     budget.cap > 0 && Number(recordSpendAmount) > budget.remaining;
@@ -2204,25 +2252,21 @@ async function runGatedOperator(
   const mandate: Mandate | null = normalizeMandate(e.mandate);
   let mandateEval: MandateEval | null = null;
   let portfolio: { value: number; deposit: number; pnlPct: number } | null = null;
-  // Where capital currently LIVES · the allocator's starting point. Exposure is
-  // SUI value as a fraction of total capital (0–1); defaults to all-cash (0) on
-  // a read failure, a safe no-op assumption.
+  // Where capital currently LIVES · from the full multi-asset portfolio (pf).
+  // Exposure is THIS asset's value as a fraction of TOTAL capital (0–1) · the
+  // allocator decides this asset's share vs the whole book, not vs cash alone.
   let currentExposure = 0;
-  // Raw balances the allocator needs to check a rebalance is actually
-  // executable at the 1-SUI min-lot (cash to buy / SUI to sell).
+  // Raw balances the allocator needs to check a rebalance is executable at the
+  // asset's min-lot (cash to buy / this asset's inventory to sell).
   let quoteBalUsd = 0; // dry-powder cash (USDC/DBUSDC)
-  let baseBalSui = 0; // SUI inventory
+  let baseBalSui = 0; // THIS asset's inventory (qty)
   try {
-    const mc = gatedCoinTypes(e.network);
-    const [qBal, bBal] = await Promise.all([
-      readBmAssetBalance(ctx, e.bmId, mc.quote),
-      readBmAssetBalance(ctx, e.bmId, mc.base),
-    ]);
-    quoteBalUsd = Number(qBal) / 1e6;
-    baseBalSui = Number(bBal) / 1e9;
-    const suiValue = baseBalSui * midUsd;
-    const currentValue = quoteBalUsd + suiValue;
-    currentExposure = currentValue > 0 ? suiValue / currentValue : 0;
+    const held = pf.holdings.find((h) => h.asset === asset);
+    quoteBalUsd = pf.usdc;
+    baseBalSui = held?.qty ?? 0;
+    const assetValue = held?.valueUsd ?? baseBalSui * midUsd;
+    const currentValue = pf.totalValue > 0 ? pf.totalValue : quoteBalUsd + assetValue;
+    currentExposure = currentValue > 0 ? assetValue / currentValue : 0;
     const deposit = budget.cap > 0 ? Number(budget.cap) / 1e6 : currentValue;
     portfolio = {
       value: currentValue,
@@ -2249,7 +2293,7 @@ async function runGatedOperator(
 
   // Pass 1 · reason over regime + signals + memory + mandate (no exec yet).
   let eng = runDecisionEngine({
-    asset: "SUI",
+    asset,
     signals,
     spotUsd: midUsd,
     mode,
@@ -2269,23 +2313,22 @@ async function runGatedOperator(
   const rebalanceSideFor = (d: typeof eng): Direction | null => {
     if (d.targetExposurePct == null) return null; // no confident view → hold
     const gap = d.targetExposurePct / 100 - currentExposure;
-    if (gap > REBALANCE_BAND) return "up"; // under-allocated → buy SUI
-    if (gap < -REBALANCE_BAND) return "down"; // over-allocated → sell SUI
+    if (gap > REBALANCE_BAND) return "up"; // under-allocated → buy the asset
+    if (gap < -REBALANCE_BAND) return "down"; // over-allocated → sell the asset
     return null; // already within the target band → hold
   };
   let rebalanceSide = rebalanceSideFor(eng);
 
-  // ---- FEASIBILITY: a rebalance is one 1-SUI min-lot. If the balances can't
-  // cover it (no cash to buy / sub-lot SUI to sell), DON'T claim a move we
-  // can't make · hold honestly. This keeps the headline "holding" instead of
-  // "adding/trimming" → "no order placed" (the contradiction we're killing).
+  // ---- FEASIBILITY: a rebalance is one min-lot of THIS asset. If the balances
+  // can't cover it (no cash to buy / sub-lot inventory to sell), DON'T claim a
+  // move we can't make · hold honestly (kills the "no order placed" mismatch).
   let infeasibleNote: string | null = null;
-  const lotCostUsd = GATED_BASE_QTY * midUsd;
+  const lotCostUsd = baseQty * midUsd;
   if (rebalanceSide === "up" && quoteBalUsd < lotCostUsd) {
-    infeasibleNote = `cash (${quoteBalUsd.toFixed(2)}) below a ${GATED_BASE_QTY}-SUI lot (~$${lotCostUsd.toFixed(2)})`;
+    infeasibleNote = `cash (${quoteBalUsd.toFixed(2)}) below a ${baseQty}-${asset} lot (~$${lotCostUsd.toFixed(2)})`;
     rebalanceSide = null;
-  } else if (rebalanceSide === "down" && baseBalSui < GATED_BASE_QTY) {
-    infeasibleNote = `SUI position (${baseBalSui.toFixed(2)}) below a ${GATED_BASE_QTY}-SUI lot`;
+  } else if (rebalanceSide === "down" && baseBalSui < baseQty) {
+    infeasibleNote = `${asset} position (${baseBalSui.toFixed(2)}) below a ${baseQty}-${asset} lot`;
     rebalanceSide = null;
   }
 
@@ -2296,13 +2339,13 @@ async function runGatedOperator(
   if (rebalanceSide) {
     const execA = await readSpotExecution(
       ctx,
-      getGatedSuiMarket(e.network),
+      market,
       rebalanceSide === "up" ? "buy" : "sell",
-      GATED_BASE_QTY,
+      baseQty,
       midUsd,
     );
     eng = runDecisionEngine({
-      asset: "SUI",
+      asset,
       signals,
       spotUsd: midUsd,
       mode,
@@ -2331,12 +2374,12 @@ async function runGatedOperator(
   emitAgentEvent("decision", {
     policyId: e.policyId,
     taskId,
-    asset: "SUI",
+    asset,
     data: {
       strategy: mode,
       decided: willRebalance,
       direction,
-      quantity: willRebalance ? GATED_BASE_QTY : 0,
+      quantity: willRebalance ? baseQty : 0,
       conviction: eng.confidence,
       reasoning,
       spot_usd: midUsd,
@@ -2400,6 +2443,12 @@ async function runGatedOperator(
         abstained: recall.abstained,
         confidence_mult: recall.confidenceMult,
       },
+      // multi-asset · which token this decision is about + the full book.
+      asset,
+      holdings: pf.holdings
+        .filter((h) => h.valueUsd > 0.01)
+        .map((h) => ({ asset: h.asset, qty: h.qty, value_usd: h.valueUsd })),
+      cash_usd: pf.usdc,
     },
   });
 
@@ -2470,19 +2519,19 @@ async function runGatedOperator(
     const tail = infeasibleNote
       ? ` Would rebalance but ${infeasibleNote} · holding.`
       : eng.targetExposurePct != null
-        ? ` Portfolio already at ${curExposurePct}% SUI, within the target band · no rebalance needed.`
+        ? ` Portfolio already at ${curExposurePct}% ${asset}, within the target band · no rebalance needed.`
         : "";
     emitAgentEvent("mode", {
       policyId: e.policyId,
       taskId,
-      asset: "SUI",
+      asset,
       data: { mode: "simulated", sim_reason: `${eng.allocation}${tail}` },
     });
     return;
   }
 
   // Rebalance required · verify the BM can actually execute before firing.
-  const coins = gatedCoinTypes(e.network);
+  // (`coins` for THIS asset was resolved at the top of the function.)
   const isBid = direction === "up";
 
   // ---- FUEL (testnet only) ------------------------------------------------
@@ -2530,7 +2579,7 @@ async function runGatedOperator(
   emitAgentEvent("fuel", {
     policyId: e.policyId,
     taskId,
-    asset: "SUI",
+    asset,
     data: {
       deep_base: Number(deepBal),
       deep_human: Number(deepBal) / 1e6,
@@ -2538,11 +2587,11 @@ async function runGatedOperator(
     },
   });
   if (deepBal < FUEL_FLOOR_BASE) {
-    const r = `The operator decided ${direction.toUpperCase()} SUI but is out of fuel · its DEEP tank (DeepBook fees) is empty${e.depositCapId ? " and the house reserve couldn't top it up" : " and it has no delegated DepositCap to refuel"}. Alive, awaiting fuel; capital untouched.`;
+    const r = `The operator decided ${direction.toUpperCase()} ${asset} but is out of fuel · its DEEP tank (DeepBook fees) is empty${e.depositCapId ? " and the house reserve couldn't top it up" : " and it has no delegated DepositCap to refuel"}. Alive, awaiting fuel; capital untouched.`;
     emitAgentEvent("mode", {
       policyId: e.policyId,
       taskId,
-      asset: "SUI",
+      asset,
       data: { mode: "simulated", sim_reason: r },
     });
     console.log(
@@ -2552,21 +2601,21 @@ async function runGatedOperator(
   }
   } // end testnet-only DEEP fuel gate
 
-  // Inventory guard: UP buys SUI with quote (USDC/DBUSDC); DOWN sells SUI
-  // base. A freshly-adopted BM holds only quote, so it can buy but not yet
-  // short · skip honestly instead of aborting on chain.
+  // Inventory guard: UP buys the asset with quote (USDC/DBUSDC); DOWN sells the
+  // asset's base. A freshly-adopted BM holds only quote, so it can buy but not
+  // yet short · skip honestly instead of aborting on chain.
   const needType = isBid ? coins.quote : coins.base;
   const needAmount = isBid
     ? recordSpendAmount
-    : BigInt(Math.floor(GATED_BASE_QTY * 1e9));
+    : BigInt(Math.floor(baseQty * baseScalar));
   const haveBal = await readBmAssetBalance(ctx, e.bmId, needType);
   if (haveBal < needAmount) {
-    const sideAsset = isBid ? "USDC" : "SUI";
-    const r = `Operator decided ${direction.toUpperCase()} SUI but the BalanceManager's ${sideAsset} inventory is insufficient for a 1-SUI ${isBid ? "buy" : "sell"} · no trade; capital untouched.`;
+    const sideAsset = isBid ? "USDC" : asset;
+    const r = `Operator decided ${direction.toUpperCase()} ${asset} but the BalanceManager's ${sideAsset} inventory is insufficient for a ${baseQty}-${asset} ${isBid ? "buy" : "sell"} · no trade; capital untouched.`;
     emitAgentEvent("mode", {
       policyId: e.policyId,
       taskId,
-      asset: "SUI",
+      asset,
       data: { mode: "simulated", sim_reason: r },
     });
     console.log(
@@ -2579,29 +2628,60 @@ async function runGatedOperator(
   emitAgentEvent("mode", {
     policyId: e.policyId,
     taskId,
-    asset: "SUI",
+    asset,
     data: { mode: "live", sim_reason: null },
   });
   emitAgentEvent("mint_pending", {
     policyId: e.policyId,
     taskId,
-    asset: "SUI",
-    data: { direction, quantity: GATED_BASE_QTY },
+    asset,
+    data: { direction, quantity: baseQty },
   });
+  const buildOrder = () =>
+    buildGatedSpotTx(ctx, {
+      network: e.network,
+      briefPackage: ctx.packageId,
+      policyId: e.policyId,
+      bmId: e.bmId,
+      tradeCapId: e.tradeCapId,
+      asset,
+      venue,
+      recordSpendAmount,
+      baseQty,
+      isBid,
+    });
+  // PRE-FLIGHT (devInspect · no gas, no commit): only sign the real tx if the
+  // exact gated order would clear on chain. Guards real funds against a doomed
+  // order (thin book, an unexpected fee path on a WAL/DEEP pool, etc.) without
+  // burning gas on a failed transaction. The Move policy still gates the real
+  // order regardless · this just avoids paying for a known-bad attempt.
+  try {
+    const sim = await ctx.client.devInspectTransactionBlock({
+      sender: ctx.address,
+      transactionBlock: buildOrder(),
+    });
+    if (sim.effects?.status?.status !== "success") {
+      const why = sim.effects?.status?.error ?? "order would not clear on chain";
+      emitAgentEvent("mode", {
+        policyId: e.policyId,
+        taskId,
+        asset,
+        data: {
+          mode: "simulated",
+          sim_reason: `Pre-flight check failed for ${asset} · ${why} · no trade placed, capital untouched.`,
+        },
+      });
+      console.log(
+        `[trader-gated] ${e.policyId.slice(0, 10)}… ${asset} pre-flight failed · skip: ${why.slice(0, 80)}`,
+      );
+      return;
+    }
+  } catch {
+    /* devInspect unavailable · proceed · the Move policy is still the true gate */
+  }
   const res = await signAndExecuteWithRetry(
     ctx,
-    () =>
-      buildGatedSpotTx(ctx, {
-        network: e.network,
-        briefPackage: ctx.packageId,
-        policyId: e.policyId,
-        bmId: e.bmId,
-        tradeCapId: e.tradeCapId,
-        venue: GATED_VENUE,
-        recordSpendAmount,
-        baseQty: GATED_BASE_QTY,
-        isBid,
-      }),
+    buildOrder,
     { showEffects: true, showEvents: true },
     { label: "trader-gated:open", attempts: 2 },
   );
@@ -2610,7 +2690,7 @@ async function runGatedOperator(
   }
   const digest = res.digest;
   console.log(
-    `[trader-gated] LIVE ${strategy} ${direction} ${GATED_BASE_QTY} SUI op=${e.policyId.slice(0, 10)}… tx=${digest}`,
+    `[trader-gated] LIVE ${strategy} ${direction} ${baseQty} ${asset} op=${e.policyId.slice(0, 10)}… tx=${digest}`,
   );
   // Stamp the on-chain digest onto this decision's replay record.
   if (expRecord.detail) {
@@ -2630,7 +2710,8 @@ async function runGatedOperator(
       fromExposurePct: curExposurePct,
       targetPct: eng.targetExposurePct ?? 0,
       mid: midUsd,
-      qtySui: GATED_BASE_QTY,
+      qtySui: baseQty,
+      asset,
       reason: `${eng.regimeLabel} · ${eng.thesis}`,
       txDigest: digest,
       outcome: "pending",
@@ -2642,8 +2723,8 @@ async function runGatedOperator(
   emitAgentEvent("spot_opened", {
     policyId: e.policyId,
     taskId,
-    asset: "SUI",
-    data: { tx: digest, direction, base_qty: GATED_BASE_QTY },
+    asset,
+    data: { tx: digest, direction, base_qty: baseQty },
   });
   await recordGatedMemory(
     ctx,
@@ -2659,7 +2740,7 @@ async function runGatedOperator(
   emitAgentEvent("delivered", {
     policyId: e.policyId,
     taskId,
-    asset: "SUI",
+    asset,
     data: { tx: digest, mode: "live" },
   });
 }
@@ -2686,42 +2767,88 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
     );
   }
 
-  // The SUI mid + signal bundle are per-NETWORK (mainnet trades the real
-  // SUI/USDC pool; testnet the DBUSDC mock). Read once per network per tick
-  // and share across operators on that network. mainnet & testnet operators
-  // can run side by side from this one loop.
-  const perNet = new Map<"mainnet" | "testnet", { mid: number; signals: SignalBundle } | null>();
-  async function netCtx(network: "mainnet" | "testnet") {
-    if (perNet.has(network)) return perNet.get(network);
+  // Per (network, asset) market context: mid + signals + regime. Read once per
+  // tick and shared across operators. Mainnet spans SUI/WAL/DEEP; testnet only
+  // SUI. History is BACKFILLED (CoinGecko ~24h) so multi-hour/daily trends are
+  // visible immediately — no 30-minute cold-start blindness.
+  type AssetCtx = {
+    asset: string;
+    market: MarketSpec;
+    mid: number;
+    signals: SignalBundle;
+    regime: Regime;
+  };
+  const assetCache = new Map<string, AssetCtx | null>();
+  async function assetCtx(
+    network: "mainnet" | "testnet",
+    asset: string,
+  ): Promise<AssetCtx | null> {
+    const key = `${asset}-${network}`;
+    if (assetCache.has(key)) return assetCache.get(key) ?? null;
+    const market = getGatedMarket(network, asset);
     let mid: number;
     try {
-      mid = await readSpotMid(ctx, getGatedSuiMarket(network));
+      mid = await readSpotMid(ctx, market);
     } catch (err) {
       console.warn(
-        `[trader-gated] ${network} SUI mid read failed this tick:`,
-        String((err as Error)?.message ?? err).slice(0, 120),
+        `[trader-gated] ${key} mid read failed:`,
+        String((err as Error)?.message ?? err).slice(0, 100),
       );
-      perNet.set(network, null);
+      assetCache.set(key, null);
       return null;
     }
     if (!Number.isFinite(mid) || mid <= 0) {
-      perNet.set(network, null);
+      assetCache.set(key, null);
       return null;
     }
-    const key = network === "mainnet" ? "SUI-mainnet" : "SUI";
+    await backfillHistory(key, Date.now()); // seed long history once (cold-start fix)
     await appendPoint(key, { ts: Date.now(), price: mid });
     const history = await loadHistory(key);
     const signals = computeSignals(history, Date.now());
-    const v = { mid, signals };
-    perNet.set(network, v);
+    const regime = classifyRegime(signals);
+    const v: AssetCtx = { asset, market, mid, signals, regime };
+    assetCache.set(key, v);
     return v;
+  }
+
+  // Buy-score · the operator holds USDC, so it can only OPEN longs. Only a
+  // tradeable UP trend is a buy candidate; strength = the stronger of the
+  // 30m / 4h momentum. 0 = not a buy candidate.
+  function buyScore(a: AssetCtx): number {
+    if (!a.regime.tradeable) return 0;
+    const r30 = a.signals.roc_30m ?? 0;
+    const r4 = a.signals.roc_4h ?? 0;
+    const dominant = Math.abs(r30) >= Math.abs(r4) ? r30 : r4;
+    if (dominant < 0) return 0; // down-trend · can't short from cash
+    return Math.max(Math.abs(r30) / 0.01, Math.abs(r4) / 0.04);
   }
 
   for (const e of registry) {
     try {
-      const nc = await netCtx(e.network);
-      if (!nc) continue;
-      await runGatedOperator(ctx, e, nc.mid, nc.signals);
+      // Evaluate every asset this operator can trade, then pick ONE to act on.
+      const ctxs: AssetCtx[] = [];
+      for (const a of gatedAssetsFor(e.network)) {
+        const c = await assetCtx(e.network, a);
+        if (c) ctxs.push(c);
+      }
+      if (ctxs.length === 0) continue;
+      const mids: Record<string, number> = {};
+      for (const c of ctxs) mids[c.asset] = c.mid;
+      const pf = await readGatedPortfolio(ctx, e, mids);
+      // Choose: the strongest UP-trend buy candidate; else the largest current
+      // holding (so it can hold/trim it); else SUI (an honest "observing" tick).
+      const ranked = ctxs.slice().sort((x, y) => buyScore(y) - buyScore(x));
+      let chosen = ranked[0]!;
+      if (buyScore(chosen) === 0) {
+        const held = pf.holdings
+          .filter((h) => h.valueUsd > 0.01)
+          .sort((a, b) => b.valueUsd - a.valueUsd)[0];
+        chosen =
+          (held && ctxs.find((c) => c.asset === held.asset)) ||
+          ctxs.find((c) => c.asset === "SUI") ||
+          ctxs[0]!;
+      }
+      await runGatedOperator(ctx, e, chosen.asset, chosen.market, chosen.mid, chosen.signals, pf);
     } catch (err) {
       if (isTerminalPolicyAbort(err)) {
         gatedSkip.add(e.policyId);

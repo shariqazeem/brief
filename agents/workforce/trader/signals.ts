@@ -152,6 +152,11 @@ export type SignalBundle = {
   roc_5m: number | null;
   roc_30m: number | null;
   roc_60m: number | null;
+  /** Multi-hour / daily momentum · lets the operator see trends that a 30m
+   *  ROC can't (a steady 3%/day drift is ~0.06%/30m but ~0.5%/4h). Needs
+   *  ~4h / 24h of history — seeded immediately by backfillHistory. */
+  roc_4h: number | null;
+  roc_24h: number | null;
   sma_15m: number | null;
   sma_60m: number | null;
   rsi_60m: number | null;
@@ -169,6 +174,8 @@ export function computeSignals(
     roc_5m: roc(history, nowMs, 5 * 60_000),
     roc_30m: roc(history, nowMs, 30 * 60_000),
     roc_60m: roc(history, nowMs, 60 * 60_000),
+    roc_4h: roc(history, nowMs, 4 * 60 * 60_000),
+    roc_24h: roc(history, nowMs, 24 * 60 * 60_000),
     sma_15m: sma(history, nowMs, 15 * 60_000),
     sma_60m: sma(history, nowMs, 60 * 60_000),
     rsi_60m: rsi(history, nowMs, 60 * 60_000),
