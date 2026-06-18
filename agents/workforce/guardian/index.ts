@@ -66,7 +66,8 @@ async function maxVol(network: "mainnet" | "testnet"): Promise<number | null> {
   const now = Date.now();
   for (const asset of gatedAssetsFor(network)) {
     try {
-      const v = realizedVol(await loadHistory(asset), now, 60 * 60_000);
+      // History is keyed `${asset}-${network}` by the trader (per-network pools).
+      const v = realizedVol(await loadHistory(`${asset}-${network}`), now, 60 * 60_000);
       if (v != null && (max == null || v > max)) max = v;
     } catch {
       /* skip asset */
