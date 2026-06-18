@@ -42,6 +42,9 @@ export type OperatorStats = {
   lastValue: number;
   lastMid?: number;
   updatedTs: number;
+  /** Owner withdrew the capital (non-custodial). When set, the marked value is
+   *  intentionally near-zero · it's NOT a loss, so the UI shows "withdrawn". */
+  withdrawn?: boolean;
 };
 
 export type Benchmark = {

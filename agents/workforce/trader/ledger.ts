@@ -64,7 +64,19 @@ export type OperatorStats = {
   /** Last SUI mid seen · for the live buy-and-hold benchmark. */
   lastMid: number;
   updatedTs: number;
+  /** Set once the owner withdraws the operator's capital (non-custodial · the
+   *  owner can pull funds anytime). A withdrawal drains the BalanceManager, so
+   *  the marked value collapses toward 0 · that is NOT a trading loss and must
+   *  never be reported as drawdown. When set, stats freeze at the last funded
+   *  mark and the UI shows "capital withdrawn", not a -100% return. */
+  withdrawn?: boolean;
 };
+
+// A min-lot operator trading SUI/WAL/DEEP (which move ~1-5%/day) cannot lose
+// half its book to trading. So a marked value below this fraction of the
+// funded baseline can only mean the owner withdrew · we freeze, never record
+// it as a loss.
+const WITHDRAW_FLOOR = 0.5;
 
 const DIR = ".cursors";
 const ledgerFile = (policyId: string) =>
@@ -142,7 +154,21 @@ export function recordCycle(
   if (!opts.acted) next.abstentions += 1;
   else if (opts.side === "buy") next.buys += 1;
   else if (opts.side === "sell") next.sells += 1;
-  if (opts.value > 0) {
+  // Withdrawal detection: the owner can pull capital at any time (non-
+  // custodial). That drains the BalanceManager, so `value` collapses far
+  // below the funded baseline · which no min-lot trading could cause. Treat
+  // it as a withdrawal: flag it and FREEZE the marks (don't record the
+  // collapse as drawdown / a -100% return).
+  const baseline =
+    next.deposit && next.deposit > 0 ? next.deposit : next.peakValue;
+  const looksWithdrawn =
+    baseline > 0 &&
+    next.peakValue >= baseline * 0.8 && // operator was actually funded
+    opts.value > 0 &&
+    opts.value < baseline * WITHDRAW_FLOOR;
+  if (looksWithdrawn) {
+    next.withdrawn = true;
+  } else if (opts.value > 0) {
     next.peakValue = Math.max(next.peakValue, opts.value);
     const dd = next.peakValue > 0 ? ((next.peakValue - opts.value) / next.peakValue) * 100 : 0;
     next.worstDrawdownPct = Math.max(next.worstDrawdownPct, dd);

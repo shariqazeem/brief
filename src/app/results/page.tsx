@@ -54,6 +54,7 @@ function Results() {
   const abstentions = stats?.abstentions ?? 0;
   const preservedPct = decisions > 0 ? (abstentions / decisions) * 100 : 0;
   const worstDD = stats?.worstDrawdownPct ?? 0;
+  const withdrawn = stats?.withdrawn === true;
   const objective = objectiveFromMode(stats?.mode);
 
   // Big moments · the allocation events that produced the result.
@@ -107,7 +108,7 @@ function Results() {
               {codename}
             </h1>
             <p className="mt-2 font-mono text-[12px] uppercase tracking-[0.2em]" style={{ color: SUB }}>
-              {objective} · running {dayLabel}
+              {objective} · {withdrawn ? "capital withdrawn by owner" : `running ${dayLabel}`}
             </p>
 
             {/* The verdict · one sentence. The thesis is constrained autonomy,
@@ -116,7 +117,8 @@ function Results() {
               const op = bench.operatorPct;
               const vh = bench.vsHold;
               let line: string;
-              if (op >= 0.1 && vh >= 0) line = "Beat holding SUI, under on-chain law.";
+              if (withdrawn) line = "Capital returned in full, on demand.";
+              else if (op >= 0.1 && vh >= 0) line = "Beat holding SUI, under on-chain law.";
               else if (op >= 0.1) line = "Grew, every move within policy.";
               else line = "The leash held. Capital protected.";
               return (
