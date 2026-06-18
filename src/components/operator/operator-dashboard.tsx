@@ -316,21 +316,10 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
       />
 
       <main className="mx-auto max-w-3xl space-y-6 px-5 py-8 sm:px-8">
-        {/* YOUR OBJECTIVE first · the operator manages the owner's objective,
-            not the other way around. Then: what it's doing → capital →
-            outcome → the actions → why it's safe → (reasoning below). */}
-        {spot && (
-          <ObjectiveCard
-            goal={goal ?? null}
-            stream={stream}
-            benchmark={benchmark}
-            codename={codename}
-            revoked={revoked}
-            stale={stale}
-            assetLabel={bv.asset}
-          />
-        )}
-
+        {/* The Operator Status Surface · the dominant, living first screen ·
+            state + the operator's current thinking (the billboard) + capital +
+            live allocation + presence. "An autonomous operator is managing
+            capital for me" in two seconds — not a stack of report cards. */}
         <OperatorHero
           name={codename}
           glyph={personality?.glyph ?? "◇"}
@@ -341,8 +330,6 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           bv={bv}
           fallback={{ latest: decisions[0] ?? null, count: decisions.length, liveAsset }}
         />
-
-        <CapitalCard stream={stream} bv={bv} spanDays={scorecard?.spanDays ?? null} />
 
         {/* Custody first · users care about their funds before reasoning.
             Always shown (even in a shared ?policy= view): withdrawal is
@@ -553,43 +540,102 @@ function OperatorHero({
   const mandateHealth = m ? (m.breached ? "Guard tripped" : "Healthy") : "-";
   const mandateColor = m ? (m.breached ? RED : EMERALD) : SUB;
   const budgetRem = bv.cap > 0 ? `${Math.max(0, Math.round(100 - (bv.spent / bv.cap) * 100))}%` : "-";
+
+  // Capital + live multi-asset allocation · the position, marked to market,
+  // shown right in the status surface so "what is it managing right now" is
+  // answered without scrolling.
+  const pf = dec?.portfolio ?? null;
+  const value = pf?.value ?? bv.cap;
+  const deposit = pf?.deposit ?? bv.cap;
+  const pnl = value - deposit;
+  const pnlPct = pf?.pnlPct ?? 0;
+  const flatPnl = Math.abs(pnl) < 0.005;
+  const pnlColor = flatPnl ? SUB : pnl > 0 ? EMERALD : RED;
+  const ASSET_COLOR: Record<string, string> = { SUI: NAVY, WAL: AMBER, DEEP: EMERALD };
+  const held = (dec?.holdings ?? []).filter((h) => h.valueUsd > 0.01);
+  const allocSegs =
+    held.length > 0 && value > 0
+      ? held
+          .map((h) => ({ asset: h.asset, pct: Math.round((h.valueUsd / value) * 100), color: ASSET_COLOR[h.asset] ?? NAVY }))
+          .filter((s) => s.pct > 0)
+      : curEx != null && curEx > 0
+        ? [{ asset: heroAsset, pct: curEx, color: ASSET_COLOR[heroAsset] ?? NAVY }]
+        : [];
+  const cashPct = Math.max(0, 100 - allocSegs.reduce((s, x) => s + x.pct, 0));
+
   return (
     <section
-      className="bg-bg-elev px-6 py-5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9"
+      className="bg-bg-elev px-6 py-7 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9 sm:py-8"
       style={{ borderTop: `3px solid ${status.color}` }}
     >
-      <div className="flex items-center gap-2.5">
-        <span className="font-sans text-[20px] leading-none" style={{ color: INK }} aria-hidden>
-          {glyph}
-        </span>
-        <span
-          className="font-sans text-[17px] font-semibold tracking-tight"
-          style={{ color: revoked ? IDLE : INK, textDecoration: revoked ? "line-through" : "none" }}
-        >
-          {name}
-        </span>
-        <span className="ml-1 inline-flex items-center gap-1.5">
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${status.live ? "animate-pulse" : ""}`}
-            style={{ background: status.color }}
-            aria-hidden
-          />
-          <span className="font-mono text-[9.5px] uppercase tracking-[0.24em]" style={{ color: status.color }}>
-            {status.word}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="font-sans text-[20px] leading-none" style={{ color: INK }} aria-hidden>
+            {glyph}
           </span>
+          <span
+            className="font-sans text-[17px] font-semibold tracking-tight"
+            style={{ color: revoked ? IDLE : INK, textDecoration: revoked ? "line-through" : "none" }}
+          >
+            {name}
+          </span>
+          <span className="ml-1 inline-flex items-center gap-1.5">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${status.live ? "animate-pulse" : ""}`}
+              style={{ background: status.color }}
+              aria-hidden
+            />
+            <span className="font-mono text-[9.5px] uppercase tracking-[0.24em]" style={{ color: status.color }}>
+              {status.word}
+            </span>
+          </span>
+        </div>
+        {/* Live presence · the operator is continuously working. */}
+        <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: MUTED }}>
+          {revoked ? "retired" : status.live ? `live · ${lastWhen}` : lastWhen}
         </span>
       </div>
-      {/* Compact status line · the masthead, not a billboard. Capital dominates. */}
+      {/* THE statement · the largest element on the page · the operator's
+          current thinking, understood in two seconds. */}
       <p
-        className="mt-2.5 font-sans text-[18px] font-medium leading-snug tracking-tight sm:text-[20px]"
+        className="mt-4 font-sans text-[26px] font-medium leading-[1.12] tracking-tight sm:text-[36px]"
         style={{ color: INK }}
       >
         {heroLine}
       </p>
-      {allocSub && (
-        <p className="mt-1.5 font-mono text-[11.5px] tabular-nums" style={{ color: SUB }}>
-          {allocSub}
-        </p>
+
+      {/* Capital + live allocation · what it is managing RIGHT NOW. */}
+      <div className="mt-6 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+        <span className="font-sans text-[32px] font-medium tabular-nums leading-none tracking-tight sm:text-[38px]" style={{ color: INK }}>
+          {value.toFixed(2)}
+        </span>
+        <span className="font-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
+          {bv.unit}
+        </span>
+        <span className="ml-1 font-mono text-[12px] tabular-nums" style={{ color: pnlColor }}>
+          {flatPnl ? "±0.00" : `${pnl > 0 ? "+" : ""}${pnl.toFixed(2)}`}
+          {!flatPnl ? ` · ${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(1)}%` : ""}
+          <span className="ml-1" style={{ color: SUB }}>vs deposit</span>
+        </span>
+      </div>
+      {allocSegs.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1 flex items-center justify-between font-mono text-[10px] tabular-nums" style={{ color: SUB }}>
+            <span className="uppercase tracking-[0.16em]">Allocation</span>
+            <span>
+              {allocSegs.map((s) => `${s.pct}% ${s.asset}`).join(" · ")} · {cashPct}% cash
+            </span>
+          </div>
+          <div className="flex h-2 w-full overflow-hidden rounded-full" style={{ background: "#E5E5EA" }}>
+            {allocSegs.map((s) => (
+              <div
+                key={s.asset}
+                className="h-full transition-[width] duration-500"
+                style={{ width: `${s.pct}%`, background: s.color }}
+              />
+            ))}
+          </div>
+        </div>
       )}
       <div
         className="mt-5 grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-4"
