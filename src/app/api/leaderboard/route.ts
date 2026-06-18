@@ -37,6 +37,20 @@ const NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet") as
   | "testnet"
   | "mainnet";
 
+// Policy accounting units: mainnet capital is USDC (6 decimals); testnet
+// predict ran in SUI/MIST (9 decimals). budget_cap + spent are stored in
+// the capital coin's base units, so divide by the right scale per network.
+const POLICY_UNIT_DIV = NETWORK === "mainnet" ? 1e6 : 1e9;
+
+// Map a gated-spot venue ("spot-sui" | "spot-wal" | "spot-deep") to its asset.
+function venueAsset(venue: string): string | null {
+  const v = venue.toLowerCase();
+  if (v.includes("deep")) return "DEEP";
+  if (v.includes("wal")) return "WAL";
+  if (v.includes("sui")) return "SUI";
+  return null;
+}
+
 const SPOT_CURSOR_PATH = path.resolve(
   process.cwd(),
   ".cursors/trader-spot-positions.json",
@@ -180,7 +194,7 @@ async function aggregate(): Promise<LeaderboardResponse> {
         name: String(f.name ?? "Untitled operator"),
         owner: String(f.owner ?? ""),
         agent: String(f.agent ?? ""),
-        budget_cap_sui: Number(BigInt(String(f.budget_cap ?? "0"))) / 1e9,
+        budget_cap_sui: Number(BigInt(String(f.budget_cap ?? "0"))) / POLICY_UNIT_DIV,
         spent_sui: 0,
         revoked: false,
         trade_count: 0,
@@ -223,13 +237,54 @@ async function aggregate(): Promise<LeaderboardResponse> {
         ?.fields;
       const row = policies.get(id);
       if (!row || !f) continue;
-      row.spent_sui = Number(BigInt(String(f.spent ?? "0"))) / 1e9;
+      row.spent_sui = Number(BigInt(String(f.spent ?? "0"))) / POLICY_UNIT_DIV;
       row.revoked = Boolean(f.revoked);
     }
   }
 
-  // ---- 3) Walk TaskPosted events filtered to predict-btc, fetch
-  //         deliverables, parse bodies ----------------------------------
+  // ---- 3a) MAINNET: walk PolicySpend events → real gated-spot trades --
+  //
+  // Every authorized gated-spot order emits an `operator_policy::PolicySpend`
+  // (record_spend + place_market_order are atomic in `gated_spot`). Each one
+  // is a REAL on-chain DeepBook fill · there is no "simulated" mode on
+  // mainnet, so every spend counts as a live trade.
+  if (NETWORK === "mainnet") {
+    let spendCursor: { eventSeq: string; txDigest: string } | null = null;
+    for (let page = 0; page < 8; page++) {
+      let res;
+      try {
+        res = await client.queryEvents({
+          query: {
+            MoveEventType: `${PACKAGE_ID}::operator_policy::PolicySpend`,
+          },
+          cursor: spendCursor,
+          limit: 50,
+          order: "descending",
+        });
+      } catch (e) {
+        errors.push(`spend events page ${page}: ${(e as Error).message}`);
+        break;
+      }
+      for (const ev of res.data ?? []) {
+        const f = ev.parsedJson as Record<string, unknown> | null;
+        if (!f) continue;
+        const row = policies.get(String(f.policy_id ?? ""));
+        if (!row) continue;
+        row.trade_count += 1;
+        row.live_count += 1;
+        const asset = venueAsset(String(f.venue ?? ""));
+        if (asset && !row.distinct_assets.includes(asset)) {
+          row.distinct_assets.push(asset);
+        }
+        const ms = Number(BigInt(String(f.ms ?? "0")));
+        if (ms > row.last_trade_at_ms) row.last_trade_at_ms = ms;
+      }
+      if (!res.hasNextPage || !res.nextCursor) break;
+      spendCursor = res.nextCursor as { eventSeq: string; txDigest: string };
+    }
+  } else {
+  // ---- 3b) TESTNET: walk TaskPosted events filtered to predict-btc,
+  //          fetch deliverables, parse bodies (live | simulated) --------
   cursor = null;
   const recentTasks: Array<{
     taskId: string;
@@ -368,6 +423,7 @@ async function aggregate(): Promise<LeaderboardResponse> {
     );
     if (producedAt > row.last_trade_at_ms) row.last_trade_at_ms = producedAt;
   }
+  } // end testnet predict-task walk
 
   // ---- 4) Fold spot-position realized P&L from local cursor -----------
   //

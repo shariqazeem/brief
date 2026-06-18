@@ -219,7 +219,7 @@ function LeaderboardConsole() {
             </Link>
             <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
               <Trophy className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-              Leaderboard · testnet
+              Leaderboard · {data?.network ?? "mainnet"}
             </span>
           </span>
         </div>
@@ -228,7 +228,7 @@ function LeaderboardConsole() {
       <section className="mx-auto max-w-5xl px-5 py-10 sm:px-8 sm:py-14">
         <div className="space-y-4">
           <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-            Live · Sui testnet · {data?.rows.length ?? "-"} operators adopted
+            Live · Sui {data?.network ?? "mainnet"} · {data?.rows.length ?? "-"} operators adopted
           </p>
           <h1 className="font-sans text-[34px] font-medium leading-[1.05] tracking-tightest text-ink sm:text-[44px]">
             The operator workforce.
@@ -382,16 +382,17 @@ function Row({
           )}
           {isLiveDemo && !isMine && (
             <span className="inline-flex items-center border border-line px-1.5 py-0.5 font-mono text-[8.5px] uppercase tracking-[0.22em] text-muted">
-              Demo
+              House
             </span>
           )}
         </div>
         <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-          {row.live_count > 0
-            ? `${row.live_count} live · ${row.simulated_count} sim`
-            : `${row.simulated_count} simulated`}{" "}
-          · {row.journal_entries} memory{" "}
-          {row.journal_entries === 1 ? "entry" : "entries"}
+          {row.trade_count} {row.trade_count === 1 ? "trade" : "trades"}
+          {row.journal_entries > 0
+            ? ` · ${row.journal_entries} memory ${
+                row.journal_entries === 1 ? "entry" : "entries"
+              }`
+            : ""}
         </p>
       </div>
 

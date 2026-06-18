@@ -4187,7 +4187,7 @@ function LiveConsole({
 function statusLabel(s: "active" | "revoked" | "expired" | "exhausted") {
   if (s === "revoked") return "REVOKED · chain refuses settlement";
   if (s === "expired") return "EXPIRED";
-  if (s === "exhausted") return "BUDGET EXHAUSTED";
+  if (s === "exhausted") return "BUDGET FULLY USED · capital deployed";
   return "LIVE";
 }
 
@@ -4212,8 +4212,12 @@ function PolicyCard({
   revokeSubmitting: boolean;
   revokeError: string | null;
 }) {
+  // Policy budget is denominated in the capital coin: USDC (6 dp) on
+  // mainnet, SUI/MIST (9 dp) on the testnet predict path.
+  const budgetDiv = BRIEF_NETWORK === "mainnet" ? 1e6 : 1e9;
+  const budgetUnit = BRIEF_NETWORK === "mainnet" ? "USDC" : "SUI";
   const remaining =
-    policy ? Number(policy.budgetCap - policy.spent) / 1e9 : null;
+    policy ? Number(policy.budgetCap - policy.spent) / budgetDiv : null;
   const cap = activation.budgetSui;
   const spent = remaining !== null ? Math.max(0, cap - remaining) : 0;
   const pct = remaining !== null ? Math.max(0, Math.min(1, remaining / cap)) : 0;
@@ -4268,8 +4272,8 @@ function PolicyCard({
               burning ? "animate-value-tick" : "",
             ].join(" ")}
           >
-            {remaining !== null ? remaining.toFixed(3) : cap.toFixed(2)}
-            <span className="text-muted"> / {cap.toFixed(2)} SUI</span>
+            {remaining !== null ? remaining.toFixed(2) : cap.toFixed(2)}
+            <span className="text-muted"> / {cap.toFixed(2)} {budgetUnit}</span>
           </span>
           <div className="h-1.5 min-w-[60px] flex-1 overflow-hidden bg-line">
             <div
@@ -4454,7 +4458,7 @@ function StatusPill({
       : status === "expired"
         ? "EXPIRED"
         : status === "exhausted"
-          ? "BUDGET EXHAUSTED"
+          ? "BUDGET FULLY USED"
           : "LIVE";
   return (
     <span
