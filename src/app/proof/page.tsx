@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api-base";
 import { BRIEF_NETWORK } from "@/lib/brief-client";
-import { EMERALD, RED } from "@/lib/ui";
+import { AMBER, EMERALD, RED } from "@/lib/ui";
 
 // ── verified MAINNET artifacts (each checked success/failure on the fullnode) ──
 const DEFAULT_POLICY =
@@ -332,10 +332,14 @@ export default function ProofPage() {
 
             {/* ── 5 · The Manifesto (Walrus) ─────────────────────────── */}
             <ProofCard
-              accent={EMERALD}
+              accent={blob ? EMERALD : AMBER}
               n="05"
-              title="The operator's reasoning is immutable."
-              line="The operator publishes its declared identity + pledge to Walrus. Content-addressed · it can't retroactively change its story."
+              title={
+                blob
+                  ? "The operator's reasoning is immutable."
+                  : "The operator anchors its reasoning to Walrus."
+              }
+              line="Each operator publishes its declared identity + pledge to Walrus. Content-addressed · it can't retroactively change its story."
             >
               {blob ? (
                 <>
@@ -351,7 +355,8 @@ export default function ProofPage() {
                 </>
               ) : (
                 <p className="mt-4 font-mono text-[11px] text-muted">
-                  No manifesto published for this operator yet.
+                  Manifesto anchors on this operator’s first live cycle. Earlier
+                  operators’ pledges are already permanent on Walrus.
                 </p>
               )}
             </ProofCard>
