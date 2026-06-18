@@ -54,6 +54,9 @@ export type ExperienceDetail = {
    *  decision · powers the "AI reasoned" badge on the Brain. */
   aiReasoned?: boolean;
   aiSource?: string | null;
+  /** Walrus blob holding the full AI prompt + response · the intelligence
+   *  behind a trade, verifiable like everything else. Null unless it acted. */
+  aiBlobId?: string | null;
 };
 
 export type ExperienceRecord = {

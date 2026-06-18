@@ -2339,6 +2339,47 @@ async function runGatedOperator(
   // non-tradeable regime (range-bound / mean-reversion) stands the op aside.
   const marketRegime = classifyRegime(signals);
 
+  // ---- PLAYBOOK + VOL-ADAPTIVE CONVICTION (load-bearing memory) ----------
+  // The operator's own SETTLED track record for THIS regime now gates the
+  // decision (it was display-only before): a regime it has demonstrably lost in
+  // dampens conviction (enough to flip an act → stand-down), an unproven one is
+  // treated with mild caution, and a proven one earns a small lift. Volatility
+  // adapts conviction too — when realized vol spikes, the operator demands more
+  // edge to act. All of this rides ON TOP of the nearest-neighbour recall.
+  const playbook = playbookFor(experience, marketRegime.kind);
+  const realizedVol = signals.realized_vol_60m ?? 0;
+  let playbookMult = 1;
+  if (
+    playbook.bestAction === "stand-aside" &&
+    playbook.winRate != null &&
+    playbook.winRate < 45 &&
+    playbook.wins + playbook.losses >= 3
+  ) {
+    playbookMult = 0.6; // its own settled record says this regime loses
+  } else if (playbook.bestAction === "stand-aside" && playbook.occurrences >= 3) {
+    playbookMult = 0.85; // unproven here → mild caution
+  } else if (
+    playbook.bestAction === "act" &&
+    playbook.winRate != null &&
+    playbook.winRate >= 55
+  ) {
+    playbookMult = 1.1; // proven to pay → slight lift
+  }
+  const volMult = realizedVol > 1.2 ? 0.85 : 1; // spiking vol → demand more edge
+  const effConfidenceMult = Math.max(
+    0.4,
+    Math.min(1.25, recall.confidenceMult * playbookMult * volMult),
+  );
+  const memNote =
+    playbookMult !== 1
+      ? `${recall.note} · playbook ${playbook.bestAction}${
+          playbook.winRate != null ? ` (${Math.round(playbook.winRate)}%)` : ""
+        }`
+      : recall.note;
+  // Vol-adaptive rebalance band · wider when the tape is volatile (avoids churn
+  // on chop); floors at 12 pts, caps at 30.
+  const REBALANCE_BAND = Math.min(0.3, 0.12 + realizedVol * 0.06);
+
   // Pass 1 · reason over regime + signals + memory + mandate (no exec yet).
   let eng = runDecisionEngine({
     asset,
@@ -2349,7 +2390,7 @@ async function runGatedOperator(
     budgetExhausted,
     mandate: mandateArg,
     regime: marketRegime,
-    opts: { memory: { note: recall.note, confidenceMult: recall.confidenceMult } },
+    opts: { memory: { note: memNote, confidenceMult: effConfidenceMult } },
   });
 
   // ---- AI ADVISOR (Phase 1) · the load-bearing LLM layer. Budget-gated inside
@@ -2415,7 +2456,7 @@ async function runGatedOperator(
       mandate: mandateArg,
       regime: marketRegime,
       opts: {
-        memory: { note: recall.note, confidenceMult: recall.confidenceMult },
+        memory: { note: memNote, confidenceMult: effConfidenceMult },
         ai: aiOpt,
       },
     });
@@ -2426,7 +2467,6 @@ async function runGatedOperator(
   // (eng.targetExposurePct), and only move when the gap clears a band. This is
   // what turns "tried to sell but had nothing" into "already in cash · no
   // action required": a real capital manager, not a trade firehose.
-  const REBALANCE_BAND = 0.15; // ignore drift under 15 pts · avoids churn
   const rebalanceSideFor = (d: typeof eng): Direction | null => {
     if (d.targetExposurePct == null) return null; // no confident view → hold
     const gap = d.targetExposurePct / 100 - currentExposure;
@@ -2471,7 +2511,7 @@ async function runGatedOperator(
       mandate: mandateArg,
       regime: marketRegime,
       opts: {
-        memory: { note: recall.note, confidenceMult: recall.confidenceMult },
+        memory: { note: memNote, confidenceMult: effConfidenceMult },
         exec: { note: execA.note, approved: execA.approved },
         ...(aiOpt ? { ai: aiOpt } : {}),
       },
@@ -2483,9 +2523,8 @@ async function runGatedOperator(
   const direction: Direction = rebalanceSide ?? eng.direction;
   const curExposurePct = Math.round(currentExposure * 100);
 
-  // ---- PLAYBOOK: the operator's learned procedure for THIS regime (real,
-  // aggregated from settled outcomes · memory as an operating procedure).
-  const playbook = playbookFor(experience, marketRegime.kind);
+  // ---- PLAYBOOK: the operator's learned procedure for THIS regime · computed
+  // earlier (it now gates the decision via effConfidenceMult, not just display).
 
   const reasoning = `${eng.thesis} ${eng.counterargument} → ${eng.verdict}`;
 
@@ -2573,6 +2612,52 @@ async function runGatedOperator(
     },
   });
 
+  // ---- VERIFIABLE AI (Phase 1b): when the LLM advisor shaped a REAL trade,
+  // anchor its full prompt + response to Walrus so the *intelligence itself* is
+  // auditable on-chain (not just the trade). Only on acts → rare + cheap.
+  // Best-effort · never blocks the cycle.
+  let aiBlobId: string | null = null;
+  if (aiAdvice && willRebalance && walrusEnabled()) {
+    try {
+      const up = await uploadToWalrus(
+        new TextEncoder().encode(
+          JSON.stringify(
+            {
+              schema: "brief.ai-reasoning.v1",
+              policyId: e.policyId,
+              asset,
+              ts: Date.now(),
+              model: aiAdvice.source,
+              decision: {
+                direction,
+                confidence: eng.confidence,
+                confidenceMod: aiAdvice.confidenceMod,
+                veto: aiAdvice.veto,
+              },
+              prompt: aiAdvice.prompt,
+              response: aiAdvice.raw,
+            },
+            null,
+            2,
+          ),
+        ),
+        ctx.client,
+        ctx.keypair,
+      );
+      aiBlobId = up.blobId;
+      emitAgentEvent("walrus_uploaded", {
+        policyId: e.policyId,
+        taskId,
+        asset,
+        data: { kind: "ai-reasoning", blob_id: up.blobId, upload_ms: up.uploadMs },
+      });
+    } catch (err) {
+      console.warn(
+        `[trader] AI reasoning Walrus upload skipped: ${String((err as Error)?.message ?? err).slice(0, 100)}`,
+      );
+    }
+  }
+
   // Persist this decision into the operator's experience. ACTs stay "pending"
   // until their horizon settles; abstentions are terminal. This is the memory
   // future cycles recall from.
@@ -2607,6 +2692,7 @@ async function runGatedOperator(
       txDigest: null,
       aiReasoned: eng.aiReasoned,
       aiSource: aiAdvice?.source ?? null,
+      aiBlobId,
     },
   };
   experience.push(expRecord);

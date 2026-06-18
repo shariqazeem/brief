@@ -32,6 +32,9 @@ type Detail = {
   recallWins?: number;
   recallLosses?: number;
   txDigest?: string | null;
+  aiReasoned?: boolean;
+  aiSource?: string | null;
+  aiBlobId?: string | null;
 };
 type Regime = { roc30: number; rsi: number; trend: number; vol: number };
 type Decision = {
@@ -226,8 +229,17 @@ function FocusedDecision({
         >
           ← older
         </button>
-        <span className="font-mono text-[11px] tabular-nums" style={{ color: MUTED }}>
+        <span className="inline-flex items-center gap-2 font-mono text-[11px] tabular-nums" style={{ color: MUTED }}>
           Decision #{d.seq ?? "-"} · {relTime(d.ts, now)}
+          {detail.aiReasoned && (
+            <span
+              className="inline-flex items-center border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.18em]"
+              style={{ borderColor: EMERALD, color: EMERALD }}
+              title={detail.aiSource ? `Reasoned by ${detail.aiSource}` : "LLM-reasoned"}
+            >
+              AI{detail.aiSource ? ` · ${detail.aiSource}` : ""}
+            </span>
+          )}
         </span>
         <button
           type="button"
@@ -301,6 +313,18 @@ function FocusedDecision({
             style={{ color: NAVY }}
           >
             {short(detail.txDigest, 6)} on Suiscan ↗
+          </a>
+        )}
+        {detail.aiBlobId && (
+          <a
+            href={`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${detail.aiBlobId}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 ml-3 inline-block font-mono text-[11px] underline-offset-2 hover:underline"
+            style={{ color: NAVY }}
+            title="The full LLM prompt + response behind this trade, content-addressed on Walrus"
+          >
+            AI reasoning on Walrus ↗
           </a>
         )}
 
