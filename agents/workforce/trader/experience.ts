@@ -50,6 +50,10 @@ export type ExperienceDetail = {
   recallWins: number;
   recallLosses: number;
   txDigest?: string | null;
+  /** Set when the LLM advisor (not just the deterministic engine) shaped this
+   *  decision · powers the "AI reasoned" badge on the Brain. */
+  aiReasoned?: boolean;
+  aiSource?: string | null;
 };
 
 export type ExperienceRecord = {

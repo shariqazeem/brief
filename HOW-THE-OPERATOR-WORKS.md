@@ -44,7 +44,12 @@ When you click adopt and sign once in your wallet, a single atomic transaction
    there.)
 5. **Creates the OperatorPolicy** — the leash, with:
    - `agent` = the operator's address (only this address can trade your BM)
-   - `budget_cap` = the total it may ever spend (your deposit amount)
+   - `budget_cap` = a **cumulative trading allowance** = your capital × the
+     mode's turnover multiple (**Protect 3× · Grow 5× · Aggressive 8×**). It
+     bounds the *total turnover* the operator may ever transact — large enough to
+     buy/sell/rebalance for weeks instead of retiring after one deployment. Your
+     **deposited capital is the real hard limit** (only you can withdraw it); the
+     allowance is an additional on-chain ceiling on activity.
    - `allowed_venues` = `spot-sui`, `spot-wal`, `spot-deep`
    - `expires_at_ms` = an expiry date
    - `revoked` = false
@@ -145,6 +150,12 @@ spend is rolled back. Move guarantees the atomicity.
 - Updates **lifetime stats** (decisions, allocations, abstentions, drawdown,
   the SUI benchmark) — the Performance + Results numbers.
 
+Each pending decision later **settles** win/loss at its ~1h horizon against
+**its own asset's** later price (SUI vs SUI, DEEP vs DEEP — never cross-asset),
+and any physically-impossible >100% outcome is dropped as corrupt. The return
+baseline is the operator's **actual deposited capital** (not the larger trading
+allowance), so the Performance/Results numbers are honest.
+
 ---
 
 ## 4. The leash — exactly what the chain enforces
@@ -172,6 +183,28 @@ chain retires the leash forever.
 
 ---
 
+## 4b. When you pull the plug — the non-custodial lifecycle
+
+Two separate owner actions, both yours, both one signature:
+
+- **Withdraw** (anytime): you pull your USDC + any held tokens out of your
+  BalanceManager back to your wallet. This **drains the operator's book**, so the
+  agent's next mark sees the balance collapse. The agent treats this correctly:
+  it **freezes** the displayed value at the last funded mark and shows
+  **"capital withdrawn · returned in full"** at ±0% — a withdrawal is *never*
+  reported as a trading loss (it's the whole point of non-custody). It then
+  **retires the operator cleanly** (stops cycling — no zombie loop burning
+  resources), and the Results page reads *"Capital returned in full, on demand."*
+- **Revoke** (anytime): `operator_policy::revoke`. The operator's very next trade
+  aborts `EPolicyRevoked` on-chain — the order never reaches DeepBook. Your funds
+  stay in your BM; you can still withdraw after revoking.
+
+You can do either, in either order. Withdraw ≠ revoke: withdrawing pulls the
+money; revoking kills the trading right. Both are enforced by the protocol, not
+our backend.
+
+---
+
 ## 5. Why it sometimes does *nothing* (and why that's correct)
 
 If you watch it hold cash, that's the operator working, not broken. It abstains
@@ -179,7 +212,10 @@ when:
 - the regime is **range-bound / mean-reversion** (no directional edge),
 - no asset is in a tradeable **up-trend** (it won't buy a falling market),
 - a rebalance isn't **feasible** (sub-lot cash),
-- the **budget is exhausted** (capital fully deployed — a normal end state),
+- the **trading allowance is used up** (`spent ≥ capital × the turnover
+  multiple` — a normal end state; the allowance lets it rebalance for weeks
+  first, and the status reads "budget fully used · capital deployed," not an
+  error),
 - a **mandate drawdown guard** trips (it stands down to honor your limit).
 
 Abstention is recorded as a **success**: "capital positioned, none at new
@@ -270,7 +306,12 @@ violations).
   agentic capital. The engine is conservative; in flat markets it holds.
 - The decision engine is **deterministic** today; the Claude reasoning layer is
   on-demand narration, not the live decision-maker (the Move policy gates
-  execution regardless).
+  execution regardless). The `opts.ai` hook to make it the live decider exists
+  but isn't wired (needs an API key).
+- **Memory is real but shallow:** recalled past regimes genuinely modulate
+  *confidence* (can flip act↔stand-down), but the per-regime **playbook is shown,
+  not yet used to gate decisions**, and win/loss is marked on raw mid moves (no
+  fees/slippage folded in yet), so the recorded record is optimistic.
 - Fresh operators have **thin history** until they accumulate cycles.
 
 **Bottom line:** the product is real, live on mainnet, multi-asset, and

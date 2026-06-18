@@ -124,6 +124,7 @@ import {
   settleLedger,
   type OperatorStats,
 } from "./ledger.js";
+import { maybeAiAdvise, type AiAdvice } from "./ai-advisor.js";
 import {
   evalMandate,
   loadMandateState,
@@ -2351,6 +2352,75 @@ async function runGatedOperator(
     opts: { memory: { note: recall.note, confidenceMult: recall.confidenceMult } },
   });
 
+  // ---- AI ADVISOR (Phase 1) · the load-bearing LLM layer. Budget-gated inside
+  // (only fires on a tradeable regime with plausible base confidence, rate-
+  // limited per operator + capped per week). It folds a confidence MODIFIER +
+  // direction + veto + thesis into the engine via opts.ai, so the AI actually
+  // moves the act-gate + allocator. It can sharpen or veto conviction but cannot
+  // fabricate a trade the signals don't support — and the Move policy still
+  // gates execution on-chain regardless. Null (mock/no-key/error) → deterministic.
+  let aiAdvice: AiAdvice | null = null;
+  let aiOpt:
+    | {
+        thesis: string;
+        counterargument: string;
+        confidence: number;
+        direction: "up" | "down";
+        source: string;
+      }
+    | undefined;
+  try {
+    aiAdvice = await maybeAiAdvise({
+      policyId: e.policyId,
+      asset,
+      midUsd,
+      mode,
+      regimeLabel: marketRegime.label,
+      tradeable: marketRegime.tradeable,
+      baseConfidence: eng.confidence,
+      baseDirection: eng.direction,
+      roc30: signals.roc_30m ?? 0,
+      roc4h: signals.roc_4h ?? 0,
+      roc24h: signals.roc_24h ?? 0,
+      rsi: signals.rsi_60m ?? 50,
+      vol: signals.realized_vol_60m ?? 0,
+      budgetUsedPct: budget.pct,
+      exposurePct: currentExposure,
+      portfolioUsd: portfolio?.value ?? 0,
+      recallNote: recall.note,
+      mandateNote: mandateArg?.review,
+    });
+  } catch {
+    aiAdvice = null;
+  }
+  if (aiAdvice) {
+    // AI confidence = deterministic base × (1 + modifier); a veto forces 0 → no act.
+    const aiConf = aiAdvice.veto
+      ? 0
+      : Math.max(0, Math.min(1, eng.confidence * (1 + aiAdvice.confidenceMod)));
+    aiOpt = {
+      thesis: aiAdvice.thesis,
+      counterargument: aiAdvice.counterargument,
+      confidence: aiConf,
+      direction: aiAdvice.direction === "abstain" ? eng.direction : aiAdvice.direction,
+      source: aiAdvice.source,
+    };
+    eng = runDecisionEngine({
+      asset,
+      signals,
+      spotUsd: midUsd,
+      mode,
+      budgetUsedPct: budget.pct,
+      budgetExhausted,
+      mandate: mandateArg,
+      regime: marketRegime,
+      opts: {
+        memory: { note: recall.note, confidenceMult: recall.confidenceMult },
+        ai: aiOpt,
+      },
+    });
+  }
+
   // ---- ALLOCATOR: think in ALLOCATIONS, not trades. Compare where capital
   // currently lives (currentExposure) to where the thesis wants it
   // (eng.targetExposurePct), and only move when the gap clears a band. This is
@@ -2403,6 +2473,7 @@ async function runGatedOperator(
       opts: {
         memory: { note: recall.note, confidenceMult: recall.confidenceMult },
         exec: { note: execA.note, approved: execA.approved },
+        ...(aiOpt ? { ai: aiOpt } : {}),
       },
     });
     rebalanceSide = rebalanceSideFor(eng);
@@ -2445,6 +2516,9 @@ async function runGatedOperator(
       execution_review: eng.executionReview,
       verdict: eng.verdict,
       ai_reasoned: eng.aiReasoned,
+      ai_source: aiAdvice?.source ?? null,
+      ai_rationale: aiAdvice?.rationale ?? null,
+      ai_confidence_mod: aiAdvice?.confidenceMod ?? null,
       // capital-manager view · what the money should be doing, vs where it is
       allocation: eng.allocation,
       target_exposure_pct: eng.targetExposurePct,
@@ -2531,6 +2605,8 @@ async function runGatedOperator(
       recallWins: recall.wins,
       recallLosses: recall.losses,
       txDigest: null,
+      aiReasoned: eng.aiReasoned,
+      aiSource: aiAdvice?.source ?? null,
     },
   };
   experience.push(expRecord);
