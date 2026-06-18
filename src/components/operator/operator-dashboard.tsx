@@ -327,6 +327,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           revoked={revoked}
           withdrawn={stats?.withdrawn === true}
           frozenValue={stats?.withdrawn ? stats.lastValue : null}
+          capital={stats?.deposit ?? null}
           stale={stale}
           now={now}
           bv={bv}
@@ -479,6 +480,7 @@ function OperatorHero({
   revoked,
   withdrawn,
   frozenValue,
+  capital,
   stale,
   now,
   bv,
@@ -490,6 +492,7 @@ function OperatorHero({
   revoked: boolean;
   withdrawn: boolean;
   frozenValue: number | null;
+  capital: number | null;
   stale: boolean;
   now: number;
   bv: { cap: number; spent: number; unit: string };
@@ -557,11 +560,17 @@ function OperatorHero({
   // BalanceManager is drained) · that is NOT a loss. Show the frozen funded
   // value at ±0% (capital was returned in full), regardless of any stale
   // live event that still carries the collapse.
-  const value = withdrawn && frozenValue != null ? frozenValue : pf?.value ?? bv.cap;
-  const deposit = pf?.deposit ?? bv.cap;
+  // Capital = the live mark (once the agent cycles) → the real DEPOSITED capital
+  // (stats.deposit, persisted) → null. NEVER bv.cap: that's the turnover
+  // ALLOWANCE (e.g. 8× the deposit), so using it would flash "$40" on a fresh $5
+  // operator until the first cycle. Show "—" until the real number is known.
+  const markValue = withdrawn && frozenValue != null ? frozenValue : pf?.value ?? capital;
+  const hasValue = markValue != null;
+  const value = markValue ?? 0;
+  const deposit = pf?.deposit ?? capital ?? value;
   const pnl = withdrawn ? 0 : value - deposit;
   const pnlPct = withdrawn ? 0 : pf?.pnlPct ?? 0;
-  const flatPnl = withdrawn || Math.abs(pnl) < 0.005;
+  const flatPnl = withdrawn || !hasValue || Math.abs(pnl) < 0.005;
   const pnlColor = flatPnl ? SUB : pnl > 0 ? EMERALD : RED;
   const ASSET_COLOR: Record<string, string> = { SUI: NAVY, WAL: AMBER, DEEP: EMERALD };
   const held = (dec?.holdings ?? []).filter((h) => h.valueUsd > 0.01);
@@ -619,18 +628,20 @@ function OperatorHero({
       {/* Capital + live allocation · what it is managing RIGHT NOW. */}
       <div className="mt-6 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <span className="font-sans text-[32px] font-medium tabular-nums leading-none tracking-tight sm:text-[38px]" style={{ color: INK }}>
-          {value.toFixed(2)}
+          {hasValue ? value.toFixed(2) : "—"}
         </span>
         <span className="font-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: SUB }}>
           {bv.unit}
         </span>
-        <span className="ml-1 font-mono text-[12px] tabular-nums" style={{ color: pnlColor }}>
-          {flatPnl ? "±0.00" : `${pnl > 0 ? "+" : ""}${pnl.toFixed(2)}`}
-          {!flatPnl ? ` · ${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(1)}%` : ""}
-          <span className="ml-1" style={{ color: SUB }}>
-            {withdrawn ? "withdrawn · returned in full" : "vs deposit"}
+        {hasValue && (
+          <span className="ml-1 font-mono text-[12px] tabular-nums" style={{ color: pnlColor }}>
+            {flatPnl ? "±0.00" : `${pnl > 0 ? "+" : ""}${pnl.toFixed(2)}`}
+            {!flatPnl ? ` · ${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(1)}%` : ""}
+            <span className="ml-1" style={{ color: SUB }}>
+              {withdrawn ? "withdrawn · returned in full" : "vs deposit"}
+            </span>
           </span>
-        </span>
+        )}
       </div>
       {allocSegs.length > 0 && !withdrawn && (
         <div className="mt-3">
