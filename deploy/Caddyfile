@@ -4,43 +4,18 @@
 # public hostname before this file is placed at /etc/caddy/Caddyfile.
 # We use a sentinel rather than Caddy's own {$VAR} env-sub because the
 # enclosing braces would otherwise make Caddy parse the directive as a
-# snippet rather than a hostname. For an sslip.io host like
-# 141-148-215-239.sslip.io Caddy auto-fetches a Let's Encrypt cert on
-# first request as long as inbound 80 + 443 are reachable from the
-# public internet.
+# snippet rather than a hostname. For an sslip.io host (or a real domain
+# whose A record points here) Caddy auto-fetches a Let's Encrypt cert on
+# first request as long as inbound 80 + 443 are reachable.
 
 __BRIEF_HOST__ {
-    # Compress everything EXCEPT the SSE stream — gzip would buffer the
-    # live decision wire and events would arrive in stale clumps.
-    @compressible {
-        not path /api/agent-events
-    }
-    encode @compressible gzip zstd
     log {
         output stdout
         format console
     }
 
-    # Don't cache HTML — the / and /workforce pages embed live RPC data.
-    @html {
-        path /
-        path /workforce
-        path /workforce/*
-        path /app
-        path /app/*
-    }
-    header @html Cache-Control "no-store"
-
-    # All other Next.js assets (chunks, fonts, images) get long-lived
-    # immutable caching — Next emits hashed filenames.
-    @static {
-        path /_next/static/*
-    }
-    header @static Cache-Control "public, max-age=31536000, immutable"
-
-    # CORS for the API routes so the Vercel-deployed UI (or any other
-    # origin a judge might run the console from) can POST to the VM.
-    # Routes already rate-limit per IP, so * is acceptable on testnet.
+    # CORS for the API routes so the Vercel-deployed UI (or any origin a
+    # judge runs the console from) can call the VM. Routes rate-limit per IP.
     @api {
         path /api/*
     }
@@ -50,29 +25,47 @@ __BRIEF_HOST__ {
         Access-Control-Allow-Headers "Content-Type"
         Access-Control-Max-Age "86400"
     }
-    # Short-circuit preflight requests so they don't hit Next.js (which
-    # doesn't have an OPTIONS handler on these routes).
+    # Short-circuit preflight so it doesn't hit Next (no OPTIONS handler).
     @apiOptions {
         method OPTIONS
         path /api/*
     }
     respond @apiOptions 204
 
-    # SSE — the live decision wire. Caddy buffers proxied bodies by
-    # default, which would hold agent events until the buffer flushes;
-    # flush_interval -1 streams every event the moment Next emits it.
-    # gzip must also be skipped or the stream stalls inside the encoder.
-    @sse {
-        path /api/agent-events
-    }
-    reverse_proxy @sse localhost:3000 {
-        flush_interval -1
-        header_up X-Real-IP {remote_host}
+    # SSE — the live decision wire. Its OWN handle block so the `encode`
+    # below can never wrap (and therefore buffer) the stream, and so there's
+    # no ambiguity with the catch-all reverse_proxy. flush_interval -1 pushes
+    # every agent event the instant Next emits it. `handle` blocks are
+    # mutually exclusive (first match wins), which is what makes this robust.
+    handle /api/agent-events {
+        reverse_proxy localhost:3000 {
+            flush_interval -1
+            header_up X-Real-IP {remote_host}
+        }
     }
 
-    reverse_proxy localhost:3000 {
-        # Caddy automatically sets X-Forwarded-For / X-Forwarded-Proto;
-        # these explicit lines just make intent visible in the file.
-        header_up X-Real-IP {remote_host}
+    # Everything else — compress, cache, and proxy to Next.
+    handle {
+        encode gzip zstd
+
+        # Don't cache HTML — the / and /workforce pages embed live RPC data.
+        @html {
+            path /
+            path /workforce
+            path /workforce/*
+            path /app
+            path /app/*
+        }
+        header @html Cache-Control "no-store"
+
+        # Hashed Next assets get long-lived immutable caching.
+        @static {
+            path /_next/static/*
+        }
+        header @static Cache-Control "public, max-age=31536000, immutable"
+
+        reverse_proxy localhost:3000 {
+            header_up X-Real-IP {remote_host}
+        }
     }
 }
