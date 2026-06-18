@@ -13,7 +13,6 @@ import { useEffect, useState } from "react";
 import { apiUrl } from "@/lib/api-base";
 import { BRIEF_NETWORK } from "@/lib/brief-client";
 import { EMERALD, RED } from "@/lib/ui";
-import { FloatingKillSwitch } from "@/components/operator/floating-kill-switch";
 
 // ── verified artifacts (each checked `success`/`failure` on the fullnode) ──
 const DEFAULT_POLICY =
@@ -355,8 +354,6 @@ export default function ProofPage() {
           </p>
         </footer>
       </div>
-      {/* Owner kill switch · revoke the operator on-chain from any surface. */}
-      <FloatingKillSwitch />
     </main>
   );
 }
