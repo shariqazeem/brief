@@ -93,7 +93,17 @@ It reads the BM's real balances — USDC cash + SUI + WAL + DEEP — and values
 them at current prices. That's the honest "how much money do I have right now"
 and "what do I own," across all tokens.
 
-### 3d. Run the decision engine (a transparent 7-step pipeline)
+### 3d. Recall the past (memory — load-bearing)
+Before deciding, the operator pulls its own most-similar past situations from its
+experience archive (the ≤3 nearest past regimes). Their settled outcomes produce a
+**confidence multiplier**: if this kind of setup has lost before, conviction is
+dampened — enough to flip an "act" into a "stand aside"; if it's paid off,
+conviction lifts. Its **per-regime playbook** (the settled win-rate for this exact
+regime) folds in the same way — a regime it's demonstrably lost in (≥3 settled,
+sub-45% win-rate) is dampened hard. This is real, load-bearing memory that changes
+the decision, not decoration.
+
+### 3e. Run the decision engine (a transparent 7-step pipeline)
 Mode-calibrated (you chose Protect / Grow / Aggressive at adoption):
 
 1. **Observe** — the price + signals.
@@ -105,6 +115,30 @@ Mode-calibrated (you chose Protect / Grow / Aggressive at adoption):
    order book* (`devInspect`) for slippage and depth; a thin book or bad
    slippage **vetoes** the trade.
 7. **Decision** — act, or stand aside.
+
+The final conviction = the deterministic signal strength × the memory/playbook
+multiplier × the AI advisor's modifier (next), checked against the mode's bar.
+
+### 3e-bis. The AI advisor (the LLM as a load-bearing layer)
+On every *meaningful* cycle — a tradeable regime where a trade is genuinely
+plausible — the operator sends its full context (portfolio, signals, regime,
+budget, mode, recent memory, and its own deterministic lean) to an LLM (Claude
+Haiku, via CommonStack) and gets back a structured verdict: a **confidence
+modifier (−30% … +20%), a direction, a veto, and a one-line thesis**. That verdict
+is folded back into the engine, so the AI **genuinely moves the act-gate and the
+allocation** — it can sharpen conviction, talk the operator *out* of a trade, or
+hard-veto. (Verified live: it once dampened a 0.72 conviction to 0.46 → stand-aside.)
+
+Two guarantees keep it honest and safe:
+- It can **never invent a trade** the deterministic signals don't support, and the
+  **Move policy still gates execution on-chain** no matter what the AI says.
+- It's **budget-safe by construction**: it only fires on plausible trades, is
+  rate-limited per operator (~once / 8 min) and weekly-capped, has a timeout, and
+  **falls back to the pure deterministic engine** if the LLM is off, slow, or
+  errors. (Toggle: `BRIEF_LLM_MODE=llm|mock`.)
+- When the AI shapes a *real trade*, its exact prompt + response are anchored to
+  **Walrus** — so the intelligence itself is verifiable. The Brain shows an
+  "AI · model" badge and a "AI reasoning on Walrus" link on those decisions.
 
 ### 3e. Think in allocations, not trades (the allocator)
 This is the part that makes it a *capital manager*, not a trade firehose. Each
@@ -118,11 +152,15 @@ mode has an **exposure ceiling**:
 
 The engine sets a **target exposure** (scaled by conviction, up to the
 ceiling). It compares where capital *is* to where the thesis *wants* it, and
-**only rebalances when the gap clears a 15% band** — so it doesn't churn on
-noise. Direction follows the regime, so "Trending up" can never read as
-"selling."
+**only rebalances when the gap clears a band** — so it doesn't churn on noise. The
+band is **volatility-adaptive**: ~15% in calm markets, widening toward 30% when
+realized volatility spikes (it demands a bigger edge to act in chaos). Direction
+follows the regime, so "Trending up" can never read as "selling."
 
 ### 3f. Safety gates before spending a cent
+- **Risk Guardian check** — before building any trade, the operator reads the
+  Risk Guardian's signal (a *second* autonomous agent — see §4c). If the Guardian
+  has paused this operator (vol spike / drawdown / circuit-break), it stands down.
 - **Feasibility** — is there enough cash to buy one min-lot? (SUI ≥1, WAL ≥1,
   DEEP ≥10). If not, it holds honestly.
 - **Pre-flight** — it `devInspect`s the *exact* gated transaction first. If it
@@ -205,6 +243,34 @@ our backend.
 
 ---
 
+## 4c. The Risk Guardian — Brief's second autonomous agent
+
+Brief isn't one agent — it's two, coordinating. The **trader** decides *when to
+allocate*; the **Risk Guardian** (`brief-guardian`, its own process running 24/7)
+decides *when not to*. It runs its own independent loop, watches each operator's
+risk, and raises or lowers a pause flag the trader obeys.
+
+- **What it watches:** every ~45s it independently computes each operator's
+  **realized volatility** and **drawdown** from the same price history, plus a
+  manual circuit-break override.
+- **What it decides:** with hysteresis (so it doesn't flap), it **pauses** an
+  operator when volatility spikes past a ceiling or drawdown exceeds a limit, and
+  **resumes** only once both are comfortably back under their low-water marks. It
+  writes a small signal file (`guardian-status.json`) with the state + reason.
+- **How the trader respects it:** before building *any* trade, the trader reads the
+  Guardian's signal and stands the operator down if it's paused (§3f). This is real
+  multi-agent coordination — two agents, one shared signal.
+- **What it is NOT:** the Guardian is **read-only** — it has no keys and never
+  touches funds. It can only *raise a flag*. It's "fail-open": if the Guardian is
+  down, trading continues, because the **Move policy is still the ultimate gate**
+  and your **revoke still overrides everything**. It's a safety layer on top of the
+  leash, not a replacement for it.
+
+The dashboard shows the Guardian live ("Risk Guardian · monitoring" or "· paused
+— <reason>"), so you can see the second agent working.
+
+---
+
 ## 5. Why it sometimes does *nothing* (and why that's correct)
 
 If you watch it hold cash, that's the operator working, not broken. It abstains
@@ -212,6 +278,10 @@ when:
 - the regime is **range-bound / mean-reversion** (no directional edge),
 - no asset is in a tradeable **up-trend** (it won't buy a falling market),
 - a rebalance isn't **feasible** (sub-lot cash),
+- the **AI advisor vetoed** or dampened conviction below the bar (it judged the
+  edge too weak),
+- the **Risk Guardian paused it** (the second agent stood it down on a vol spike
+  or drawdown),
 - the **trading allowance is used up** (`spent ≥ capital × the turnover
   multiple` — a normal end state; the allowance lets it rebalance for weeks
   first, and the status reads "budget fully used · capital deployed," not an
@@ -223,8 +293,9 @@ risk." In a down market, *not* losing is the win — e.g., holding cash while SU
 fell several percent beats riding it down.
 
 > Honest framing: this is a **trust + control layer for agentic capital**, not
-> an alpha machine. The engine is deterministic and disciplined. Its job is to
-> be safe, transparent, and killable — and to act only on a real signal.
+> an alpha machine. The engine is disciplined deterministic signals, LLM-guided
+> on top, with a second risk agent watching — and the chain enforcing it all. Its
+> job is to be safe, transparent, and killable, and to act only on a real edge.
 
 ---
 
@@ -238,20 +309,25 @@ Nothing is rendered from a database of made-up numbers.
 The operator's home. Top is the **Operator Status Surface**: live state
 (Observing / Executing / Grounded) with a pulsing indicator + "live · last
 decision N seconds ago," the operator's current thinking as the headline
-("No clear edge. Holding 48% in DEEP."), capital marked-to-market, and the
-**live multi-asset allocation bar** (SUI / WAL / DEEP / cash). Below: your
-funds (owner-only withdraw), performance vs holding SUI vs cash, the custody
-chain, the ledger, reasoning, and the policy/proof.
+("No clear edge. Holding 48% in DEEP."), capital marked-to-market (the **real
+deposited capital**, never the larger allowance), the **live multi-asset
+allocation bar** (SUI / WAL / DEEP / cash), and a **Risk Guardian row**
+("monitoring" or "paused — <reason>") showing the second agent at work. Below:
+your funds (owner-only withdraw, kill-switch chain-resolves ownership so the owner
+sees Revoke on any device), performance vs holding SUI vs cash, the custody chain,
+the ledger, reasoning, and the policy/proof.
 **Updated by the agent:** live via SSE on each decision event + 15s polling of
 the recorded scorecard/ledger/stats (so it stays truthful even if the live
 stream drops).
 
 ### Brain — `/brain?policy=<id>`
 Replays **every** decision as the operator reasoned it: *what it saw* (regime +
-price), *what it remembered* (similar past regimes), *what it feared* (the
-counterargument + the live execution check), *what it did* (e.g., "Added to
-DEEP" / "Held position"), and *what happened* (settled outcome, with the
-on-chain tx link).
+the asset-labelled price), *what it remembered* (similar past regimes), *what it
+feared* (the counterargument + the live execution check), *what it did* (e.g.,
+"Added to DEEP" / "Held position"), and *what happened* (settled outcome, with the
+on-chain tx link). When the LLM advisor shaped a decision, it carries an
+**"AI · model" badge** and, on AI-shaped trades, an **"AI reasoning on Walrus"**
+link to the exact prompt + response — the intelligence is verifiable, not claimed.
 **Updated by the agent:** every cycle writes a full replayable record to the
 experience archive; the Brain reads it newest-first.
 
@@ -289,40 +365,51 @@ violations).
 ## 7. Is it $30k-ready? (honest assessment)
 
 **What it nails:**
-- **Three tracks at once:** Core (an autonomous AI agent that *acts + transacts*
-  on Sui), **DeepBook** (real multi-asset orderbook trading), **Walrus**
-  (verifiable reasoning).
+- **Multiple tracks from one product:** Agentic Web / Agent Wallet (an autonomous
+  AI that *acts + transacts* on Sui), **DeepBook** (real multi-asset orderbook
+  trading), **Walrus** (verifiable reasoning + pledge), and **multi-agent**
+  coordination (trader + Risk Guardian).
 - **Proven on mainnet, real USDC** — adopt → multi-asset gated trades → revoke →
   the chain blocks the next trade → withdraw 100%. Real tx hashes, not a demo.
+- **Genuinely LLM-guided + multi-agent:** the AI advisor actually moves the
+  act-gate (verified live), and a second autonomous agent (the Risk Guardian) can
+  stand the trader down — all under an unbreakable Move policy.
 - **The memorable, unique thing:** "agent attempts action → the chain rejects
   it → funds safe." Almost nobody shows that.
 - **Honest by construction:** every number is on-chain or from the operator's
-  real record; abstention is shown as discipline; no fabricated P&L.
+  real record; abstention is shown as discipline; no fabricated P&L; a withdrawal
+  is never reported as a loss.
 - **Differentiated vs the obvious competitor (Beep):** on-chain *enforcement*
   vs a backend *promise*.
 
 **Be honest about (so a judge can't catch you off-guard):**
 - It is **not** an alpha machine — pitch it as the **trust/control layer** for
-  agentic capital. The engine is conservative; in flat markets it holds.
-- The decision engine is **deterministic** today; the Claude reasoning layer is
-  on-demand narration, not the live decision-maker (the Move policy gates
-  execution regardless). The `opts.ai` hook to make it the live decider exists
-  but isn't wired (needs an API key).
-- **Memory is real but shallow:** recalled past regimes genuinely modulate
-  *confidence* (can flip act↔stand-down), but the per-regime **playbook is shown,
-  not yet used to gate decisions**, and win/loss is marked on raw mid moves (no
-  fees/slippage folded in yet), so the recorded record is optimistic.
+  agentic capital. It trades only on a real edge; in flat markets it holds.
+- The intelligence is **deterministic signals + LLM modulation**, not a trained
+  predictive model. The LLM advisor genuinely shapes conviction/direction (and is
+  verifiable on Walrus), but it sharpens/vetoes an edge — it doesn't *predict*.
+- **Memory + the playbook now gate decisions** (load-bearing), but the learning is
+  heuristic; and win/loss settles on raw mid moves (no fees/slippage folded in
+  yet), so the recorded track record is optimistic.
+- Most cycles on quiet pools are **abstentions** — correct discipline, but it can
+  also mean the operator did little for a stretch.
 - Fresh operators have **thin history** until they accumulate cycles.
+- **Roadmap, not built:** persistent semantic memory (MemWal) and cross-protocol
+  yield (Scallop) — both deferred because they need external setup / a Move
+  redeploy that would risk the proven mainnet loop.
 
-**Bottom line:** the product is real, live on mainnet, multi-asset, and
-on-chain-enforced — a genuine first-place contender. The remaining points are
-in the **demo video** and the **submission narrative** ("the first agent wallet
-controlled by on-chain law"), not more features.
+**Bottom line:** the product is real, live on mainnet, multi-asset,
+on-chain-enforced, LLM-guided, and multi-agent — a genuine first-place contender.
+The remaining points are in the **demo video** and the **submission narrative**
+("the first AI agent wallet governed by on-chain law"), not more features.
 
 ---
 
 *Everything above reflects the live code paths: `buildAdoptTx`
 (deepbook-adopt), `gated_spot.move`, `operator_policy.move`, the trader's
 `gatedSpotTick` + `runGatedOperator`, the decision engine, regime classifier,
-signals + backfill, and the experience / ledger / stats stores that the pages
-read.*
+signals + backfill, the **AI advisor** (`ai-advisor.ts`, load-bearing LLM), the
+**Risk Guardian** (`guardian/index.ts` + `guardian-status.ts`, the second agent),
+and the experience / ledger / stats stores that the pages read. For the full
+technical reference (thresholds, abort codes, data-flow tables) see
+`BRIEF-TECHNICAL-PAPER.md`.*

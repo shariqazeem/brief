@@ -19,7 +19,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { explorerUrl, BRIEF_NETWORK, momentumLabel } from "@/lib/brief-client";
-import { INK, SUB, MUTED, NAVY, EMERALD, RED, AMBER, IDLE } from "@/lib/ui";
+import { INK, SUB, MUTED, NAVY, EMERALD, RED, AMBER, IDLE, INFO, SUCCESS } from "@/lib/ui";
 import {
   useOperatorJournal,
   type JournalDecision,
@@ -61,6 +61,10 @@ import {
 } from "@/lib/operator-ledger";
 import type { TraderPersonality } from "@/lib/workforce-client";
 import { walrusBlobUrl } from "@/lib/work-object";
+import AgentStrip, { type GuardianStatus } from "@/components/shared/AgentStrip";
+import EvidenceBadge from "@/components/shared/EvidenceBadge";
+import OperatorConstitution from "@/components/shared/OperatorConstitution";
+import SkeletonCard from "@/components/shared/SkeletonCard";
 
 
 const OperatorChart = nextDynamic(() => import("./operator-chart"), {
@@ -276,7 +280,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   const liveAsset = stream.decision?.asset ?? stream.asset ?? bv.asset;
   const journal = useOperatorJournal(policyId, bv.asset, spot);
   const { scorecard, decisions } = useOperatorScorecard(policyId);
-  const { ledger, stats } = useOperatorLedger(policyId);
+  const { ledger, stats, loaded: ledgerLoaded } = useOperatorLedger(policyId);
   const codename = operatorCodename(policyId);
   // Benchmark from persisted stats · SUI-anchored ("vs holding SUI") and
   // consistent across whatever asset the operator currently trades. Avoids the
@@ -300,6 +304,40 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         : "preserve"
       : "idle";
 
+  // AgentStrip · the two agents + the chain, every value REAL.
+  // Trader: latest decision's thesis + conviction; AI tag only when the
+  // decision was actually authored by Claude (dec.aiReasoned).
+  const dec = stream.decision;
+  const traderThesis = dec?.thesis ?? dec?.reasoning ?? deriveThesis(stream.signals);
+  const traderConfidence = dec?.conviction ?? (decisions[0]?.confidence ?? 0);
+  const traderAiModel = dec?.aiReasoned ? "Claude" : undefined;
+  // Guardian: paused → 'paused', else monitoring; 'watch' when the mandate is
+  // nearing its drawdown limit (≥70% of cap) but not yet breached; unknown
+  // until the first decision lands.
+  const m = dec?.mandate ?? null;
+  const guardianStatus: GuardianStatus = revoked
+    ? "unknown"
+    : !dec
+      ? "unknown"
+      : dec.guardianPaused || m?.breached
+        ? "paused"
+        : m && m.maxDrawdownPct > 0 && m.drawdownPct >= m.maxDrawdownPct * 0.7
+          ? "watch"
+          : "monitoring";
+  const guardianReason =
+    dec?.guardianReason ??
+    (m?.breached
+      ? m.summary || "Mandate guard tripped."
+      : guardianStatus === "watch"
+        ? `Drawdown ${m!.drawdownPct.toFixed(1)}% · nearing ${m!.maxDrawdownPct}% limit.`
+        : undefined);
+  const guardianLastCheck = stream.lastEventTs ? relTime(stream.lastEventTs, now) : undefined;
+
+  // Adaptive mode suggestion · advisory only, from the operator's REAL
+  // per-regime playbook win-rate in the CURRENT regime. Suggests Grow when the
+  // mode is clearly winning here (>60%), Protect when clearly losing.
+  const modeSuggestion = computeModeSuggestion(dec, scorecard);
+
   return (
     <div className="min-h-screen bg-bg">
       <TopBar
@@ -315,11 +353,12 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         readOnly={props.readOnly}
       />
 
-      <main className="mx-auto max-w-3xl space-y-6 px-5 py-8 sm:px-8">
+      <main className="mx-auto max-w-3xl px-5 py-8 sm:px-8 lg:max-w-5xl">
         {/* The Operator Status Surface · the dominant, living first screen ·
             state + the operator's current thinking (the billboard) + capital +
             live allocation + presence. "An autonomous operator is managing
-            capital for me" in two seconds — not a stack of report cards. */}
+            capital for me" in two seconds — not a stack of report cards.
+            Spans the full width above the two-column body. */}
         <OperatorHero
           name={codename}
           glyph={personality?.glyph ?? "◇"}
@@ -328,120 +367,183 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           withdrawn={stats?.withdrawn === true}
           frozenValue={stats?.withdrawn ? stats.lastValue : null}
           capital={stats?.deposit ?? null}
+          statsLoaded={ledgerLoaded}
           stale={stale}
           now={now}
           bv={bv}
+          modeSuggestion={modeSuggestion}
           fallback={{ latest: decisions[0] ?? null, count: decisions.length, liveAsset }}
         />
 
-        {/* Custody first · users care about their funds before reasoning.
-            Always shown (even in a shared ?policy= view): withdrawal is
-            owner-gated on-chain and the card self-checks the connected wallet,
-            so it appears only for the owner and is a no-op for anyone else. */}
-        {spot && <WithdrawFunds policyId={policyId} />}
+        {/* Two agents + the chain · Brief's differentiator, every value real. */}
+        <AgentStrip
+          className="mt-6"
+          traderThesis={traderThesis}
+          traderConfidence={traderConfidence}
+          traderAiModel={traderAiModel}
+          guardianStatus={guardianStatus}
+          guardianReason={guardianReason}
+          guardianLastCheck={guardianLastCheck}
+          policySpent={bv.spent}
+          policyBudget={bv.cap}
+          policyRevoked={revoked || policy?.revoked === true}
+        />
 
-        {spot && (
-          <OperatorPerformance
-            scorecard={scorecard}
-            stats={stats}
-            benchmark={benchmark}
-            stream={stream}
-            revoked={revoked}
-            assetLabel={bv.asset}
-          />
-        )}
-
-        {spot && <ProtectedBySui policyId={policyId} />}
-
-        {/* Detail · collapsed by default, one click away. */}
-        {spot && <OperatorLedgerCard ledger={ledger} now={now} />}
-
-        {/* REASONING · supporting evidence, collapsed by default (outcome > how) */}
         {spot ? (
-          <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-            <summary
-              className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 sm:px-8"
-              style={{ color: NAVY }}
-            >
-              <span className="font-mono text-[10px] uppercase tracking-[0.24em]">How it thinks · reasoning &amp; evidence</span>
-              <span className="font-mono text-[10px] transition-transform group-open:rotate-90" aria-hidden>
-                ›
-              </span>
-            </summary>
-            <div className="space-y-6 px-3 pb-6 sm:px-4" style={{ borderTop: "1px solid #E5E5EA" }}>
-              <div className="pt-6">
-                <MarketState signals={stream.signals} dec={stream.decision} assetLabel={liveAsset} />
-              </div>
-              <AllocationMatrix dec={stream.decision} />
-              {scorecard && scorecard.playbooks.length > 0 && (
-                <SectionCard title="What it's learned · playbooks">
-                  <PlaybookIntelligence playbooks={scorecard.playbooks} />
-                </SectionCard>
-              )}
+          // ≥1024px · two-column body. LEFT: performance + ledger + proof.
+          // RIGHT: custody (withdraw + chain + constitution) + reasoning + activity.
+          // On mobile (single column, source order) the Proof Summary surfaces
+          // right after the strip, before the lower sections.
+          <div className="mt-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6">
+            {/* LEFT column */}
+            <div className="space-y-6">
+              <OperatorPerformance
+                scorecard={scorecard}
+                stats={stats}
+                benchmark={benchmark}
+                stream={stream}
+                revoked={revoked}
+                assetLabel={bv.asset}
+              />
+              {/* Proof Summary high in the order · on mobile it surfaces right
+                  after the agent strip, before the lower sections. */}
+              <ProofSummary policyId={policyId} bv={bv} revoked={revoked || policy?.revoked === true} />
+              <LatestLedger ledger={ledger} now={now} />
             </div>
-          </details>
+
+            {/* RIGHT column */}
+            <div className="mt-6 space-y-6 lg:mt-0">
+              <WithdrawFunds policyId={policyId} />
+              <ProtectedBySui policyId={policyId} />
+              <OperatorConstitution
+                policyId={policyId ?? undefined}
+                revoked={revoked || policy?.revoked === true}
+                network={BRIEF_NETWORK === "mainnet" ? "mainnet" : "testnet"}
+              />
+
+              {/* REASONING · supporting evidence, collapsed by default. */}
+              <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+                <summary
+                  className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 sm:px-8"
+                  style={{ color: NAVY }}
+                >
+                  <span className="font-mono text-[10px] uppercase tracking-[0.24em]">How it thinks · reasoning &amp; evidence</span>
+                  <span className="font-mono text-[10px] transition-transform group-open:rotate-90" aria-hidden>
+                    ›
+                  </span>
+                </summary>
+                <div className="space-y-6 px-3 pb-6 sm:px-4" style={{ borderTop: "1px solid #E5E5EA" }}>
+                  <div className="pt-6">
+                    <MarketState signals={stream.signals} dec={stream.decision} assetLabel={liveAsset} />
+                  </div>
+                  <AllocationMatrix dec={stream.decision} />
+                  {scorecard && scorecard.playbooks.length > 0 && (
+                    <SectionCard title="What it's learned · playbooks">
+                      <PlaybookIntelligence playbooks={scorecard.playbooks} />
+                    </SectionCard>
+                  )}
+                </div>
+              </details>
+
+              <Collapsible title="Live activity" subtitle="watch it work">
+                <div className="space-y-8">
+                  <NowTab
+                    stream={stream}
+                    journal={journal}
+                    stale={stale}
+                    now={now}
+                    policy={policy}
+                    traderName={traderName}
+                    revoked={revoked}
+                    assetLabel={liveAsset}
+                    isSpot={spot}
+                    dispatchError={props.dispatchError}
+                    onDispatchAgain={props.onDispatchAgain}
+                    dispatching={props.dispatching}
+                  />
+                  <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: 24 }}>
+                    <div className="mb-4 flex items-center justify-between">
+                      <span className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+                        Timeline · its experience
+                      </span>
+                      {policyId && (
+                        <Link
+                          href={`/brain?policy=${policyId}`}
+                          className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-60"
+                          style={{ color: NAVY }}
+                        >
+                          Full replay →
+                        </Link>
+                      )}
+                    </div>
+                    <OperatorTimeline decisions={decisions} stream={stream} traderName={codename} now={now} />
+                  </div>
+                </div>
+              </Collapsible>
+
+              <BottomStrip entries={journal.entries} />
+            </div>
+          </div>
         ) : (
-          <MarketState signals={stream.signals} dec={stream.decision} assetLabel={liveAsset} />
-        )}
-
-        <Collapsible title="Live activity" subtitle="watch it work">
-          <div className="space-y-8">
-            <NowTab
-              stream={stream}
-              journal={journal}
-              stale={stale}
-              now={now}
-              policy={policy}
-              traderName={traderName}
-              revoked={revoked}
-              assetLabel={liveAsset}
-              isSpot={spot}
-              dispatchError={props.dispatchError}
-              onDispatchAgain={props.onDispatchAgain}
-              dispatching={props.dispatching}
-            />
-            <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: 24 }}>
-              <div className="mb-4 flex items-center justify-between">
-                <span className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
-                  Timeline · its experience
-                </span>
-                {policyId && (
-                  <Link
-                    href={`/brain?policy=${policyId}`}
-                    className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-60"
-                    style={{ color: NAVY }}
-                  >
-                    Full replay →
-                  </Link>
-                )}
+          // Predict (non-spot) fallback · single-column flow, unchanged.
+          <div className="mt-6 space-y-6">
+            <MarketState signals={stream.signals} dec={stream.decision} assetLabel={liveAsset} />
+            <Collapsible title="Live activity" subtitle="watch it work">
+              <div className="space-y-8">
+                <NowTab
+                  stream={stream}
+                  journal={journal}
+                  stale={stale}
+                  now={now}
+                  policy={policy}
+                  traderName={traderName}
+                  revoked={revoked}
+                  assetLabel={liveAsset}
+                  isSpot={spot}
+                  dispatchError={props.dispatchError}
+                  onDispatchAgain={props.onDispatchAgain}
+                  dispatching={props.dispatching}
+                />
+                <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: 24 }}>
+                  <div className="mb-4 flex items-center justify-between">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+                      Timeline · its experience
+                    </span>
+                    {policyId && (
+                      <Link
+                        href={`/brain?policy=${policyId}`}
+                        className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-60"
+                        style={{ color: NAVY }}
+                      >
+                        Full replay →
+                      </Link>
+                    )}
+                  </div>
+                  <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} isSpot={spot} />
+                </div>
               </div>
-              {spot ? (
-                <OperatorTimeline decisions={decisions} stream={stream} traderName={codename} now={now} />
-              ) : (
-                <JournalTab journal={journal} stream={stream} traderName={traderName} now={now} isSpot={spot} />
-              )}
-            </div>
-          </div>
-        </Collapsible>
+            </Collapsible>
 
-        <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          <summary
-            className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 sm:px-8"
-            style={{ color: NAVY }}
-          >
-            <span className="font-mono text-[10px] uppercase tracking-[0.24em]">Policy &amp; proof</span>
-            <span className="font-mono text-[10px] transition-transform group-open:rotate-90" aria-hidden>
-              ›
-            </span>
-          </summary>
-          <div className="px-5 pb-7 sm:px-8" style={{ borderTop: "1px solid #E5E5EA" }}>
-            <div className="pt-6">
-              <PolicyTab {...props} manifestoBlobId={stream.walrusManifestoBlobId} />
-            </div>
-          </div>
-        </details>
+            <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+              <summary
+                className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 sm:px-8"
+                style={{ color: NAVY }}
+              >
+                <span className="font-mono text-[10px] uppercase tracking-[0.24em]">Policy &amp; proof</span>
+                <span className="font-mono text-[10px] transition-transform group-open:rotate-90" aria-hidden>
+                  ›
+                </span>
+              </summary>
+              <div className="px-5 pb-7 sm:px-8" style={{ borderTop: "1px solid #E5E5EA" }}>
+                <div className="pt-6">
+                  <PolicyTab {...props} manifestoBlobId={stream.walrusManifestoBlobId} />
+                </div>
+              </div>
+            </details>
 
-        <BottomStrip entries={journal.entries} />
+            <BottomStrip entries={journal.entries} />
+          </div>
+        )}
       </main>
 
       {confirmRevoke && (
@@ -481,9 +583,11 @@ function OperatorHero({
   withdrawn,
   frozenValue,
   capital,
+  statsLoaded,
   stale,
   now,
   bv,
+  modeSuggestion,
   fallback,
 }: {
   name: string;
@@ -493,9 +597,11 @@ function OperatorHero({
   withdrawn: boolean;
   frozenValue: number | null;
   capital: number | null;
+  statsLoaded: boolean;
   stale: boolean;
   now: number;
   bv: { cap: number; spent: number; unit: string };
+  modeSuggestion: ModeSuggestion | null;
   fallback: { latest: DecisionRecord | null; count: number; liveAsset: string };
 }) {
   const dec = stream.decision;
@@ -584,6 +690,13 @@ function OperatorHero({
         : [];
   const cashPct = Math.max(0, 100 - allocSegs.reduce((s, x) => s + x.pct, 0));
 
+  // The first capital mark is still resolving · stats haven't loaded and no
+  // live portfolio value yet. Show a shimmer in place of the mark, never a
+  // wrong number (e.g. the budget allowance).
+  const markResolving = !statsLoaded && pf == null && !hasValue && !revoked && !withdrawn;
+  // Brand-new operator · loaded its history and there are no decisions yet.
+  const observing = statsLoaded && !dec && fallback.count === 0 && !revoked && !withdrawn;
+
   return (
     <section
       className="bg-bg-elev px-6 py-7 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9 sm:py-8"
@@ -625,6 +738,36 @@ function OperatorHero({
         {heroLine}
       </p>
 
+      {/* First-run · no decisions yet. Warm, not an error. */}
+      {observing && (
+        <p className="mt-3 font-mono text-[10.5px] uppercase leading-relaxed tracking-[0.18em]" style={{ color: NAVY }}>
+          Your operator is observing the market. First reasoning will appear within 60 seconds.
+        </p>
+      )}
+
+      {/* Active mode + adaptive suggestion · the suggestion is advisory only
+          (from the operator's real per-regime win-rate); it never auto-switches. */}
+      {dec?.mode && !revoked && !withdrawn && (
+        <div className="mt-3 inline-flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <span
+            className="border px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.18em]"
+            style={{ borderColor: "#E5E5EA", color: INK }}
+          >
+            {dec.mode} mode
+          </span>
+          {modeSuggestion && (
+            <Link
+              href={`/workforce/adopt?mode=${modeSuggestion.mode}`}
+              className="border px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.16em] transition-opacity hover:opacity-70"
+              style={{ borderColor: `${modeSuggestion.color}55`, color: modeSuggestion.color }}
+              title={modeSuggestion.reason}
+            >
+              Consider {modeSuggestion.label} →
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* Risk Guardian · the second autonomous agent. Shows it watching, or the
           moment it stands the operator down (the trader respects its pause). */}
       {dec && !revoked && !withdrawn && (
@@ -642,7 +785,13 @@ function OperatorHero({
         </div>
       )}
 
-      {/* Capital + live allocation · what it is managing RIGHT NOW. */}
+      {/* Capital + live allocation · what it is managing RIGHT NOW. While the
+          first mark resolves, shimmer in place — never flash a wrong number. */}
+      {markResolving ? (
+        <div className="mt-6">
+          <SkeletonCard lines={1} className="px-0 py-0 shadow-none sm:px-0" />
+        </div>
+      ) : (
       <div className="mt-6 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         <span className="font-sans text-[32px] font-medium tabular-nums leading-none tracking-tight sm:text-[38px]" style={{ color: INK }}>
           {hasValue ? value.toFixed(2) : "—"}
@@ -660,6 +809,7 @@ function OperatorHero({
           </span>
         )}
       </div>
+      )}
       {allocSegs.length > 0 && !withdrawn && (
         <div className="mt-3">
           <div className="mb-1 flex items-center justify-between font-mono text-[10px] tabular-nums" style={{ color: SUB }}>
@@ -935,81 +1085,177 @@ function BenchCell({ label, pct, strong }: { label: string; pct: number; strong?
   );
 }
 
-// Operator Ledger · every capital ALLOCATION as decision → action → outcome.
-// "10:14 PM · Moved into SUI · Breakout · +1.8%". The thin/empty state is
-// honest: holding through every regime IS the track record so far.
-function OperatorLedgerCard({ ledger, now }: { ledger: LedgerEvent[]; now: number }) {
-  const count = ledger.length;
+// Adaptive Mode Suggestion · advisory only. From the operator's REAL per-regime
+// playbook win-rate in the CURRENT regime: if the active mode is clearly winning
+// here (>60% over ≥3 settled) → suggest Grow; if clearly losing (<40%) → suggest
+// Protect. Insufficient evidence → null (render nothing).
+type ModeSuggestion = { mode: "grow" | "protect"; label: string; color: string; reason: string };
+
+function computeModeSuggestion(
+  dec: AgentStreamState["decision"],
+  scorecard: Scorecard | null,
+): ModeSuggestion | null {
+  if (!dec || !dec.mode || !scorecard) return null;
+  const kind = dec.regimeKind as RegimeKind | null;
+  if (!kind) return null;
+  const pb = scorecard.playbooks.find((p) => p.kind === kind);
+  if (!pb || pb.winRate == null) return null;
+  const settled = pb.wins + pb.losses;
+  if (settled < 3) return null; // not enough evidence to advise
+  if (pb.winRate > 60 && dec.mode !== "aggressive") {
+    return {
+      mode: "grow",
+      label: "Grow",
+      color: SUCCESS,
+      reason: `${Math.round(pb.winRate)}% win rate in ${pb.label} over ${settled} settled · room to lean in.`,
+    };
+  }
+  if (pb.winRate < 40 && dec.mode !== "protect") {
+    return {
+      mode: "protect",
+      label: "Protect",
+      color: AMBER,
+      reason: `${Math.round(pb.winRate)}% win rate in ${pb.label} over ${settled} settled · consider easing risk.`,
+    };
+  }
+  return null;
+}
+
+// Latest Ledger · the last 5 capital ALLOCATIONS as a compact mono table
+// (date · action · asset · amount · outcome), every row real from the operator's
+// on-chain ledger. Links the most recent trade to Suiscan via EvidenceBadge.
+function LatestLedger({ ledger, now }: { ledger: LedgerEvent[]; now: number }) {
+  const rows = ledger.slice(0, 5);
+  const latestTx = ledger.find((e) => e.txDigest)?.txDigest ?? null;
   return (
-    <Collapsible
-      title="Operator ledger"
-      subtitle={count > 0 ? `${count} allocation${count === 1 ? "" : "s"}` : "every allocation"}
-    >
-      {count === 0 ? (
-        <p className="text-[13px] leading-relaxed" style={{ color: SUB }}>
-          No allocation moves in the current window. Holding is a decision too.
+    <section className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9">
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+          Latest ledger
+        </p>
+        {ledger.length > 0 && (
+          <span className="font-mono text-[10px] tabular-nums" style={{ color: MUTED }}>
+            {ledger.length} allocation{ledger.length === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+      {rows.length === 0 ? (
+        <p className="mt-4 text-[13px] leading-relaxed" style={{ color: SUB }}>
+          No allocation moves yet. Holding is a decision too.
         </p>
       ) : (
-        <div className="space-y-0">
-          {ledger.slice(0, 20).map((ev, i) => (
-            <LedgerRow key={`${ev.ts}-${i}`} ev={ev} now={now} isFirst={i === 0} />
-          ))}
+        <div className="mt-4 space-y-0">
+          {rows.map((ev, i) => {
+            const settled = ev.outcome === "win" || ev.outcome === "loss";
+            const favorPct = (ev.outcomePct ?? 0) * 100;
+            const outcomeText = !settled
+              ? "settling…"
+              : `${favorPct >= 0 ? "+" : ""}${favorPct.toFixed(1)}%`;
+            const outcomeColor = !settled ? INFO : favorPct >= 0 ? EMERALD : RED;
+            const action = ev.side === "buy" ? "Buy" : "Sell";
+            const actionColor = ev.side === "buy" ? EMERALD : NAVY;
+            return (
+              <div
+                key={`${ev.ts}-${i}`}
+                className="flex items-baseline gap-3 py-2 font-mono text-[11px] tabular-nums"
+                style={{ borderTop: i === 0 ? "none" : "1px solid #F0F0F0" }}
+              >
+                <span className="shrink-0" style={{ color: MUTED, minWidth: 96 }}>
+                  {dateLabel(ev.ts)}
+                </span>
+                <span className="shrink-0 uppercase tracking-[0.1em]" style={{ color: actionColor, minWidth: 32 }}>
+                  {action}
+                </span>
+                <span className="shrink-0" style={{ color: INK, minWidth: 28 }}>
+                  SUI
+                </span>
+                <span className="flex-1 truncate" style={{ color: SUB }}>
+                  {ev.qtySui}
+                </span>
+                <span className="shrink-0 text-right" style={{ color: outcomeColor }}>
+                  {outcomeText}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
-    </Collapsible>
+      {latestTx && (
+        <div className="mt-4">
+          <EvidenceBadge
+            type="tx"
+            tone="success"
+            href={explorerUrl("txblock", latestTx)}
+            label="View latest trade on Suiscan"
+          />
+        </div>
+      )}
+    </section>
   );
 }
 
-function LedgerRow({ ev, now, isFirst }: { ev: LedgerEvent; now: number; isFirst: boolean }) {
-  const action = ev.side === "buy" ? `Moved into ${ev.regimeLabel ? "SUI" : "SUI"}` : "Moved to cash";
-  const headline = ev.side === "buy" ? `Added ${ev.qtySui} SUI` : `Sold ${ev.qtySui} SUI → cash`;
-  const settled = ev.outcome === "win" || ev.outcome === "loss";
-  const favorPct = (ev.outcomePct ?? 0) * 100;
-  const outcomeText = !settled
-    ? "settling…"
-    : ev.side === "buy"
-      ? favorPct >= 0
-        ? `+${favorPct.toFixed(1)}% · SUI rose after`
-        : `${favorPct.toFixed(1)}% · SUI fell after`
-      : favorPct >= 0
-        ? `avoided ${Math.abs(favorPct).toFixed(1)}% drop`
-        : `missed ${Math.abs(favorPct).toFixed(1)}% upside`;
-  const outcomeColor = !settled ? "#4DA2FF" : favorPct >= 0 ? EMERALD : RED;
-  const dotColor = ev.side === "buy" ? EMERALD : NAVY;
+// Proof Summary · a compact reassurance card: 0 policy violations (first-class
+// stat), the real on-chain spent/budget bar, revoke status, and a prominent link
+// to the full Proof page. All values real from the on-chain policy object.
+function ProofSummary({
+  policyId,
+  bv,
+  revoked,
+}: {
+  policyId: string | null;
+  bv: { cap: number; spent: number; unit: string };
+  revoked: boolean;
+}) {
+  const spentPct = bv.cap > 0 ? Math.min(100, Math.round((bv.spent / bv.cap) * 100)) : 0;
   return (
-    <div className="flex gap-3.5 py-3" style={{ borderTop: isFirst ? "none" : "1px solid #F0F0F0" }}>
-      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: dotColor }} aria-hidden />
-      <div className="min-w-0 flex-1">
-        <p className="font-mono text-[10px] tabular-nums" style={{ color: MUTED }}>
-          {dateLabel(ev.ts)} · {relTime(ev.ts, now)}
+    <section
+      className="bg-bg-elev px-6 py-6 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:px-9"
+      style={{ borderTop: `3px solid ${revoked ? RED : EMERALD}` }}
+    >
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+          Proof summary
         </p>
-        <p className="mt-0.5 text-[14px] font-medium tracking-tight" style={{ color: INK }}>
-          {headline}
-          <span className="ml-2 font-sans text-[12px] font-normal" style={{ color: SUB }}>
-            {action} · {ev.fromExposurePct}% → {ev.targetPct}%
-          </span>
-        </p>
-        {ev.reason && (
-          <p className="mt-0.5 text-[12.5px] leading-snug" style={{ color: SUB }}>
-            {ev.reason}
-          </p>
+        {policyId && (
+          <Link
+            href={`/proof?policy=${policyId}`}
+            className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-60"
+            style={{ color: NAVY }}
+          >
+            See full Proof →
+          </Link>
         )}
-        <p className="mt-0.5 font-mono text-[11.5px] tabular-nums" style={{ color: outcomeColor }}>
-          {outcomeText}
-        </p>
       </div>
-      {ev.txDigest && (
-        <a
-          href={explorerUrl("txblock", ev.txDigest)}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-1 shrink-0 font-mono text-[9px] uppercase tracking-[0.18em] underline-offset-2 hover:underline"
-          style={{ color: SUB }}
-        >
-          tx ↗
-        </a>
-      )}
-    </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden" style={{ background: "#E5E5EA" }}>
+        <HeroStat label="Policy violations" value="0" color={EMERALD} />
+        <HeroStat
+          label="Authority"
+          value={revoked ? "Revoked" : "Active"}
+          color={revoked ? RED : EMERALD}
+        />
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-1 flex items-center justify-between font-mono text-[10px] tabular-nums" style={{ color: SUB }}>
+          <span className="uppercase tracking-[0.16em]">Budget spent</span>
+          <span>
+            {bv.spent.toFixed(2)} / {bv.cap.toFixed(2)} {bv.unit}
+          </span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: "#E5E5EA" }}>
+          <div
+            className="h-full transition-[width] duration-500"
+            style={{ width: `${spentPct}%`, background: revoked ? RED : NAVY }}
+          />
+        </div>
+      </div>
+
+      <p className="mt-3 text-[12px] leading-relaxed" style={{ color: SUB }}>
+        Every action is on-chain and budget-bounded. The Move policy can never be
+        exceeded · verifiable by anyone.
+      </p>
+    </section>
   );
 }
 

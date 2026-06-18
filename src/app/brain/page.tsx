@@ -9,9 +9,11 @@
 // Walrus-anchored experience the operator recalls from. Huge whitespace, navy
 // section headers, white institutional aesthetic.
 
+import { Shield, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
+import EvidenceBadge from "@/components/shared/EvidenceBadge";
 import { apiUrl } from "@/lib/api-base";
 import { explorerUrl, momentumLabel } from "@/lib/brief-client";
 import { INK, SUB, MUTED, NAVY, EMERALD, RED, AMBER, BLUE, LINE } from "@/lib/ui";
@@ -35,6 +37,9 @@ type Detail = {
   aiReasoned?: boolean;
   aiSource?: string | null;
   aiBlobId?: string | null;
+  /** Per-decision Risk-Guardian checkpoint state. Optional · old records omit it. */
+  guardianPaused?: boolean;
+  guardianReason?: string | null;
 };
 type Regime = { roc30: number; rsi: number; trend: number; vol: number };
 type Decision = {
@@ -139,7 +144,12 @@ function Brain() {
               {policyId ? "reading the operator…" : "no operator selected"}
             </p>
           ) : decisions.length === 0 ? (
-            <LearningState policyId={policyId} />
+            <>
+              <p className="mb-8 text-center font-sans text-[16px] leading-relaxed" style={{ color: SUB }}>
+                The operator is still observing — its first reasoning will appear here.
+              </p>
+              <LearningState policyId={policyId} />
+            </>
           ) : current ? (
             <FocusedDecision
               d={current}
@@ -224,7 +234,8 @@ function FocusedDecision({
           type="button"
           onClick={onPrev}
           disabled={index >= total - 1}
-          className="border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors hover:border-ink disabled:opacity-25"
+          aria-label="Older decision"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors hover:border-ink disabled:opacity-25"
           style={{ borderColor: LINE, color: INK }}
         >
           ← older
@@ -233,19 +244,20 @@ function FocusedDecision({
           Decision #{d.seq ?? "-"} · {relTime(d.ts, now)}
           {detail.aiReasoned && (
             <span
-              className="inline-flex items-center border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.18em]"
-              style={{ borderColor: EMERALD, color: EMERALD }}
+              className="inline-flex items-center bg-[#1a2c4e] px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-white"
               title={detail.aiSource ? `Reasoned by ${detail.aiSource}` : "LLM-reasoned"}
             >
-              AI{detail.aiSource ? ` · ${detail.aiSource}` : ""}
+              {modelLabel(detail.aiSource)}
             </span>
           )}
+          <GuardianBeat detail={detail} />
         </span>
         <button
           type="button"
           onClick={onNext}
           disabled={index <= 0}
-          className="border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors hover:border-ink disabled:opacity-25"
+          aria-label="Newer decision"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors hover:border-ink disabled:opacity-25"
           style={{ borderColor: LINE, color: INK }}
         >
           newer →
@@ -285,6 +297,26 @@ function FocusedDecision({
           sub={act ? detail.executionReview ?? undefined : undefined}
         />
 
+        {/* Guardian Review · the per-decision circuit-breaker checkpoint.
+            Renders only when the record carries guardian state (back-compat). */}
+        {detail.guardianPaused !== undefined && (
+          <div className="mb-9 -mt-3 flex items-center gap-2">
+            {detail.guardianPaused ? (
+              <ShieldAlert size={15} strokeWidth={1.9} aria-hidden style={{ color: RED }} />
+            ) : (
+              <Shield size={15} strokeWidth={1.9} aria-hidden style={{ color: EMERALD }} />
+            )}
+            <span
+              className="font-mono text-[10px] uppercase tracking-[0.2em]"
+              style={{ color: detail.guardianPaused ? RED : EMERALD }}
+            >
+              {detail.guardianPaused
+                ? `Guardian · paused${detail.guardianReason ? ` — ${detail.guardianReason}` : ""}`
+                : "Guardian · monitoring"}
+            </span>
+          </div>
+        )}
+
         <BigBlock
           label="What it did"
           emphasis
@@ -316,16 +348,13 @@ function FocusedDecision({
           </a>
         )}
         {detail.aiBlobId && (
-          <a
-            href={`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${detail.aiBlobId}`}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 ml-3 inline-block font-mono text-[11px] underline-offset-2 hover:underline"
-            style={{ color: NAVY }}
-            title="The full LLM prompt + response behind this trade, content-addressed on Walrus"
-          >
-            AI reasoning on Walrus ↗
-          </a>
+          <div className="mt-3">
+            <EvidenceBadge
+              type="walrus"
+              href={`https://aggregator.walrus-testnet.walrus.space/v1/blobs/${detail.aiBlobId}`}
+              label="AI reasoning on Walrus"
+            />
+          </div>
         )}
 
         {/* On-demand narration · plain English, in a click */}
@@ -409,6 +438,47 @@ function BigBlock({
       )}
     </div>
   );
+}
+
+// At-a-glance Guardian state for the decision header · a small Shield icon with
+// an accessible label/tooltip. Renders nothing for older records (back-compat).
+function GuardianBeat({ detail }: { detail: Detail }) {
+  if (detail.guardianPaused === undefined) return null;
+  const paused = detail.guardianPaused;
+  const label = paused
+    ? `Guardian: paused${detail.guardianReason ? ` — ${detail.guardianReason}` : ""}`
+    : "Guardian: monitoring";
+  return (
+    <span className="inline-flex" title={label} aria-label={label} role="img">
+      {paused ? (
+        <ShieldAlert size={14} strokeWidth={1.9} aria-hidden style={{ color: RED }} />
+      ) : (
+        <Shield size={14} strokeWidth={1.9} aria-hidden style={{ color: EMERALD }} />
+      )}
+    </span>
+  );
+}
+
+// Clean, human model label from a raw aiSource (e.g. "claude-3-5-haiku-latest"
+// → "Claude Haiku", "deepseek/deepseek-v4-flash" → "DeepSeek v4-flash"). Falls
+// back to a generic "AI" badge when the source is unknown.
+function modelLabel(source: string | null | undefined): string {
+  if (!source) return "AI";
+  const s = source.toLowerCase();
+  if (s.includes("claude")) {
+    if (s.includes("haiku")) return "Claude Haiku";
+    if (s.includes("sonnet")) return "Claude Sonnet";
+    if (s.includes("opus")) return "Claude Opus";
+    return "Claude";
+  }
+  if (s.includes("deepseek")) {
+    const m = /v\d[\w.-]*/.exec(s);
+    return m ? `DeepSeek ${m[0]}` : "DeepSeek";
+  }
+  if (s.includes("gpt")) return "GPT";
+  // Unknown model · show its last path segment, tidied, capped for the pill.
+  const tail = source.split("/").pop() ?? source;
+  return tail.length > 18 ? `${tail.slice(0, 17)}…` : tail;
 }
 
 function regimeColor(label: string | undefined, trend: number): string {

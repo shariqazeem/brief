@@ -8,12 +8,25 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
-import { INK, SUB, MUTED, NAVY, EMERALD, LINE } from "@/lib/ui";
+import { apiUrl } from "@/lib/api-base";
+import EvidenceBadge from "@/components/shared/EvidenceBadge";
+import { INK, SUB, MUTED, NAVY, INFO, EMERALD, LINE } from "@/lib/ui";
 import { loadLatestTraderIdentity } from "@/lib/workforce-client";
 import { operatorCodename } from "@/lib/operator-identity";
 import { useOperatorScorecard } from "@/lib/operator-scorecard";
 import { useOperatorLedger } from "@/lib/operator-ledger";
 import { computeEvolution, type Milestone } from "@/lib/operator-evolution";
+
+/** The EXACT on-disk schema served by /api/operators/reflections. */
+type Reflection = {
+  date: string;
+  worked: string;
+  failed: string;
+  lesson: string;
+  blobId: string | null;
+  walrusUrl: string | null;
+  createdMs: number;
+};
 
 export default function EvolutionPage() {
   return (
@@ -34,6 +47,26 @@ function Evolution() {
   const { ledger, stats } = useOperatorLedger(policyId);
   const codename = operatorCodename(policyId);
   const evo = useMemo(() => computeEvolution(decisions, ledger, stats), [decisions, ledger, stats]);
+
+  // Daily Reflections · the operator's once-a-day self-critique, read from the
+  // same `.cursors/daily-reflections-<slug>.json` the trader anchors to Walrus.
+  const [reflections, setReflections] = useState<Reflection[] | null>(null);
+  useEffect(() => {
+    if (!policyId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(apiUrl(`/api/operators/reflections?policy_id=${encodeURIComponent(policyId)}`));
+        const j = (await r.json()) as { reflections?: Reflection[] };
+        if (!cancelled) setReflections(j.reflections ?? []);
+      } catch {
+        if (!cancelled) setReflections([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [policyId]);
 
   return (
     <main className="min-h-screen bg-bg text-ink">
@@ -107,6 +140,28 @@ function Evolution() {
               ))}
             </div>
 
+            {/* Daily Reflections · the operator's once-a-day self-critique */}
+            {reflections && reflections.length > 0 ? (
+              <>
+                <h2 className="mt-12 font-mono text-[10px] uppercase tracking-[0.28em]" style={{ color: NAVY }}>
+                  Daily reflections
+                </h2>
+                <p className="mt-2 text-[13px] leading-relaxed" style={{ color: SUB }}>
+                  Once a day, the operator critiques itself · what worked, what failed, the
+                  lesson. Anchored to Walrus, verifiable like everything else.
+                </p>
+                <div className="mt-5">
+                  {reflections.map((r, i) => (
+                    <ReflectionRow key={`${r.date}-${r.createdMs}`} r={r} isLast={i === reflections.length - 1} />
+                  ))}
+                </div>
+              </>
+            ) : reflections && reflections.length === 0 ? (
+              <p className="mt-12 text-[13px] leading-relaxed" style={{ color: MUTED }}>
+                Reflections begin after the operator&apos;s first full day.
+              </p>
+            ) : null}
+
             {policyId && (
               <p className="mt-12 font-mono text-[10px] leading-relaxed" style={{ color: MUTED }}>
                 Every lesson is derived from the operator&apos;s settled outcomes · see the
@@ -170,4 +225,81 @@ function MilestoneRow({ m, isLast }: { m: Milestone; isLast: boolean }) {
       </div>
     </div>
   );
+}
+
+// A single daily reflection · timeline-styled like the path, but with a NAVY
+// dot to distinguish self-critique from the growth milestones. Click to expand
+// worked / failed / lesson in full.
+function ReflectionRow({ r, isLast }: { r: Reflection; isLast: boolean }) {
+  const [open, setOpen] = useState(false);
+  // Prefer the lesson as the excerpt; fall back to what worked / failed.
+  const excerpt = r.lesson?.trim() || r.worked?.trim() || r.failed?.trim() || "Reflection recorded.";
+  const dateLabel = fmtReflectionDate(r.date);
+  return (
+    <div className="relative flex gap-4">
+      <div className="flex flex-col items-center pt-1">
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: NAVY }} aria-hidden />
+        {!isLast && <span className="my-1 w-px flex-1" style={{ background: "#E5E5EA", minHeight: 18 }} aria-hidden />}
+      </div>
+      <div className={`flex-1 ${isLast ? "pb-1" : "pb-6"}`}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="block w-full text-left transition-opacity hover:opacity-70"
+          aria-expanded={open}
+        >
+          <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: INFO }}>
+            {dateLabel}
+            <span aria-hidden style={{ color: MUTED }}>{open ? "−" : "+"}</span>
+          </span>
+          <span className="mt-0.5 block font-sans text-[16px] font-medium leading-snug tracking-tight" style={{ color: INK }}>
+            {excerpt}
+          </span>
+        </button>
+
+        {open && (
+          <div className="mt-3 space-y-3" style={{ borderLeft: `1px solid ${LINE}`, paddingLeft: 14 }}>
+            {r.worked?.trim() && (
+              <div>
+                <p className="font-mono text-[9px] uppercase tracking-[0.22em]" style={{ color: EMERALD }}>
+                  Worked
+                </p>
+                <p className="mt-1 text-[13.5px] leading-relaxed" style={{ color: SUB }}>{r.worked}</p>
+              </div>
+            )}
+            {r.failed?.trim() && (
+              <div>
+                <p className="font-mono text-[9px] uppercase tracking-[0.22em]" style={{ color: MUTED }}>
+                  Failed
+                </p>
+                <p className="mt-1 text-[13.5px] leading-relaxed" style={{ color: SUB }}>{r.failed}</p>
+              </div>
+            )}
+            {r.lesson?.trim() && (
+              <div>
+                <p className="font-mono text-[9px] uppercase tracking-[0.22em]" style={{ color: NAVY }}>
+                  Lesson
+                </p>
+                <p className="mt-1 text-[13.5px] leading-relaxed" style={{ color: INK }}>{r.lesson}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {r.walrusUrl && (
+          <div className="mt-2.5">
+            <EvidenceBadge type="walrus" href={r.walrusUrl} label="On Walrus" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function fmtReflectionDate(date: string): string {
+  // date is "YYYY-MM-DD" · render as e.g. "Jun 18" without timezone drift.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return date;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 }

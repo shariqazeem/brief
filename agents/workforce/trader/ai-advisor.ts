@@ -16,6 +16,7 @@
 
 import { callLlm, llmMode } from "../../lib/llm.js";
 import { activeLlmKey, loadEnv } from "../../lib/env.js";
+import { loadFreshMacroBriefing } from "./macro-briefing.js";
 
 export type AiAdvice = {
   thesis: string;
@@ -95,8 +96,21 @@ export async function maybeAiAdvise(
   // COMMONSTACK_MODEL stays for narration; the advisor needs structured output.
   const model = process.env.BRIEF_AI_ADVISOR_MODEL || "claude-haiku-4-5";
   const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
+  // Market Regime Oracle · a shared, 6h-cached macro read (sentiment/news/impact
+  // on SUI·DEEP·WAL) so the AI weighs broader conditions, not just local signals.
+  // Best-effort + lean: prepend only when present and fresh (≤12h). Never throws.
+  let macroLine = "";
+  try {
+    const macro = await loadFreshMacroBriefing();
+    if (macro?.summary) {
+      macroLine = `Macro context: ${macro.summary.slice(0, 700)}`;
+    }
+  } catch {
+    macroLine = "";
+  }
   const prompt = [
     `You are the risk-and-conviction advisor for an autonomous on-chain trading operator on Sui DeepBook.`,
+    macroLine,
     `Operator mode: ${input.mode} (protect = cautious, grow = balanced, aggressive = bolder).`,
     `Asset: ${input.asset} at $${input.midUsd}.`,
     `Market: regime "${input.regimeLabel}" (${input.tradeable ? "tradeable" : "stand-aside"}). ROC 30m ${pct(input.roc30)}, 4h ${pct(input.roc4h)}, 24h ${pct(input.roc24h)}. RSI ${input.rsi.toFixed(0)}. Realized vol ${pct(input.vol)}.`,

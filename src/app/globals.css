@@ -108,6 +108,19 @@ body {
 }
 .boot-settle { animation: bootSettle 900ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 
+/* Skeleton shimmer · a soft grey sweep across loading placeholders, used by
+   SkeletonCard and any inline skeleton bars. Frozen by the reduced-motion
+   guard below (it neutralizes all animation-duration). */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, #F0F0F0 25%, #E5E5EA 37%, #F0F0F0 63%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

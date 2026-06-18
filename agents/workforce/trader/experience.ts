@@ -57,6 +57,10 @@ export type ExperienceDetail = {
   /** Walrus blob holding the full AI prompt + response · the intelligence
    *  behind a trade, verifiable like everything else. Null unless it acted. */
   aiBlobId?: string | null;
+  /** Risk-Guardian state AT DECISION TIME · the per-decision guardian
+   *  checkpoint the Brain renders. Optional · old records omit it. */
+  guardianPaused?: boolean;
+  guardianReason?: string | null;
 };
 
 export type ExperienceRecord = {

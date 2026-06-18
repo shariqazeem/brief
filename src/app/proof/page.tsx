@@ -10,6 +10,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import EvidenceBadge, { type EvidenceBadgeProps } from "@/components/shared/EvidenceBadge";
 import { apiUrl } from "@/lib/api-base";
 import { BRIEF_NETWORK } from "@/lib/brief-client";
 import { AMBER, EMERALD, RED } from "@/lib/ui";
@@ -200,6 +201,12 @@ export default function ProofPage() {
               n="01"
               title="Your leash is a Move contract."
               line="The budget cap lives on-chain. Our backend doesn't enforce it · the protocol does."
+              badge={{
+                type: "policy",
+                href: objUrl(policyId),
+                label: "View policy",
+                tone: p.revoked ? "danger" : "success",
+              }}
             >
               <div className="mt-4 space-y-3">
                 <div>
@@ -242,6 +249,11 @@ export default function ProofPage() {
               n="02"
               title="Every authorized trade is an on-chain event."
               line="Each trade was authorized by record_spend before the DeepBook order executed. Atomic · if the policy says no, the trade never happens."
+              badge={
+                data.spends.length > 0
+                  ? { type: "tx", href: txUrl(data.spends[0].tx), label: "Latest trade", tone: "success" }
+                  : undefined
+              }
             >
               {data.spends.length === 0 ? (
                 <p className="mt-4 font-mono text-[11px] text-muted">
@@ -281,6 +293,7 @@ export default function ProofPage() {
               n="03"
               title="When the operator exceeds the cap, the chain says no."
               line="This failed transaction is the most important one on this page. It proves enforcement isn't a backend promise · it's protocol-level reversion. The order never executed; no funds moved."
+              badge={{ type: "tx", href: txUrl(OVERBUDGET_TX), label: "Failed tx", tone: "danger" }}
             >
               <div className="mt-4 flex items-center gap-2">
                 <span
@@ -303,6 +316,12 @@ export default function ProofPage() {
               n="04"
               title="The kill switch is a transaction, not a toggle."
               line="One on-chain transaction and the operator can never trade again. No backend call. No API-key rotation. The chain revoked the leash."
+              badge={{
+                type: "tx",
+                href: txUrl(data.revoke?.tx ?? REVOKE_TX),
+                label: "Revoke tx",
+                tone: "danger",
+              }}
             >
               {data.revoke ? (
                 <p className="mt-4 font-mono text-[10.5px] text-ink-2">
@@ -340,6 +359,7 @@ export default function ProofPage() {
                   : "The operator anchors its reasoning to Walrus."
               }
               line="Each operator publishes its declared identity + pledge to Walrus. Content-addressed · it can't retroactively change its story."
+              badge={blob ? { type: "walrus", href: blobUrl(blob), label: "On Walrus", tone: "success" } : undefined}
             >
               {blob ? (
                 <>
@@ -380,26 +400,32 @@ function ProofCard({
   n,
   title,
   line,
+  badge,
   children,
 }: {
   accent: string;
   n: string;
   title: string;
   line: string;
+  /** Evidence pill rendered beside the title · points to the same real link. */
+  badge?: EvidenceBadgeProps;
   children: React.ReactNode;
 }) {
   return (
     <section
-      className="bg-bg-elev p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:p-6"
+      className="bg-bg-elev p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-shadow lg:hover:shadow-md sm:p-6"
       style={{ borderLeft: `3px solid ${accent}` }}
     >
       <div className="flex items-center gap-3">
         <span className="font-mono text-[10px] tabular-nums text-muted">{n}</span>
         <span className="h-px flex-1 bg-line" />
       </div>
-      <h2 className="mt-3 font-sans text-[18px] font-medium leading-snug tracking-tight text-ink">
-        {title}
-      </h2>
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <h2 className="min-w-0 flex-1 font-sans text-[18px] font-medium leading-snug tracking-tight text-ink">
+          {title}
+        </h2>
+        {badge && <EvidenceBadge {...badge} className="shrink-0" />}
+      </div>
       <p className="mt-1.5 max-w-prose text-[12.5px] leading-relaxed text-ink-2">{line}</p>
       {children}
     </section>

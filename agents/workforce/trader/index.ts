@@ -125,6 +125,8 @@ import {
   type OperatorStats,
 } from "./ledger.js";
 import { maybeAiAdvise, type AiAdvice } from "./ai-advisor.js";
+import { maybeRefreshMacroBriefing } from "./macro-briefing.js";
+import { maybeRunDailyReflection } from "./daily-reflection.js";
 import { loadGuardianStatus, guardianPausedFor } from "../lib/guardian-status.js";
 import {
   evalMandate,
@@ -2714,6 +2716,10 @@ async function runGatedOperator(
       aiReasoned: eng.aiReasoned,
       aiSource: aiAdvice?.source ?? null,
       aiBlobId,
+      // Per-decision Risk-Guardian checkpoint · the state the operator saw at
+      // decision time (powers the Brain's per-decision guardian badge).
+      guardianPaused: !!guardianNote,
+      guardianReason: guardianNote,
     },
   };
   experience.push(expRecord);
@@ -2987,6 +2993,18 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
   );
   if (registry.length === 0) return;
 
+  // Market Regime Oracle · refresh the shared macro briefing the AI advisor
+  // folds into its prompt. Self-throttles to one LLM call / 6h and no-ops when
+  // BRIEF_LLM_MODE!="llm" or no key · safe to call every tick. Never throws.
+  try {
+    await maybeRefreshMacroBriefing();
+  } catch (err) {
+    console.warn(
+      "[trader-gated] macro briefing refresh skipped:",
+      String((err as Error)?.message ?? err).slice(0, 120),
+    );
+  }
+
   // Consolidate the operator wallet's SUI once before signing across BMs -
   // many gated orders from one wallet fragment gas otherwise.
   try {
@@ -3083,6 +3101,19 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
           `[trader-gated] operator ${e.policyId.slice(0, 10)}… RETIRED (owner withdrew capital)`,
         );
         continue;
+      }
+      // Daily Performance Reflection · once per UTC day per funded operator (the
+      // withdrawn/revoked ones are already filtered/`continue`d above). The job
+      // self-guards on llmMode + key + per-day idempotency, only fires when the
+      // prior UTC day had ≥1 SETTLED decision, and anchors to Walrus. Never
+      // throws · best-effort.
+      try {
+        await maybeRunDailyReflection(ctx, e.policyId, e.policyId.slice(2, 14));
+      } catch (err) {
+        console.warn(
+          `[trader-gated] daily reflection skipped for ${e.policyId.slice(0, 10)}…:`,
+          String((err as Error)?.message ?? err).slice(0, 120),
+        );
       }
       // Evaluate every asset this operator can trade, then pick ONE to act on.
       const ctxs: AssetCtx[] = [];
