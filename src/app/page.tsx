@@ -787,19 +787,25 @@ export default function OperatorLandingV2() {
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-7 font-mono text-[12px]">
           <a
+            href={ctaHref}
+            className="bg-accent px-6 py-3 text-[11px] uppercase tracking-[0.28em] text-white transition-opacity hover:opacity-90"
+          >
+            {ctaLabel}
+          </a>
+          <a href="/proof" className="text-[#666666] transition-colors hover:text-[#111111]">
+            See the live proof →
+          </a>
+          <a
             href="https://x.com/shariqshkt"
             target="_blank"
             rel="noreferrer"
-            className="bg-accent px-6 py-3 text-[11px] uppercase tracking-[0.28em] text-white transition-opacity hover:opacity-90"
+            className="text-[#999999] transition-colors hover:text-[#111111]"
           >
-            Join mainnet access →
-          </a>
-          <a href={ctaHref} className="text-[#666666] transition-colors hover:text-[#111111]">
-            {hasOperator ? "Open your operator →" : "Try it on testnet →"}
+            Mainnet access →
           </a>
         </div>
         <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.22em] text-[#999999]">
-          First 100 operators onboarded by hand
+          Live on Sui mainnet · real USDC · first 100 operators onboarded by hand
         </p>
 
         <div className="mt-16 flex flex-wrap items-center justify-center gap-3">
