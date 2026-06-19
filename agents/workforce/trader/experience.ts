@@ -54,6 +54,15 @@ export type ExperienceDetail = {
    *  decision · powers the "AI reasoned" badge on the Brain. */
   aiReasoned?: boolean;
   aiSource?: string | null;
+  /** The full AI verdict, persisted so the Brain can show the whole chain:
+   *  deterministic confidence → AI modifier → final confidence → verdict. */
+  aiConfidenceMod?: number | null;
+  aiDirection?: "up" | "down" | "abstain" | null;
+  aiVeto?: boolean | null;
+  aiRationale?: string | null;
+  /** The deterministic engine's confidence BEFORE the AI adjusted it · the
+   *  "what the math alone thought" baseline shown next to the AI-shaped final. */
+  baseConfidence?: number | null;
   /** Walrus blob holding the full AI prompt + response · the intelligence
    *  behind a trade, verifiable like everything else. Null unless it acted. */
   aiBlobId?: string | null;

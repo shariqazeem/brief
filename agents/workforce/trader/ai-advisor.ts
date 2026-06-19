@@ -103,7 +103,9 @@ export async function maybeAiAdvise(
   try {
     const macro = await loadFreshMacroBriefing();
     if (macro?.summary) {
-      macroLine = `Macro context: ${macro.summary.slice(0, 700)}`;
+      // Keep it short · a long macro paragraph slows the call (more tokens) and
+      // crowds the JSON instruction. One tight sentence is enough context.
+      macroLine = `Macro context: ${macro.summary.replace(/\s+/g, " ").slice(0, 280)}`;
     }
   } catch {
     macroLine = "";
@@ -126,15 +128,30 @@ export async function maybeAiAdvise(
 
   const schema = `{"direction":"up|down|abstain","confidenceMod":<number -0.30..0.20>,"veto":<boolean>,"thesis":"<=160 chars","counterargument":"<=160 chars","rationale":"<=200 chars"}`;
 
+  // A strict JSON-only system message is what reliably suppresses the markdown
+  // fences / reasoning preamble that break parsing (verified against the live
+  // provider). temperature 0 makes the structured output deterministic.
+  const system =
+    "You are a JSON API. Output ONLY a single minified JSON object matching the user's schema. No markdown, no code fences, no commentary, no chain-of-thought, no text before or after the JSON.";
+
   // Make the call, then RATE-LIMIT immediately (success OR failure) so a parse
-  // error can never retry every cycle and burn the budget. A timeout guards a
-  // slow model from stalling the 15s loop.
+  // error can never retry every cycle and burn the budget. The timeout guards a
+  // slow model from stalling the loop; maxTokens is generous so the JSON (thesis
+  // + counterargument + rationale) is never truncated mid-object.
   let raw: string;
   try {
     raw = await Promise.race([
-      callLlm({ apiKey, model, prompt, jsonSchemaHint: schema, maxTokens: 320 }),
+      callLlm({
+        apiKey,
+        model,
+        system,
+        prompt,
+        jsonSchemaHint: schema,
+        maxTokens: 700,
+        temperature: 0,
+      }),
       new Promise<string>((_, rej) =>
-        setTimeout(() => rej(new Error("ai-advisor timeout")), 12_000),
+        setTimeout(() => rej(new Error("ai-advisor timeout")), 20_000),
       ),
     ]);
   } catch (e) {
@@ -157,10 +174,21 @@ export async function maybeAiAdvise(
     rationale?: string;
   };
   try {
-    const s = raw.indexOf("{");
-    const eIdx = raw.lastIndexOf("}");
-    if (s < 0 || eIdx <= s) throw new Error("no JSON object in response");
-    j = JSON.parse(raw.slice(s, eIdx + 1));
+    // Strip markdown code fences first, then parse. If the model still wrapped
+    // the object in prose, fall back to the first {...last} block.
+    const cleaned = raw
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+    try {
+      j = JSON.parse(cleaned);
+    } catch {
+      const s = cleaned.indexOf("{");
+      const eIdx = cleaned.lastIndexOf("}");
+      if (s < 0 || eIdx <= s) throw new Error("no JSON object in response");
+      j = JSON.parse(cleaned.slice(s, eIdx + 1));
+    }
   } catch (e) {
     console.warn(
       `[ai-advisor] parse failed: ${String((e as Error)?.message ?? e).slice(0, 120)}`,

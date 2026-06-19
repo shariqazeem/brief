@@ -2403,6 +2403,9 @@ async function runGatedOperator(
   // moves the act-gate + allocator. It can sharpen or veto conviction but cannot
   // fabricate a trade the signals don't support — and the Move policy still
   // gates execution on-chain regardless. Null (mock/no-key/error) → deterministic.
+  // The deterministic engine's conviction BEFORE the AI weighs in · captured so
+  // the Brain can show the full chain (deterministic → AI modifier → final).
+  const deterministicConfidence = eng.confidence;
   let aiAdvice: AiAdvice | null = null;
   let aiOpt:
     | {
@@ -2579,6 +2582,10 @@ async function runGatedOperator(
       ai_source: aiAdvice?.source ?? null,
       ai_rationale: aiAdvice?.rationale ?? null,
       ai_confidence_mod: aiAdvice?.confidenceMod ?? null,
+      ai_direction: aiAdvice?.direction ?? null,
+      ai_veto: aiAdvice?.veto ?? null,
+      base_confidence: deterministicConfidence,
+      final_confidence: eng.confidence,
       guardian_paused: !!guardianNote,
       guardian_reason: guardianNote,
       // capital-manager view · what the money should be doing, vs where it is
@@ -2635,12 +2642,13 @@ async function runGatedOperator(
     },
   });
 
-  // ---- VERIFIABLE AI (Phase 1b): when the LLM advisor shaped a REAL trade,
-  // anchor its full prompt + response to Walrus so the *intelligence itself* is
-  // auditable on-chain (not just the trade). Only on acts → rare + cheap.
-  // Best-effort · never blocks the cycle.
+  // ---- VERIFIABLE AI (Phase 1b): whenever the LLM advisor shaped this decision
+  // — sharpening, dampening, OR vetoing — anchor its full prompt + response to
+  // Walrus so the *intelligence itself* is auditable (not just executed trades;
+  // an AI veto is as worth proving as an AI act). The advisor is rate-limited to
+  // ~once/8min per operator, so this stays rare + cheap. Never blocks the cycle.
   let aiBlobId: string | null = null;
-  if (aiAdvice && willRebalance && walrusEnabled()) {
+  if (aiAdvice && walrusEnabled()) {
     try {
       const up = await uploadToWalrus(
         new TextEncoder().encode(
@@ -2715,6 +2723,11 @@ async function runGatedOperator(
       txDigest: null,
       aiReasoned: eng.aiReasoned,
       aiSource: aiAdvice?.source ?? null,
+      aiConfidenceMod: aiAdvice?.confidenceMod ?? null,
+      aiDirection: aiAdvice?.direction ?? null,
+      aiVeto: aiAdvice?.veto ?? null,
+      aiRationale: aiAdvice?.rationale ?? null,
+      baseConfidence: deterministicConfidence,
       aiBlobId,
       // Per-decision Risk-Guardian checkpoint · the state the operator saw at
       // decision time (powers the Brain's per-decision guardian badge).

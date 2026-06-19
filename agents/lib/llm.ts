@@ -20,6 +20,8 @@ export type LlmRequest = {
   system?: string;
   prompt: string;
   maxTokens?: number;
+  /** Optional sampling temperature (0 = deterministic · best for structured JSON). */
+  temperature?: number;
   /** Optional override of provider endpoint */
   endpoint?: string;
   /** Optional JSON schema hint appended to user prompt */
@@ -91,6 +93,7 @@ export async function callLlm(req: LlmRequest): Promise<string> {
       model,
       messages,
       max_tokens: req.maxTokens ?? 512,
+      ...(req.temperature != null ? { temperature: req.temperature } : {}),
     }),
   });
 

@@ -37,6 +37,12 @@ type Detail = {
   aiReasoned?: boolean;
   aiSource?: string | null;
   aiBlobId?: string | null;
+  /** The full AI verdict · deterministic → modifier → final + direction/veto. */
+  aiConfidenceMod?: number | null;
+  aiDirection?: "up" | "down" | "abstain" | null;
+  aiVeto?: boolean | null;
+  aiRationale?: string | null;
+  baseConfidence?: number | null;
   /** Per-decision Risk-Guardian checkpoint state. Optional · old records omit it. */
   guardianPaused?: boolean;
   guardianReason?: string | null;
@@ -297,6 +303,13 @@ function FocusedDecision({
           sub={act ? detail.executionReview ?? undefined : undefined}
         />
 
+        {/* What the AI advised · the load-bearing LLM layer, shown as a chain:
+            deterministic conviction → AI modifier → final, plus the verdict.
+            Renders only when the LLM actually shaped this decision. */}
+        {detail.aiReasoned && detail.baseConfidence != null && (
+          <AiReviewBlock d={d} detail={detail} />
+        )}
+
         {/* Guardian Review · the per-decision circuit-breaker checkpoint.
             Renders only when the record carries guardian state (back-compat). */}
         {detail.guardianPaused !== undefined && (
@@ -435,6 +448,59 @@ function BigBlock({
         <p className="mt-2 text-[14px] leading-relaxed" style={{ color: SUB }}>
           {sub}
         </p>
+      )}
+    </div>
+  );
+}
+
+// What the AI advised · the load-bearing LLM layer made legible. Shows the full
+// chain — deterministic conviction → AI modifier → final conviction — plus the
+// AI's verdict (sharpen / dampen / veto). This is the Intelligence pillar: a
+// judge can see the AI actually moved the number, not just "AI was involved".
+function AiReviewBlock({ d, detail }: { d: Decision; detail: Detail }) {
+  const base = detail.baseConfidence ?? d.confidence;
+  const mod = detail.aiConfidenceMod ?? 0;
+  const final = d.confidence;
+  const veto = detail.aiVeto === true;
+  const modPct = `${mod >= 0 ? "+" : ""}${Math.round(mod * 100)}%`;
+  const modColor = veto ? RED : mod > 0 ? EMERALD : mod < 0 ? AMBER : MUTED;
+  const verdict = veto
+    ? "Vetoed the trade"
+    : detail.aiDirection === "abstain"
+      ? "Advised standing aside"
+      : mod > 0
+        ? "Sharpened conviction"
+        : mod < 0
+          ? "Dampened conviction"
+          : "Confirmed the read";
+  const Stat = ({ label, value, color, big }: { label: string; value: string; color: string; big?: boolean }) => (
+    <div className="flex flex-col gap-1">
+      <span className="font-mono text-[9px] uppercase tracking-[0.18em]" style={{ color: MUTED }}>{label}</span>
+      <span className={`font-mono tabular-nums ${big ? "text-2xl" : "text-lg"}`} style={{ color }}>{value}</span>
+    </div>
+  );
+  return (
+    <div className="mb-9 -mt-2 px-5 py-4" style={{ border: `1px solid ${LINE}`, borderLeft: `3px solid ${NAVY}` }}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: NAVY }}>
+          What the AI advised · {modelLabel(detail.aiSource)}
+        </span>
+        <span
+          className="inline-flex items-center px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.16em]"
+          style={{ color: veto ? RED : NAVY, border: `1px solid ${veto ? RED : LINE}` }}
+        >
+          {verdict}
+        </span>
+      </div>
+      <div className="mt-4 flex items-end gap-4 sm:gap-6">
+        <Stat label="Deterministic" value={`${Math.round(base * 100)}%`} color={MUTED} />
+        <span className="pb-1 font-mono text-sm" style={{ color: MUTED }}>→</span>
+        <Stat label="AI shift" value={veto ? "VETO" : modPct} color={modColor} />
+        <span className="pb-1 font-mono text-sm" style={{ color: MUTED }}>→</span>
+        <Stat label="Final conviction" value={`${Math.round(final * 100)}%`} color={INK} big />
+      </div>
+      {detail.aiRationale && (
+        <p className="mt-3 text-[13px] leading-relaxed" style={{ color: SUB }}>{detail.aiRationale}</p>
       )}
     </div>
   );
