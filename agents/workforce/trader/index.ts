@@ -2649,42 +2649,51 @@ async function runGatedOperator(
   // ~once/8min per operator, so this stays rare + cheap. Never blocks the cycle.
   let aiBlobId: string | null = null;
   if (aiAdvice && walrusEnabled()) {
+    const payload = new TextEncoder().encode(
+      JSON.stringify(
+        {
+          schema: "brief.ai-reasoning.v1",
+          policyId: e.policyId,
+          asset,
+          ts: Date.now(),
+          model: aiAdvice.source,
+          decision: {
+            direction,
+            acted: willRebalance,
+            confidence: eng.confidence,
+            confidenceMod: aiAdvice.confidenceMod,
+            veto: aiAdvice.veto,
+          },
+          prompt: aiAdvice.prompt,
+          response: aiAdvice.raw,
+        },
+        null,
+        2,
+      ),
+    );
     try {
-      const up = await uploadToWalrus(
-        new TextEncoder().encode(
-          JSON.stringify(
-            {
-              schema: "brief.ai-reasoning.v1",
-              policyId: e.policyId,
-              asset,
-              ts: Date.now(),
-              model: aiAdvice.source,
-              decision: {
-                direction,
-                confidence: eng.confidence,
-                confidenceMod: aiAdvice.confidenceMod,
-                veto: aiAdvice.veto,
-              },
-              prompt: aiAdvice.prompt,
-              response: aiAdvice.raw,
-            },
-            null,
-            2,
-          ),
+      // Hard timeout · the testnet Walrus publisher can be slow (20-30s) or
+      // stall. We anchor at most ~once/8min per operator, but never let a slow
+      // upload block the trading loop — cap it and move on (best-effort proof).
+      const up = await Promise.race([
+        uploadToWalrus(payload, ctx.client, ctx.keypair),
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("walrus upload timeout (40s)")), 40_000),
         ),
-        ctx.client,
-        ctx.keypair,
+      ]);
+      aiBlobId = up.blobId ?? null;
+      console.log(
+        `[trader] AI reasoning anchored to Walrus · blob=${aiBlobId ?? "none"} (${up.uploadMs}ms)`,
       );
-      aiBlobId = up.blobId;
       emitAgentEvent("walrus_uploaded", {
         policyId: e.policyId,
         taskId,
         asset,
-        data: { kind: "ai-reasoning", blob_id: up.blobId, upload_ms: up.uploadMs },
+        data: { kind: "ai-reasoning", blob_id: aiBlobId, upload_ms: up.uploadMs },
       });
     } catch (err) {
       console.warn(
-        `[trader] AI reasoning Walrus upload skipped: ${String((err as Error)?.message ?? err).slice(0, 100)}`,
+        `[trader] AI reasoning Walrus upload skipped: ${String((err as Error)?.message ?? err).slice(0, 140)}`,
       );
     }
   }
