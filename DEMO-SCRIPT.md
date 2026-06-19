@@ -21,21 +21,25 @@
 
 ## THE SCRIPT  *(page by page)*
 
-### ⏱ 0:00 – 0:20 · COLD OPEN  *(face cam → then the landing page on screen)*
+### ⏱ 0:00 – 0:18 · COLD OPEN  *(face cam → then the landing page on screen)*
 
-> "Everyone's racing to hand AI agents our money. Almost nobody's asking the obvious question — what stops the agent from losing it, or running off with it?
+> "Everyone's racing to give AI agents real money.
+>
+> Almost nobody is asking the obvious question — what actually stops them from losing it, or running off with it?
 >
 > This is **Brief.** The safe way to let an AI agent manage your money. The agent decides what to do — the **blockchain** decides what it's *allowed* to do.
 >
-> The world's first **AI agent governed by on-chain law.** Let me show you — live, with real money."
+> The first AI agent governed by on-chain law. Let me show you — with real money, on mainnet."
 
 ---
 
 ### ⏱ 0:20 – 0:45 · YOUR WORKFORCE  *(click "Adopt" on the landing → you're now on `/workforce`)*
 
-> "This is the idea: you hire AI agents the way you'd hire people — each one runs a slice of your capital. This is the workforce. On screen we call each agent an **operator**, because it *operates* your money under an on-chain contract.
+> "You hire these AI agents the way you'd hire people. Each one runs a slice of your capital under contract.
 >
-> I don't have one working yet — so let's hire one."
+> On screen we call them **operators** — because they *operate* your money under an on-chain policy.
+>
+> I don't have one running yet — so let's hire one."
 
 *(Click **Adopt an operator** → `/workforce/adopt`.)*
 
@@ -43,25 +47,27 @@
 
 ### ⏱ 0:45 – 1:35 · HIRE IT LIVE  *(screen: `/workforce/adopt`)*
 
-> "Real USDC. Sui mainnet. One signature. I choose how it should behave — I'll pick **Protect**, the cautious one — deposit my USDC, and sign once."
+> "Real USDC. Sui mainnet. One signature. I choose **Protect** mode — the cautious one — deposit, and sign once."
 
 *(Sign. While it boots:)*
 
-> "That one transaction just did what most AI wallets can't. My money stays in **my** account. The agent can *trade* it — but it was never given permission to *withdraw* it. There is no withdraw key to hand over.
+> "That one transaction did what most AI wallets can't. My money stays in **my** own DeepBook account. The agent can *trade* it — but it was never given permission to *withdraw* it. There is no withdraw key to hand over.
 >
-> So it's not that I *trust* the agent not to take my money…"
+> It's not that I *trust* the agent not to take the money…"
 
 *(Beat — slow down.)*
 
-> "…it **physically cannot.** That's a Move contract, not a setting I'm hoping it respects."
+> "…it **physically cannot.** That's a Move contract, not a hope."
 
 ---
 
-### ⏱ 1:35 – 2:10 · THREE DECISION-MAKERS  *(the dashboard has loaded — point at the AgentStrip)*
+### ⏱ 1:35 – 2:05 · THREE LAYERS OF CONTROL  *(the dashboard has loaded — point at the AgentStrip)*
 
-> "And here's my agent, live. Three decision-makers run it. The **Trader** brain proposes moves. A separate **Risk Guardian** agent can overrule it. And underneath both — the **chain**, the leash.
+> "Here's the agent, live. Three layers protect the capital.
 >
-> Every spend is checked in the *same transaction* as the trade. Zero violations, ever. The agent proposes, the Guardian can veto, the chain enforces."
+> The **Trader** proposes allocations. A completely separate **Risk Guardian** agent can pause trading on its own. And underneath both is the **chain** — the leash.
+>
+> Every spend is checked in the *same transaction* as the trade. Zero violations, ever."
 
 > 📌 **To make the Guardian pause LIVE (strongest version):** it only shows a pause while tracking a funded agent. Right before this take, set `GUARDIAN_FORCE_PAUSE=<your agent id>` and restart the guardian (the manual circuit-breaker is a real feature) — the dashboard shows *"Risk Guardian · paused"* and the Trader stands down, so you can truthfully say *"watch — the Guardian is pausing it right now."* Otherwise, open `/evolution` and point at a **real past pause** and say *"it's done this for real."* Never claim a live pause the screen doesn't show.
 
@@ -71,7 +77,7 @@
 
 > "You don't have to trust that it's intelligent — you can read its mind. This is the **AI Reasoning Core.**
 >
-> The agent takes live market data and its own memory, and proposes an allocation. Watch what happened here — the signals were bullish, but the AI weighed the macro picture and this agent's own track record… and it **dampened** the conviction. It talked itself *out* of the trade.
+> The agent takes live market data and its own memory, then proposes an allocation. Watch what happened here — the signals looked strong, but the AI reviewed the macro picture and this agent's own track record… and it **dampened** the conviction. It talked itself *out* of the trade.
 >
 > And that reasoning isn't a log we wrote. It's anchored on **Walrus** — click it, it's verifiable."
 
@@ -107,11 +113,11 @@
 
 ### ⏱ 4:05 – 4:30 · DID IT WORK?  *(navigate to `/results`)*
 
-> "So — did it work? [**say the exact figure on screen**] It protected the capital, made **zero** policy violations, and deliberately stood aside instead of chasing losing trades.
+> "So — did it work? It protected the capital, recorded **zero** policy violations, and deliberately stood aside instead of chasing losing trades.
 >
 > Because when you put an AI in charge of real money, its first job isn't to beat the market. It's to **not lose your money.**"
 
-> 📌 **Say the number that's actually on `/results`.** A seasoned, still-funded agent shows e.g. *"Capital Preserved: 98%."* A *withdrawn* agent shows *"Capital returned · 100%"* — then say *"and when I pulled my money out, it came back in full — 100%, never reported as a loss."* Never say a number the screen doesn't show.
+> 📌 The line works with **no number** (safest). But the `/results` page does show the real figure — glance at it, and if it reads strong, say it: *"Capital Preserved: 98%"*, or for a withdrawn agent *"Capital returned — 100%, never reported as a loss."* Never say a number the screen doesn't show.
 
 *(Back to face cam — calm, certain.)*
 
