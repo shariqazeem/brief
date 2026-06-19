@@ -531,6 +531,10 @@ function GuardianBeat({ detail }: { detail: Detail }) {
 function modelLabel(source: string | null | undefined): string {
   if (!source) return "AI";
   const s = source.toLowerCase();
+  if (s.includes("grok")) {
+    const m = /grok[-\s]?(\d+(?:[.-]\d+)?)/.exec(s);
+    return m ? `Grok ${m[1].replace("-", ".")} Fast` : "Grok";
+  }
   if (s.includes("claude")) {
     if (s.includes("haiku")) return "Claude Haiku";
     if (s.includes("sonnet")) return "Claude Sonnet";

@@ -64,6 +64,9 @@ export type StreamDecision = {
   executionReview: string | null;
   verdict: string | null;
   aiReasoned: boolean;
+  // The AI model that authored this decision (raw OpenRouter id, e.g.
+  // "x-ai/grok-4-1-fast-non-reasoning") · used to label the agent honestly.
+  aiSource: string | null;
   // Risk Guardian (second agent) · paused this operator + why.
   guardianPaused: boolean;
   guardianReason: string | null;
@@ -313,6 +316,7 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         executionReview: str(d.execution_review),
         verdict: str(d.verdict),
         aiReasoned: d.ai_reasoned === true,
+        aiSource: str(d.ai_source),
         guardianPaused: d.guardian_paused === true,
         guardianReason: (d.guardian_reason as string | null) ?? null,
         regimeKind: str(d.regime),

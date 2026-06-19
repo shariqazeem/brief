@@ -187,6 +187,33 @@ function deriveThesis(s: StreamSignals | null): string {
   return parts.length ? `${parts.join(". ")}.` : "Reading the tape…";
 }
 
+// Clean, human model label from a raw aiSource (the OpenRouter model id the
+// agent emitted, e.g. "x-ai/grok-4-1-fast-non-reasoning" → "Grok 4.1 Fast").
+// Never hardcoded — stays honest as the underlying model changes. Falls back to
+// a generic "AI" when the source is unknown but the decision was AI-reasoned.
+function aiModelLabel(source: string | null | undefined): string {
+  if (!source) return "AI";
+  const s = source.toLowerCase();
+  if (s.includes("grok")) {
+    const m = /grok[-\s]?(\d+(?:[.-]\d+)?)/.exec(s);
+    return m ? `Grok ${m[1].replace("-", ".")} Fast` : "Grok";
+  }
+  if (s.includes("claude")) {
+    if (s.includes("haiku")) return "Claude Haiku";
+    if (s.includes("sonnet")) return "Claude Sonnet";
+    if (s.includes("opus")) return "Claude Opus";
+    return "Claude";
+  }
+  if (s.includes("deepseek")) {
+    const m = /v\d[\w.-]*/.exec(s);
+    return m ? `DeepSeek ${m[0]}` : "DeepSeek";
+  }
+  if (s.includes("gpt")) return "GPT";
+  // Unknown model · show its last path segment, tidied, capped for the pill.
+  const tail = source.split("/").pop() ?? source;
+  return tail.length > 18 ? `${tail.slice(0, 17)}…` : tail;
+}
+
 // The hero statement, in ALLOCATION terms · never "found an edge → selling"
 // followed by "no order placed". A capital manager states where the money is
 // and where it's going: "Bearish outlook. Holding cash." / "Adding to SUI."
@@ -306,11 +333,13 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
   // AgentStrip · the two agents + the chain, every value REAL.
   // Trader: latest decision's thesis + conviction; AI tag only when the
-  // decision was actually authored by Claude (dec.aiReasoned).
+  // decision was actually authored by an AI model (dec.aiReasoned). The label
+  // is derived from the model id the agent emitted (dec.aiSource) — never
+  // hardcoded — so it stays honest as the underlying model changes.
   const dec = stream.decision;
   const traderThesis = dec?.thesis ?? dec?.reasoning ?? deriveThesis(stream.signals);
   const traderConfidence = dec?.conviction ?? (decisions[0]?.confidence ?? 0);
-  const traderAiModel = dec?.aiReasoned ? "Claude" : undefined;
+  const traderAiModel = dec?.aiReasoned ? aiModelLabel(dec.aiSource) : undefined;
   // Guardian: paused → 'paused', else monitoring; 'watch' when the mandate is
   // nearing its drawdown limit (≥70% of cap) but not yet breached; unknown
   // until the first decision lands.

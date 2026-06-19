@@ -36,7 +36,7 @@ const ARTICLES: Article[] = [
   {
     numeral: "II",
     text: "Operator may allocate capital.",
-    enforcement: "gated_spot::gated_spot_market_order",
+    enforcement: "atomic record_spend + market order (PTB)",
   },
   {
     numeral: "III",

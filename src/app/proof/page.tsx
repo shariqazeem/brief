@@ -17,7 +17,7 @@ import { AMBER, EMERALD, RED } from "@/lib/ui";
 
 // ── verified MAINNET artifacts (each checked success/failure on the fullnode) ──
 const DEFAULT_POLICY =
-  "0x3e3b9690c3e2fee624206e26d4545a41432693f04efdd269b335d39530f5605f"; // Solis · live
+  "0xb37f42d33e510c77b4eaed5cf6ad9b35b08913556c631e0dbe38fb61ae28115b"; // Echo · active, AI-reasoned, has Walrus blobs
 // The over-budget revert: record_spend aborted EBudgetExceeded; no trade ran.
 const OVERBUDGET_TX = "FZJLSN2i9mDfFoX8iswsRYfyuMz7oaDJgz6Wzvi7WJ37";
 // The owner's revoke + the policy it retired (shown when the queried operator
