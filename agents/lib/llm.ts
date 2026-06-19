@@ -22,6 +22,8 @@ export type LlmRequest = {
   maxTokens?: number;
   /** Optional sampling temperature (0 = deterministic · best for structured JSON). */
   temperature?: number;
+  /** Optional top-k sampling (tightens output · pairs with temperature 0). */
+  topK?: number;
   /** Optional override of provider endpoint */
   endpoint?: string;
   /** Optional JSON schema hint appended to user prompt */
@@ -34,7 +36,16 @@ export type LlmEnv = {
 };
 
 const COMMONSTACK_ENDPOINT = "https://api.commonstack.ai/v1/chat/completions";
-const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
+/**
+ * The primary AI model · a fast, NON-reasoning model that returns clean JSON.
+ * Reasoning models (e.g. deepseek-v4-flash) emit chain-of-thought scratchpad in
+ * `content`, which breaks structured-output parsing and blows latency. Grok 4.1
+ * Fast (non-reasoning) answers the full advisor prompt in ~5s with clean JSON.
+ * Used as the default across the advisor, macro oracle, daily reflection, and
+ * narration. Override per-surface via the BRIEF_*_MODEL / COMMONSTACK_MODEL envs.
+ */
+export const DEFAULT_AI_MODEL = "x-ai/grok-4-1-fast-non-reasoning";
+const DEFAULT_MODEL = DEFAULT_AI_MODEL;
 
 let _callCount = 0;
 let _promptTokens = 0;
@@ -94,6 +105,7 @@ export async function callLlm(req: LlmRequest): Promise<string> {
       messages,
       max_tokens: req.maxTokens ?? 512,
       ...(req.temperature != null ? { temperature: req.temperature } : {}),
+      ...(req.topK != null ? { top_k: req.topK } : {}),
     }),
   });
 

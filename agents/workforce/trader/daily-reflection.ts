@@ -20,7 +20,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
 import type { AgentContext } from "../../lib/sui.js";
-import { callLlm, llmMode } from "../../lib/llm.js";
+import { callLlm, llmMode, DEFAULT_AI_MODEL } from "../../lib/llm.js";
 import { activeLlmKey, loadEnv } from "../../lib/env.js";
 import {
   hasWalrusFunding,
@@ -155,7 +155,7 @@ export async function maybeRunDailyReflection(
     return; // can't even reserve the slot · bail (retry next tick)
   }
 
-  const model = process.env.BRIEF_REFLECTION_MODEL || "claude-haiku-4-5";
+  const model = process.env.BRIEF_REFLECTION_MODEL || DEFAULT_AI_MODEL;
   const prompt = [
     `You are an autonomous on-chain trading operator reviewing your own day on Sui DeepBook.`,
     `Here is your settled track record for ${yesterday} (UTC):`,

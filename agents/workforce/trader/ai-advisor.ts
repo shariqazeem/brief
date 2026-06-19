@@ -14,7 +14,7 @@
 // stays inside the small LLM budget. Returns null (→ deterministic) on mock
 // mode, a missing key, or any error.
 
-import { callLlm, llmMode } from "../../lib/llm.js";
+import { callLlm, llmMode, DEFAULT_AI_MODEL } from "../../lib/llm.js";
 import { activeLlmKey, loadEnv } from "../../lib/env.js";
 import { loadFreshMacroBriefing } from "./macro-briefing.js";
 
@@ -55,10 +55,10 @@ export type AiAdvisorInput = {
   mandateNote?: string;
 };
 
-const AI_MIN_INTERVAL_MS = 8 * 60_000; // ≥8 min between AI calls per operator
-const WEEKLY_CAP = 500; // hard backstop · ~$0.35/wk worst-case on a cheap model,
-// safely under the ~$0.50/wk LLM budget. Real usage is far lower (the gates
-// below mean it only fires on a tradeable regime for a funded operator).
+const AI_MIN_INTERVAL_MS = Number(process.env.BRIEF_AI_MIN_INTERVAL_MS ?? 5 * 60_000); // ≥5 min between AI calls per operator
+const WEEKLY_CAP = Number(process.env.BRIEF_AI_WEEKLY_CAP ?? 1500); // hard backstop ·
+// ~$1/wk worst-case on Grok 4.1 Fast (in $0.20 / out $0.50 per 1M); real usage is
+// far lower (gates below mean it only fires on a tradeable regime for a funded op).
 const BASE_CONF_FLOOR = 0.18; // don't spend AI on obvious no-ops
 
 const lastAiAt = new Map<string, number>();
@@ -91,10 +91,10 @@ export async function maybeAiAdvise(
   if (now - (lastAiAt.get(input.policyId) ?? 0) < AI_MIN_INTERVAL_MS) return null;
   if (!withinWeeklyBudget(now)) return null;
 
-  // Use a JSON-clean model for the advisor. Reasoning models (e.g.
-  // deepseek-v4-flash) emit their scratchpad in `content` → unparseable JSON.
-  // COMMONSTACK_MODEL stays for narration; the advisor needs structured output.
-  const model = process.env.BRIEF_AI_ADVISOR_MODEL || "claude-haiku-4-5";
+  // Use a JSON-clean, NON-reasoning model for the advisor. Reasoning models emit
+  // their scratchpad in `content` → unparseable JSON + latency. DEFAULT_AI_MODEL
+  // (Grok 4.1 Fast non-reasoning) answers in ~5s with clean JSON.
+  const model = process.env.BRIEF_AI_ADVISOR_MODEL || DEFAULT_AI_MODEL;
   const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
   // Market Regime Oracle · a shared, 6h-cached macro read (sentiment/news/impact
   // on SUI·DEEP·WAL) so the AI weighs broader conditions, not just local signals.
@@ -111,7 +111,7 @@ export async function maybeAiAdvise(
     macroLine = "";
   }
   const prompt = [
-    `You are the risk-and-conviction advisor for an autonomous on-chain trading operator on Sui DeepBook.`,
+    `You are the risk-and-conviction advisor for an autonomous on-chain capital operator trading ${input.asset} on Sui DeepBook. You are decisive and disciplined and you protect capital first. Your verdict directly moves the operator's conviction, so be precise.`,
     macroLine,
     `Operator mode: ${input.mode} (protect = cautious, grow = balanced, aggressive = bolder).`,
     `Asset: ${input.asset} at $${input.midUsd}.`,
@@ -121,7 +121,7 @@ export async function maybeAiAdvise(
     input.recallNote ? `Memory of similar past setups: ${input.recallNote}` : ``,
     input.mandateNote ? `Owner mandate: ${input.mandateNote}` : ``,
     ``,
-    `Your job: adjust conviction, not invent trades. You may sharpen or dampen the engine's confidence and you may VETO. Prefer a veto or a negative modifier when the edge is weak, momentum is overextended (high RSI on a long), or volatility is spiking. Be conservative — capital preservation beats forcing a trade. Return ONLY JSON.`,
+    `Your job: adjust conviction, not invent trades. Sharpen or dampen the engine's confidence and VETO when warranted. Prefer a veto or a negative modifier when the edge is weak, momentum is overextended (high RSI on a long), volatility is spiking, or the macro backdrop fights the trade. Be conservative — capital preservation beats forcing a trade. The rationale is shown to the operator's owner, so make it a crisp one-sentence justification. Return ONLY JSON.`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -149,6 +149,7 @@ export async function maybeAiAdvise(
         jsonSchemaHint: schema,
         maxTokens: 700,
         temperature: 0,
+        topK: 40,
       }),
       new Promise<string>((_, rej) =>
         setTimeout(() => rej(new Error("ai-advisor timeout")), 20_000),

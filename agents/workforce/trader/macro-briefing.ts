@@ -18,7 +18,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
-import { callLlm, llmMode } from "../../lib/llm.js";
+import { callLlm, llmMode, DEFAULT_AI_MODEL } from "../../lib/llm.js";
 import { activeLlmKey, loadEnv } from "../../lib/env.js";
 
 export type MacroBriefing = {
@@ -90,9 +90,9 @@ export async function maybeRefreshMacroBriefing(): Promise<void> {
   // we won't retry until the next interval · no retry-storm on the provider.
   refreshingUntilMs = now + REFRESH_INTERVAL_MS;
 
-  // Same JSON-clean model as the advisor · a reasoning model (deepseek-v4-flash)
-  // emits scratchpad, not clean prose. Override via BRIEF_MACRO_MODEL.
-  const model = process.env.BRIEF_MACRO_MODEL || "claude-haiku-4-5";
+  // Same fast non-reasoning model as the advisor (clean output, low latency).
+  // Override via BRIEF_MACRO_MODEL.
+  const model = process.env.BRIEF_MACRO_MODEL || DEFAULT_AI_MODEL;
   const prompt =
     "Summarize the current crypto market sentiment, major news, and likely " +
     "short-term impact on SUI, DEEP, and WAL tokens. Be concise (max ~120 words).";

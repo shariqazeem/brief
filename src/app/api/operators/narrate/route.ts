@@ -63,7 +63,9 @@ export async function POST(req: NextRequest) {
   }
 
   const key = process.env.COMMONSTACK_API_KEY;
-  const model = process.env.COMMONSTACK_MODEL || "claude-haiku-4-5";
+  // Fast non-reasoning model · clean prose, low latency (reasoning models emit
+  // scratchpad). Mirrors the agents' DEFAULT_AI_MODEL; override via COMMONSTACK_MODEL.
+  const model = process.env.COMMONSTACK_MODEL || "x-ai/grok-4-1-fast-non-reasoning";
 
   // No key → honest deterministic narration (zero spend).
   if (!key) {
