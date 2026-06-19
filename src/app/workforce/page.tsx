@@ -220,13 +220,18 @@ function Header({
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
       <div className="mx-auto flex max-w-page items-center justify-between gap-4 px-6 py-4 sm:px-10">
-        <Link href="/" className="flex items-center gap-2.5 text-ink">
-          <Mark />
-          <span className="text-[15px] font-medium tracking-tight">Brief</span>
-          <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
-            · workforce
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <Link href="/" className="flex items-center gap-2.5 text-ink">
+            <Mark />
+            <span className="text-[15px] font-medium tracking-tight">Brief</span>
+            <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
+              · workforce
+            </span>
+          </Link>
+          <span className="hidden font-mono text-[9px] uppercase tracking-[0.22em] text-muted sm:inline">
+            Built on Sui · Memory anchored on Walrus
           </span>
-        </Link>
+        </div>
         <div className="flex items-center gap-3">
           <span className="hidden sm:inline-flex">
             <SystemHealthDot />

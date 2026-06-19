@@ -577,6 +577,11 @@ export default function OperatorLandingV2() {
           </a>
         </div>
 
+        {/* Trust line · substrate, stated plainly (mono, muted, small) */}
+        <p className="mt-7 font-mono text-[10px] uppercase tracking-[0.22em]" style={{ color: IDLE }}>
+          Built on Sui · Memory anchored on Walrus
+        </p>
+
         {/* Above-the-fold proof · the trust signal, no scroll required */}
         {proof && proof.operators > 0 && (
           <div className="mt-14 flex flex-wrap items-center justify-center gap-x-6 gap-y-2.5 font-mono text-[11px] tracking-[0.01em]">

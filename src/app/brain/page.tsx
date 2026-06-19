@@ -278,14 +278,14 @@ function FocusedDecision({
       >
         {/* Five cinematic blocks · watch the intelligence, don't read logs. */}
         <BigBlock
-          label="What it saw"
+          label="Factual Grounding · Market Data & Regime"
           headline={detail.regimeLabel ?? (reg.trend > 0 ? "Trending higher" : reg.trend < 0 ? "Trending lower" : "Flat tape")}
           color={regimeColor(detail.regimeLabel, reg.trend)}
           sub={`${asset} $${d.mid < 1 ? d.mid.toFixed(4) : d.mid.toFixed(2)} · momentum ${momentumLabel(reg.rsi).toLowerCase()} · ${reg.vol < 0.008 ? "low" : reg.vol < 0.02 ? "moderate" : "high"} volatility`}
         />
 
         <BigBlock
-          label="What it remembered"
+          label="Memory & Playbook · Historical Context"
           headline={
             detail.recallFound && detail.recallFound > 0
               ? `${detail.recallFound} similar situation${detail.recallFound === 1 ? "" : "s"} · ${detail.recallWins ?? 0}W / ${detail.recallLosses ?? 0}L`
@@ -303,7 +303,7 @@ function FocusedDecision({
           sub={act ? detail.executionReview ?? undefined : undefined}
         />
 
-        {/* What the AI advised · the load-bearing LLM layer, shown as a chain:
+        {/* AI Reasoning Core · the load-bearing LLM layer, shown as a chain:
             deterministic conviction → AI modifier → final, plus the verdict.
             Renders only when the LLM actually shaped this decision. */}
         {detail.aiReasoned && detail.baseConfidence != null && (
@@ -453,10 +453,12 @@ function BigBlock({
   );
 }
 
-// What the AI advised · the load-bearing LLM layer made legible. Shows the full
+// AI Reasoning Core · the load-bearing LLM layer made legible. Shows the full
 // chain — deterministic conviction → AI modifier → final conviction — plus the
 // AI's verdict (sharpen / dampen / veto). This is the Intelligence pillar: a
 // judge can see the AI actually moved the number, not just "AI was involved".
+// The AI proposes the allocation; deterministic signals + the on-chain policy
+// remain immutable rails it cannot override.
 function AiReviewBlock({ d, detail }: { d: Decision; detail: Detail }) {
   const base = detail.baseConfidence ?? d.confidence;
   const mod = detail.aiConfidenceMod ?? 0;
@@ -480,18 +482,33 @@ function AiReviewBlock({ d, detail }: { d: Decision; detail: Detail }) {
     </div>
   );
   return (
-    <div className="mb-9 -mt-2 px-5 py-4" style={{ border: `1px solid ${LINE}`, borderLeft: `3px solid ${NAVY}` }}>
+    <div
+      className="mb-9 -mt-2 px-5 py-5 sm:px-6"
+      style={{ border: `1px solid ${NAVY}33`, borderLeft: `4px solid ${NAVY}`, background: "#FBFCFE" }}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: NAVY }}>
-          What the AI advised · {modelLabel(detail.aiSource)}
+          AI Reasoning Core · Allocation Proposed
         </span>
-        <span
-          className="inline-flex items-center px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.16em]"
-          style={{ color: veto ? RED : NAVY, border: `1px solid ${veto ? RED : LINE}` }}
-        >
-          {verdict}
+        <span className="inline-flex items-center gap-2">
+          <span
+            className="inline-flex items-center bg-[#1a2c4e] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.16em] text-white"
+            title={detail.aiSource ? `Reasoned by ${detail.aiSource}` : "LLM-reasoned"}
+          >
+            {modelLabel(detail.aiSource)}
+          </span>
+          <span
+            className="inline-flex items-center px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.16em]"
+            style={{ color: veto ? RED : NAVY, border: `1px solid ${veto ? RED : LINE}` }}
+          >
+            {verdict}
+          </span>
         </span>
       </div>
+      <p className="mt-2 text-[12.5px] leading-relaxed" style={{ color: SUB }}>
+        The AI agent ingests live market data and its own memory, then proposes a capital
+        allocation. Deterministic signals and the on-chain OperatorPolicy are immutable safety rails.
+      </p>
       <div className="mt-4 flex items-end gap-4 sm:gap-6">
         <Stat label="Deterministic" value={`${Math.round(base * 100)}%`} color={MUTED} />
         <span className="pb-1 font-mono text-sm" style={{ color: MUTED }}>→</span>
@@ -502,6 +519,9 @@ function AiReviewBlock({ d, detail }: { d: Decision; detail: Detail }) {
       {detail.aiRationale && (
         <p className="mt-3 text-[13px] leading-relaxed" style={{ color: SUB }}>{detail.aiRationale}</p>
       )}
+      <p className="mt-4 font-mono text-[10px] leading-relaxed" style={{ color: MUTED }}>
+        The AI proposes. The Move contract enforces. The owner can revoke in one transaction.
+      </p>
     </div>
   );
 }

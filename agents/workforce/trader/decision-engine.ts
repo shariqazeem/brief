@@ -36,7 +36,12 @@ export const MODE_CFG: Record<OperatorMode, ModeConfig> = {
     label: "Protect",
     sub: "Capital preservation",
     minConfidence: 0.66,
-    rocFloor: 0.004,
+    // 2026-06-20 · Capital-preservation tuning. Raised from 0.40% → 0.55% so
+    // Protect stops catching falling knives: a sub-0.55%/30m wobble is noise,
+    // not a trend, and Protect should not stake capital on it. Deliberately
+    // higher than Grow (0.25%) / Aggressive (0.15%) — Protect demands a clearer
+    // move before it acts at all. (Grow/Aggressive thresholds untouched.)
+    rocFloor: 0.0055,
     rsiCeiling: 64,
     maxExposure: 0.3,
   },
@@ -186,6 +191,75 @@ export function runDecisionEngine(args: {
         : null;
   const direction: "up" | "down" =
     opts?.ai?.direction ?? regimeDir ?? (trendRoc >= 0 ? "up" : "down");
+
+  // ── Capital protection · Protect goes to cash in a confirmed downtrend ───
+  //
+  // 2026-06-20 · A deliberate capital-preservation rule, NOT an error path and
+  // NOT a demo trick: it triggers purely off real regime + ROC signals on any
+  // market. In Protect mode, refusing to hold a falling asset IS the strategy,
+  // so when the tape is a CONFIRMED downtrend we flatten to 100% USDC and treat
+  // that hold as the deliberate protective ACT — capital out of harm's way.
+  //
+  // "Confirmed downtrend" (down vs up read from the signals already computed):
+  //   (a) the regime classifier says `trending-down` (its authoritative call,
+  //       which already folds in both the 30m tape and a sustained 4h/daily
+  //       drift), OR
+  //   (b) a directionless regime (range-bound / mean-reversion — e.g. a tape
+  //       rolling over from overbought) whose dominant momentum is genuinely
+  //       negative: `direction === "down"` AND the driving ROC (`trendRoc`,
+  //       the same value the engine trades on) is below −rocFloor, i.e. a real
+  //       move down, not flat noise.
+  // Breakouts are left to the normal path (a down-breakout already targets cash
+  // via the bearish branch; an up-breakout is genuine strength). This rule only
+  // ever makes Protect MORE conservative.
+  //
+  // It short-circuits BEFORE the act/buy path below, so Protect can never buy
+  // into a falling market. Grow / Aggressive are untouched. All downstream
+  // safety (Move policy, mandate, exec veto) still applies to the resulting
+  // hold — this rule simply guarantees the target is zero risk.
+  const downRegime = regime?.kind === "trending-down";
+  const downMomentum =
+    (regime?.kind === "range-bound" || regime?.kind === "mean-reversion") &&
+    direction === "down" &&
+    trendRoc <= -cfg.rocFloor;
+  if (mode === "protect" && (downRegime || downMomentum)) {
+    const why = downRegime
+      ? `${regimeLabel.toLowerCase()} regime`
+      : `tape rolling over (30m ROC ${pct(roc30)}, 4h ${pct(roc4h)})`;
+    // Conviction in the DOWNTREND (from real ROC magnitude · same scale the
+    // engine uses elsewhere): how sure we are it's falling. The protective hold
+    // does not depend on this — we go to cash regardless — but it is reported
+    // honestly rather than hardcoded. AI conviction supersedes if present.
+    const protectConfidence = opts?.ai
+      ? clamp01(opts.ai.confidence)
+      : clamp01(Math.max(Math.abs(roc30) / 0.01, Math.abs(roc4h) / 0.04));
+    const reason =
+      "Capital protection: confirmed downtrend — holding 100% USDC, zero at risk.";
+    return {
+      mode,
+      asset,
+      spotUsd,
+      regimeLabel,
+      regimeReview,
+      // Force the asset to zero: the loop rebalances to 100% USDC.
+      targetExposurePct: 0,
+      allocation: `Capital protection · ${why} · target 100% USDC (0% ${asset}), nothing at risk.`,
+      thesis: `${asset} in a confirmed downtrend · ${why}. In Protect mode the right move is no exposure: a falling asset is not a position to hold.`,
+      counterargument:
+        "A snap-back is always possible, but Protect's mandate is preservation, not bottom-fishing · we forgo the bounce to remove all downside.",
+      riskReview: `Protect mode · refusing to hold ${asset} while it falls. Zero risk asset exposure is the lowest-risk state available.`,
+      mandateReview,
+      policyReview: `No buy order built · moving to cash. The Move policy still gates any future trade atomically.`,
+      executionReview: "No entry · de-risking to USDC, no execution required.",
+      // A deliberate protective ACT framed as a hold, NOT a buy: act stays false
+      // so no entry tx is built, but the verdict reads as protection, not a miss.
+      act: false,
+      direction: "down",
+      confidence: protectConfidence,
+      verdict: reason,
+      aiReasoned: !!opts?.ai,
+    };
+  }
 
   // ── Thesis · the case FOR a move (AI overrides if present) ──────────────
   const thesis =

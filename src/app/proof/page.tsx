@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import EvidenceBadge, { type EvidenceBadgeProps } from "@/components/shared/EvidenceBadge";
 import { apiUrl } from "@/lib/api-base";
 import { BRIEF_NETWORK } from "@/lib/brief-client";
-import { AMBER, EMERALD, RED } from "@/lib/ui";
+import { AMBER, EMERALD, RED, LINE, SUCCESS } from "@/lib/ui";
 
 // ── verified MAINNET artifacts (each checked success/failure on the fullnode) ──
 const DEFAULT_POLICY =
@@ -171,6 +171,90 @@ export default function ProofPage() {
             {p?.name && <span className="text-ink-2">· {p.name}</span>}
           </div>
         </header>
+
+        {/* ── The Kill-Switch Test · the whole story in one card ───────────
+            Owner revoked → the very next attempted trade aborted EPolicyRevoked.
+            Uses the real REVOKE_TX + ABORT_TX constants this page already
+            references. Independent of the live API load, so a judge sees the
+            centerpiece immediately. DANGER→SUCCESS to dramatize the safe failure. */}
+        <section
+          className="mt-10 bg-bg-elev p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-shadow lg:hover:shadow-md sm:p-6"
+          style={{ borderLeft: `3px solid ${RED}` }}
+        >
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: RED }}>
+              The Kill-Switch Test
+            </span>
+            <span className="h-px flex-1 bg-line" />
+          </div>
+          <h2 className="mt-3 font-sans text-[22px] font-medium leading-snug tracking-tight text-ink sm:text-[26px]">
+            The agent tried to act. The chain rejected it.
+            <br />
+            Funds stayed safe.
+          </h2>
+          <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-ink-2">
+            The owner revoked the operator in one transaction. The agent then
+            re-attempted the exact order that had filled before — and the protocol
+            aborted it. No backend call stopped the trade. The chain did.
+          </p>
+
+          <ol className="mt-5 space-y-px overflow-hidden" style={{ background: LINE }}>
+            {/* Step 1 · the revoke */}
+            <li className="bg-bg-elev px-4 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: RED }}>
+                    01 · Owner pulls the leash
+                  </p>
+                  <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink">
+                    One on-chain transaction sets <span className="font-mono">revoked = true</span>.
+                    The operator can never trade again.
+                  </p>
+                </div>
+                <EvidenceBadge
+                  type="tx"
+                  href={txUrl(data?.revoke?.tx ?? REVOKE_TX)}
+                  label="Revoke tx"
+                  tone="danger"
+                  className="shrink-0 px-3 py-1.5 text-[10.5px] lg:hover:shadow-md"
+                />
+              </div>
+            </li>
+            {/* Step 2 · the refused trade */}
+            <li className="bg-bg-elev px-4 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: RED }}>
+                    02 · The next trade aborts on-chain
+                  </p>
+                  <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink">
+                    <span className="font-mono">record_spend</span> aborted in{" "}
+                    <span className="font-mono">assert_can_spend</span> (abort code 3 ·
+                    EPolicyRevoked). The order never reached DeepBook; no funds moved.
+                  </p>
+                </div>
+                <EvidenceBadge
+                  type="tx"
+                  href={txUrl(ABORT_TX)}
+                  label="Refused tx"
+                  tone="danger"
+                  className="shrink-0 px-3 py-1.5 text-[10.5px] lg:hover:shadow-md"
+                />
+              </div>
+            </li>
+            {/* The verdict */}
+            <li className="bg-bg-elev px-4 py-4" style={{ borderTop: `2px solid ${SUCCESS}33` }}>
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <p className="font-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: EMERALD }}>
+                  ✓ Outcome · capital protected
+                </p>
+                <p className="text-[12.5px] text-ink-2">
+                  Enforcement is protocol-level, not a backend promise.
+                </p>
+              </div>
+            </li>
+          </ol>
+        </section>
 
         {err && (
           <div className="mt-10 border-l-[3px] border-[#EF4444] bg-red-50/40 px-4 py-3">
@@ -424,7 +508,12 @@ function ProofCard({
         <h2 className="min-w-0 flex-1 font-sans text-[18px] font-medium leading-snug tracking-tight text-ink">
           {title}
         </h2>
-        {badge && <EvidenceBadge {...badge} className="shrink-0" />}
+        {badge && (
+          <EvidenceBadge
+            {...badge}
+            className="shrink-0 px-3 py-1.5 text-[10.5px] transition-shadow lg:hover:shadow-md"
+          />
+        )}
       </div>
       <p className="mt-1.5 max-w-prose text-[12.5px] leading-relaxed text-ink-2">{line}</p>
       {children}
@@ -470,7 +559,7 @@ function CardLink({ href, children }: { href: string; children: React.ReactNode 
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="mt-3 inline-block font-mono text-[11px] uppercase tracking-[0.18em] text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
+      className="mt-3 inline-flex min-h-[34px] items-center font-mono text-[11px] uppercase tracking-[0.18em] text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
     >
       {children}
     </a>

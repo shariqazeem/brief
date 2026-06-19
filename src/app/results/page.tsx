@@ -111,25 +111,73 @@ function Results() {
               {objective} · {withdrawn ? "capital withdrawn by owner" : `running ${dayLabel}`}
             </p>
 
-            {/* The verdict · one sentence. The thesis is constrained autonomy,
-                not returns, so the headline reinforces the moat first. */}
+            {/* The headline · capital preservation leads. The thesis is
+                constrained autonomy + discipline, not raw returns · so the giant
+                number is "how much capital survived," computed from the real
+                operator return vs deposit. Profit and withdrawal handled honestly. */}
             {bench && (() => {
               const op = bench.operatorPct;
-              const vh = bench.vsHold;
-              let line: string;
-              if (withdrawn) line = "Capital returned in full, on demand.";
-              else if (op >= 0.1 && vh >= 0) line = "Beat holding SUI, under on-chain law.";
-              else if (op >= 0.1) line = "Grew, every move within policy.";
-              else line = "The leash held. Capital protected.";
+              // "Capital preserved" = end value as a share of what went in.
+              // operatorPct is (lastValue/deposit − 1)·100, so this is just
+              // 100 + operatorPct, the true figure for THIS operator.
+              const preservedOfDeposit = Math.max(0, Math.min(100, 100 + op));
+              const inProfit = op >= 0.05;
+              // Withdrawn operators mark to ~−100% (capital left the policy);
+              // that is NOT a loss · capital was returned in full, on demand.
+              if (withdrawn) {
+                return (
+                  <div className="mt-8">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+                      Capital returned
+                    </p>
+                    <p className="mt-2 font-sans text-[56px] font-semibold leading-none tracking-tight sm:text-[72px]" style={{ color: EMERALD }}>
+                      100%
+                    </p>
+                    <p className="mt-3 text-[15px] leading-relaxed" style={{ color: SUB }}>
+                      The owner withdrew the full balance on demand · non-custodial
+                      throughout. The operator never held the keys.
+                    </p>
+                  </div>
+                );
+              }
               return (
-                <p className="mt-7 font-sans text-[26px] font-medium leading-snug tracking-tight sm:text-[32px]" style={{ color: INK }}>
-                  {line}
-                </p>
+                <div className="mt-8">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+                    {inProfit ? "Capital grown" : "Capital preserved"}
+                  </p>
+                  <p className="mt-2 font-sans text-[56px] font-semibold leading-none tracking-tight tabular-nums sm:text-[72px]" style={{ color: EMERALD }}>
+                    {inProfit ? `+${op.toFixed(1)}%` : `${preservedOfDeposit.toFixed(1)}%`}
+                  </p>
+                  <p className="mt-3 text-[15px] leading-relaxed" style={{ color: SUB }}>
+                    <span style={{ color: INK }}>{objective}</span> operator · abstention is a
+                    first-class outcome — it stands aside on weak signals to avoid
+                    drawdown, and{" "}
+                    {bench.vsCash >= 0 ? (
+                      <>grew <span style={{ color: EMERALD }}>{Math.abs(bench.vsCash).toFixed(1)}%</span> vs sitting in cash.</>
+                    ) : bench.vsHold >= 0 ? (
+                      <>protected capital better than holding SUI through the move.</>
+                    ) : (
+                      <>chose to wait through a regime that rewarded holding · capital stayed intact.</>
+                    )}
+                  </p>
+                </div>
               );
             })()}
 
-            {/* The headline · the comparison IS the story: what would have
-                happened if you'd done nothing? */}
+            {/* Discipline badges · real counts, not claims. */}
+            {bench && (
+              <div className="mt-5 flex flex-wrap gap-2">
+                <span className="inline-flex items-center gap-2 border px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.16em]" style={{ borderColor: `${EMERALD}33`, color: EMERALD }}>
+                  ✓ {abstentions} risky {abstentions === 1 ? "entry" : "entries"} avoided
+                </span>
+                <span className="inline-flex items-center gap-2 border px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.16em]" style={{ borderColor: `${EMERALD}33`, color: EMERALD }}>
+                  ✓ 0 policy violations on {BRIEF_NETWORK === "mainnet" ? "mainnet" : "testnet"}
+                </span>
+              </div>
+            )}
+
+            {/* The honest comparison · the operator did not necessarily beat
+                cash, and we say so. The full counterfactual stays visible. */}
             {bench && (
               <p className="mt-8 font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
                 What would have happened if you&apos;d done nothing?

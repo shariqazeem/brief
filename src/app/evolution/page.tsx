@@ -28,6 +28,16 @@ type Reflection = {
   createdMs: number;
 };
 
+/** The EXACT shape served by /api/operators/memory (newest-first). */
+type MemoryBlob = {
+  blobId: string;
+  walrusUrl: string;
+  regime: string;
+  lesson: string;
+  kind: "reflection" | "reasoning";
+  ts: number;
+};
+
 export default function EvolutionPage() {
   return (
     <Suspense fallback={null}>
@@ -61,6 +71,27 @@ function Evolution() {
         if (!cancelled) setReflections(j.reflections ?? []);
       } catch {
         if (!cancelled) setReflections([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [policyId]);
+
+  // Decentralized Memory · the operator's regime lessons + reasoning anchored on
+  // Walrus, read from a sibling API. The exact same memories a fresh agent could
+  // pull from decentralized storage to continue with the same intelligence.
+  const [memory, setMemory] = useState<MemoryBlob[] | null>(null);
+  useEffect(() => {
+    if (!policyId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(apiUrl(`/api/operators/memory?policy_id=${encodeURIComponent(policyId)}`));
+        const j = (await r.json()) as { ok?: boolean; count?: number; blobs?: MemoryBlob[] };
+        if (!cancelled) setMemory(j.ok && Array.isArray(j.blobs) ? j.blobs : []);
+      } catch {
+        if (!cancelled) setMemory([]);
       }
     })();
     return () => {
@@ -130,6 +161,11 @@ function Evolution() {
               </div>
             )}
 
+            {/* Decentralized Memory · regime lessons + reasoning anchored on
+                Walrus. Real blobs only · quiet honest empty state otherwise.
+                Distinguished from the timeline by an INFO accent. */}
+            <DecentralizedMemory memory={memory} />
+
             {/* the growth timeline */}
             <h2 className="mt-12 font-mono text-[10px] uppercase tracking-[0.28em]" style={{ color: NAVY }}>
               The path
@@ -194,6 +230,77 @@ function Stat({ label, value }: { label: string; value: string }) {
       </p>
     </div>
   );
+}
+
+// Decentralized Memory · the operator's regime lessons + reasoning, anchored on
+// Walrus. This is the strongest decentralization proof: if this server vanished,
+// a fresh agent could read these exact blobs and continue with the same memory.
+// Real blobs only — never a placeholder ID. Quiet honest empty state otherwise.
+function DecentralizedMemory({ memory }: { memory: MemoryBlob[] | null }) {
+  return (
+    <>
+      <h2 className="mt-12 font-mono text-[10px] uppercase tracking-[0.28em]" style={{ color: NAVY }}>
+        Decentralized Memory · Walrus
+      </h2>
+      <p className="mt-2 text-[13px] leading-relaxed" style={{ color: SUB }}>
+        This operator&apos;s regime lessons and reasoning are anchored on Walrus. If this
+        server disappeared, a new agent could read these exact memories from decentralized
+        storage and continue with the same intelligence.
+      </p>
+      {memory === null ? (
+        <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.24em]" style={{ color: MUTED }}>
+          reading memory anchors…
+        </p>
+      ) : memory.length === 0 ? (
+        <p className="mt-4 text-[13px] leading-relaxed" style={{ color: MUTED }}>
+          Memory anchors appear here once the operator settles its first lessons.
+        </p>
+      ) : (
+        <div className="mt-5">
+          {memory.map((m, i) => (
+            <MemoryRow key={`${m.blobId}-${i}`} m={m} isLast={i === memory.length - 1} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// A single Walrus memory anchor · timeline-styled like the path/reflections, but
+// with an INFO dot + the on-Walrus evidence pill carrying the short blobId.
+function MemoryRow({ m, isLast }: { m: MemoryBlob; isLast: boolean }) {
+  const kindLabel = m.kind === "reasoning" ? "Reasoning" : "Reflection";
+  return (
+    <div className="relative flex gap-4">
+      <div className="flex flex-col items-center pt-1">
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: INFO }} aria-hidden />
+        {!isLast && <span className="my-1 w-px flex-1" style={{ background: "#E5E5EA", minHeight: 18 }} aria-hidden />}
+      </div>
+      <div className={`flex-1 ${isLast ? "pb-1" : "pb-6"}`}>
+        <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: INFO }}>
+          {m.regime || "Regime"}
+          <span aria-hidden style={{ color: MUTED }}>·</span>
+          <span style={{ color: MUTED }}>{kindLabel}</span>
+        </p>
+        <p className="mt-0.5 font-sans text-[16px] font-medium leading-snug tracking-tight" style={{ color: INK }}>
+          {truncate(m.lesson, 160)}
+        </p>
+        <div className="mt-2.5">
+          <EvidenceBadge type="walrus" href={m.walrusUrl} label={`On Walrus · ${shortBlobId(m.blobId)}`} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// A short, recognizable blobId for the evidence pill (head…tail).
+function shortBlobId(id: string): string {
+  return id.length > 14 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
+}
+
+function truncate(s: string, n: number): string {
+  const t = (s ?? "").trim();
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t || "Lesson recorded.";
 }
 
 const KIND_COLOR: Record<Milestone["kind"], string> = {

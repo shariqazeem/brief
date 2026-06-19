@@ -128,6 +128,7 @@ import { maybeAiAdvise, type AiAdvice } from "./ai-advisor.js";
 import { maybeRefreshMacroBriefing } from "./macro-briefing.js";
 import { maybeRunDailyReflection } from "./daily-reflection.js";
 import { loadGuardianStatus, guardianPausedFor } from "../lib/guardian-status.js";
+import { recoverMemoryFromWalrus } from "./walrus-memory.js";
 import {
   evalMandate,
   loadMandateState,
@@ -1943,6 +1944,11 @@ const GATED_VENUE = "spot-sui";
  *  retried until restart (and the registry flag makes it durable). */
 const gatedSkip = new Set<string>();
 
+/** Operators whose Walrus memory we've already attempted to recover this
+ *  process · the boot-recovery read runs ONCE per operator per start, not every
+ *  tick (it's a "new agent reads its past from Walrus" proof, not a hot path). */
+const memoryRecovered = new Set<string>();
+
 type OperatorRegistryEntry = {
   policyId: string;
   bmId: string;
@@ -3136,6 +3142,30 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
           `[trader-gated] daily reflection skipped for ${e.policyId.slice(0, 10)}…:`,
           String((err as Error)?.message ?? err).slice(0, 120),
         );
+      }
+      // Decentralized memory · ONCE per operator per process, read this
+      // operator's most recent memory back FROM Walrus (not the local cursor).
+      // This is the "if the server dies, a new agent recovers its memory from
+      // Walrus" proof made literal + observable in the logs. Fully fail-open:
+      // recoverMemoryFromWalrus is timeout-bounded and never throws, and the
+      // guard Set ensures it can't run on the hot path. We log the recovered
+      // lessons but don't (yet) change trading behaviour on them.
+      if (!memoryRecovered.has(e.policyId)) {
+        memoryRecovered.add(e.policyId); // mark before the await · never re-attempt
+        try {
+          const recovered = await recoverMemoryFromWalrus(e.policyId);
+          if (recovered.length > 0) {
+            console.log(
+              `[trader-gated] operator ${e.policyId.slice(0, 10)}… recovered ${recovered.length} memory lesson(s) from Walrus · latest: ${recovered[0]!.lesson.slice(0, 100)}`,
+            );
+          }
+        } catch (err) {
+          // recoverMemoryFromWalrus already fails open · this is belt-and-braces.
+          console.warn(
+            `[trader-gated] walrus memory recovery skipped for ${e.policyId.slice(0, 10)}…:`,
+            String((err as Error)?.message ?? err).slice(0, 120),
+          );
+        }
       }
       // Evaluate every asset this operator can trade, then pick ONE to act on.
       const ctxs: AssetCtx[] = [];
