@@ -2,7 +2,13 @@
 
 *Written to be read aloud, face-cam + screen-share, for a **pre-recorded ≤5-min video** (not a live pitch). That's an advantage: you can record in segments, re-take any line you fluff, and edit out dead air — so don't aim for one flawless take, aim for clean pieces you stitch together. Target ~4:30 so you never get cut at 5:00. Every claim is paired with something REAL on screen — "verify, don't trust" is the whole product. (v2 — sharper cold open, capital-protection front-loaded, tighter lines.)*
 
-**Golden rule of delivery:** slow down. Land three moments with a full pause: (1) *"it physically cannot,"* (2) *"the chain said no,"* (3) *"its memory survives on Walrus."* Those silences sell certainty.
+**Golden rule of delivery:** slow down. Land three moments with a full pause: (1) *"it physically cannot,"* (2) *"Sui said no,"* (3) *"its memory survives on Walrus."* Those silences sell certainty.
+
+**✅ Pre-flight verification (all clicks confirmed on mainnet — won't fail on camera):**
+- Post-revoke abort tx → real `failure · EPolicyRevoked` · over-budget tx → real `failure · EBudgetExceeded` · revoke tx → `success`. All resolve on `suiscan.xyz/mainnet`.
+- Brain has **55 real AI-dampened decisions** (Grok 4.1 Fast) — the "talked itself out of the trade" claim is backed.
+- Walrus memory blob links open (`HTTP 200`, real content).
+- ⚠️ **Guardian shows a live pause only when an operator is being tracked.** Both prior operators are retired, so before recording the Guardian beat, either show a *past* pause on `/evolution`, or make it live (see the Guardian section's production note).
 
 **Setup before you record:**
 - Tabs in order: `usebrief.xyz` → `/workforce/adopt` → your dashboard → `/brain` → `/proof` → `/evolution` → `/results`.
@@ -21,7 +27,9 @@
 >
 > We built the opposite.
 >
-> This is **Brief** — an AI capital operator where the **AI decides what to do**, but the **blockchain decides what it's allowed to do**."
+> This is **Brief** — the world's first **AI capital operator governed by on-chain law.**
+>
+> The AI decides what to do. The blockchain decides what it's *allowed* to do."
 
 *(Switch to screen share.)*
 
@@ -43,13 +51,15 @@
 
 ---
 
-### ⏱ 1:10 – 1:50 · TWO AGENTS + THE LEASH  *(screen: dashboard — point at the AgentStrip)*
+### ⏱ 1:10 – 1:55 · THREE DECISION-MAKERS  *(screen: dashboard — point at the AgentStrip)*
 
-> "And this isn't one agent. It's two, plus the chain.
+> "There are three decision-makers here. The **Trader.** The **Risk Guardian.** And ultimately, the **chain** itself.
 >
-> The **Trader** proposes allocations. The **Risk Guardian** — a completely separate agent — can pause trading on its own when volatility spikes.
+> The Trader proposes allocations. The Risk Guardian is a *separate* autonomous agent — and it's not theoretical. It independently watches volatility and drawdown, and it pauses this operator the moment risk crosses its threshold. The Trader can want to act, and the Guardian overrules it.
 >
 > And underneath both is the **leash** — the on-chain policy. Every spend is checked in the *same transaction* as the trade. Zero violations, ever."
+
+> 📌 **To make the Guardian pause LIVE on camera (strongest version):** it only shows a pause while it's actively tracking a funded operator. Easiest honest way — right before this take, set `GUARDIAN_FORCE_PAUSE=<your operator id>` and restart the guardian (the manual circuit-breaker is a real feature); the dashboard then shows *"Risk Guardian · paused"* and the Trader stands down — say *"watch — the Guardian is pausing it right now."* If you'd rather not, open `/evolution` and point to a **real past pause** ("volatility spiking… standing trading down") and say *"it's done this for real."* Don't claim a live 354% pause unless the screen shows one.
 
 ---
 
@@ -67,21 +77,27 @@
 
 > "But here's what actually matters when things go wrong. If I ever need to shut it down, I revoke it — one transaction. And the very next time the agent tries to trade…"
 
-*(Click the abort tx on Suiscan. Let it load. Point at the abort code.)*
+*(Click the abort tx on Suiscan. Let it load. Point at the abort code. Then, slowly — one line at a time:)*
 
-> "…the **chain rejects it.** `EPolicyRevoked`. The agent tried to act. Sui said **no.** The money never moved."
+> "The agent tried to act.
+>
+> Sui said **no.**
+>
+> `EPolicyRevoked`. Funds untouched."
 
-*(Long pause — this is the moment. Let it sit.)*
+*(Long pause — this is the moment. Let it breathe.)*
 
-> "That's not our server. That's the protocol. Every claim on this page is a link — **verify it yourself.**"
+> "That's the difference between a backend *promise* and protocol *enforcement.* Every claim on this page is a link — **verify it yourself.**"
 
 ---
 
 ### ⏱ 3:25 – 3:55 · WALRUS MEMORY  *(screen: `/evolution` — Decentralized Memory)*
 
-> "One more. Everything this agent has learned — every regime outcome, every lesson — is written to **Walrus.** These are real blob IDs.
+> "Here's the thing about intelligence: it disappears when the server disappears — unless the memory survives.
 >
-> So if our server vanished right now, I could spin up a new agent anywhere, and it would read these exact memories back from decentralized storage and keep going. Its **memory survives on Walrus.**"
+> Every important lesson, every AI-shaped decision, every reflection — anchored to **Walrus.** These are real blob IDs; click one, it opens.
+>
+> So if our server vanished tomorrow, a new operator could recover this exact memory and continue from the same history. Its **memory survives on Walrus.**"
 
 ---
 
