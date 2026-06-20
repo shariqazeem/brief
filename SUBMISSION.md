@@ -21,7 +21,7 @@
 
 ## DESCRIPTION  *(paste this; apply the bold/bullets with the editor)*
 
-**Brief — the first AI agent wallet governed by on-chain law.**
+**Brief — the first AI agent that manages real money, governed by on-chain law.**
 
 An AI can decide what to do. The blockchain decides what it's *allowed* to do.
 
@@ -49,7 +49,7 @@ AI agents are about to start moving real money — ready or not. **Brief is the 
 
 ## SHORT DESCRIPTION  *(if a separate one-liner field appears, or for socials)*
 
-> The first AI agent wallet governed by on-chain law. Hand an AI agent real USDC on Sui — it can trade, but a Move contract makes it physically unable to withdraw, overspend, or keep going once you revoke it. The AI proposes; the chain enforces. Live on mainnet, verifiable on Suiscan + Walrus.
+> The first AI agent that manages real money, governed by on-chain law. Hand an AI agent real USDC on Sui — it can trade, but a Move contract makes it physically unable to withdraw, overspend, or keep going once you revoke it. The AI proposes; the chain enforces. Live on mainnet, verifiable on Suiscan + Walrus.
 
 ---
 
