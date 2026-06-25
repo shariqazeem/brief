@@ -70,6 +70,17 @@ export type StreamDecision = {
   // Risk Guardian (second agent) · paused this operator + why.
   guardianPaused: boolean;
   guardianReason: string | null;
+  // Operator identity (from the template) + the user-facing plan.
+  operatorName: string | null;
+  operatorRole: string | null;
+  operatorTemplate: string | null;
+  plan: {
+    now: string;
+    why: string;
+    watching: string;
+    willActWhen: string;
+    willStopIf: string;
+  } | null;
   // Market regime · classified before deciding.
   regimeKind: string | null;
   regimeLabel: string | null;
@@ -319,6 +330,20 @@ function reduce(state: AgentStreamState, e: AgentStreamEvent): AgentStreamState 
         aiSource: str(d.ai_source),
         guardianPaused: d.guardian_paused === true,
         guardianReason: (d.guardian_reason as string | null) ?? null,
+        operatorName: str(d.operator_name),
+        operatorRole: str(d.operator_role),
+        operatorTemplate: str(d.operator_template),
+        plan: (() => {
+          const p = d.plan as Record<string, unknown> | undefined;
+          if (!p || typeof p !== "object") return null;
+          return {
+            now: str(p.now) ?? "",
+            why: str(p.why) ?? "",
+            watching: str(p.watching) ?? "",
+            willActWhen: str(p.willActWhen) ?? "",
+            willStopIf: str(p.willStopIf) ?? "",
+          };
+        })(),
         regimeKind: str(d.regime),
         regimeLabel: str(d.regime_label),
         regimeReview: str(d.regime_review),

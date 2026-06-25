@@ -51,6 +51,7 @@ import {
   type DecisionRecord,
 } from "@/lib/operator-scorecard";
 import { operatorCodename } from "@/lib/operator-identity";
+import { operatorIdentity } from "@/lib/operators";
 import { WithdrawFunds } from "./withdraw-funds";
 import {
   useOperatorLedger,
@@ -337,6 +338,16 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   // is derived from the model id the agent emitted (dec.aiSource) — never
   // hardcoded — so it stays honest as the underlying model changes.
   const dec = stream.decision;
+  // Clean identity · operator name + role from the template, with a graceful
+  // fallback to the codename + a role derived from mode for legacy operators ·
+  // never the confusing "Mira · aggressive mode" combination.
+  const identity = operatorIdentity({
+    templateSlug: dec?.operatorTemplate,
+    name: dec?.operatorName,
+    role: dec?.operatorRole,
+    mode: dec?.mode,
+    fallbackName: codename,
+  });
   const traderThesis = dec?.thesis ?? dec?.reasoning ?? deriveThesis(stream.signals);
   const traderConfidence = dec?.conviction ?? (decisions[0]?.confidence ?? 0);
   const traderAiModel = dec?.aiReasoned ? aiModelLabel(dec.aiSource) : undefined;
@@ -371,7 +382,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
     <div className="min-h-screen bg-bg">
       <TopBar
         glyph={personality?.glyph ?? "◇"}
-        name={codename}
+        name={identity.name}
         subname={traderName}
         dot={dot}
         revoked={revoked}
@@ -389,7 +400,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             capital for me" in two seconds — not a stack of report cards.
             Spans the full width above the two-column body. */}
         <OperatorHero
-          name={codename}
+          name={identity.name}
           glyph={personality?.glyph ?? "◇"}
           stream={stream}
           revoked={revoked}
@@ -782,7 +793,12 @@ function OperatorHero({
             className="border px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.18em]"
             style={{ borderColor: "#E5E5EA", color: INK }}
           >
-            {dec.mode} mode
+            {dec.operatorRole ??
+              (dec.mode === "protect"
+                ? "Capital operator"
+                : dec.mode === "aggressive"
+                  ? "Momentum operator"
+                  : "Growth operator")}
           </span>
           {modeSuggestion && (
             <Link
@@ -2308,7 +2324,12 @@ function SpotPipeline({
             className="border px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.18em]"
             style={{ borderColor: "#E5E5EA", color: INK }}
           >
-            {dec.mode} mode
+            {dec.operatorRole ??
+              (dec.mode === "protect"
+                ? "Capital operator"
+                : dec.mode === "aggressive"
+                  ? "Momentum operator"
+                  : "Growth operator")}
           </span>
         )}
         <span className="font-mono text-[9.5px] uppercase tracking-[0.18em]" style={{ color: SUB }}>

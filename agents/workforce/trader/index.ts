@@ -100,6 +100,8 @@ import {
 } from "./strategy.js";
 import {
   runDecisionEngine,
+  decisionPlan,
+  MODE_CFG,
   modeFromGoal,
   normalizeMode,
 } from "./decision-engine.js";
@@ -1968,6 +1970,13 @@ type OperatorRegistryEntry = {
   /** Assets this operator may trade (its universe · e.g. Mira ["SUI"], Echo
    *  ["DEEP"]). Absent → all gated assets for the network (back-compat). */
   universe?: string[];
+  /** Operator template slug (mira/echo/nova) + display identity, written by the
+   *  adopt flow from the personality template. Absent → legacy operator. */
+  template?: string;
+  name?: string;
+  role?: string;
+  /** Minimum seconds between executed trades (anti-spam). Absent → mode default. */
+  cooldownSec?: number;
   network: GatedNetwork;
   revoked: boolean;
   adoptedAtMs: number;
@@ -2401,7 +2410,11 @@ async function runGatedOperator(
       : recall.note;
   // Vol-adaptive rebalance band · wider when the tape is volatile (avoids churn
   // on chop); floors at 12 pts, caps at 30.
-  const REBALANCE_BAND = Math.min(0.3, 0.12 + realizedVol * 0.06);
+  // Floor is mode-aware so an active operator (Echo/aggressive) tilts on smaller
+  // gaps = smaller, more frequent shifts; a defensive one (Mira/protect) moves
+  // rarely. Still vol-adaptive (wider when the tape is volatile) and capped at 30.
+  const bandFloor = mode === "aggressive" ? 0.06 : mode === "protect" ? 0.14 : 0.1;
+  const REBALANCE_BAND = Math.min(0.3, bandFloor + realizedVol * 0.06);
 
   // Pass 1 · reason over regime + signals + memory + mandate (no exec yet).
   let eng = runDecisionEngine({
@@ -2573,10 +2586,58 @@ async function runGatedOperator(
     });
     rebalanceSide = rebalanceSideFor(capTarget(eng.targetExposurePct));
   }
+
+  // ---- COOLDOWN: space out executed trades to avoid spam. From the operator's
+  // template (registry cooldownSec) or a mode default. A guardian CRASH (move to
+  // cash) always bypasses it · safety wins.
+  const cooldownMs =
+    (e.cooldownSec != null
+      ? e.cooldownSec
+      : mode === "aggressive"
+        ? 1200
+        : mode === "protect"
+          ? 14400
+          : 3600) * 1000;
+  const lastTradeMs = experience.reduce(
+    (mx, r) => (r.outcome !== "abstained" && r.ts > mx ? r.ts : mx),
+    0,
+  );
+  const cooldownActive =
+    lastTradeMs > 0 && Date.now() - lastTradeMs < cooldownMs && guardianLevel !== "crash";
+  if (cooldownActive && rebalanceSide) {
+    rebalanceSide = null;
+    if (!infeasibleNote) {
+      const mins = Math.max(1, Math.ceil((cooldownMs - (Date.now() - lastTradeMs)) / 60000));
+      infeasibleNote = `cooldown · ${mins}m until the next trade is allowed`;
+    }
+  }
+
   const willRebalance = rebalanceSide != null;
   // `direction` carries the actual money move when rebalancing, else the lean.
   const direction: Direction = rebalanceSide ?? eng.direction;
   const curExposurePct = Math.round(currentExposure * 100);
+
+  // ---- PLAN: the user-facing "now / why / watching / will act when / will stop
+  // if" for this decision. Deterministic, built in the engine, stored + emitted
+  // so the journal and replay render the same words.
+  const planAction: "add" | "reduce" | "hold" = willRebalance
+    ? direction === "up"
+      ? "add"
+      : "reduce"
+    : "hold";
+  const plan = decisionPlan({
+    asset,
+    action: planAction,
+    currentExposurePct: curExposurePct,
+    targetPct: capTarget(eng.targetExposurePct),
+    confidence: eng.confidence,
+    minConfidence: MODE_CFG[mode].minConfidence,
+    regimeLabel: eng.regimeLabel,
+    regimeTradeable: marketRegime.tradeable,
+    guardianLevel,
+    cooldownActive,
+    cooldownMins: Math.round(cooldownMs / 60000),
+  });
 
   // ---- PLAYBOOK: the operator's learned procedure for THIS regime · computed
   // earlier (it now gates the decision via effConfidenceMult, not just display).
@@ -2620,6 +2681,12 @@ async function runGatedOperator(
       guardian_paused: guardianLevel === "crash",
       guardian_reason: guardianNote,
       guardian_risk_level: guardianLevel,
+      cooldown_active: cooldownActive,
+      // operator identity (from the template) + the user-facing plan
+      operator_name: e.name ?? null,
+      operator_role: e.role ?? null,
+      operator_template: e.template ?? null,
+      plan,
       // capital-manager view · what the money should be doing, vs where it is
       allocation: eng.allocation,
       target_exposure_pct: eng.targetExposurePct,
@@ -2774,6 +2841,7 @@ async function runGatedOperator(
       // decision time (powers the Brain's per-decision guardian badge).
       guardianPaused: guardianLevel === "crash",
       guardianReason: guardianNote,
+      plan,
     },
   };
   experience.push(expRecord);

@@ -409,3 +409,90 @@ export function runDecisionEngine(args: {
     aiReasoned: !!opts?.ai,
   };
 }
+
+/** A user-facing plan for one decision · the same discipline, made legible. */
+export type DecisionPlan = {
+  now: string; // current stance
+  why: string; // why holding / adding / reducing
+  watching: string; // what it is watching next
+  willActWhen: string; // what would make it act
+  willStopIf: string; // what risk condition would stop it
+};
+
+/**
+ * Build the plan for one decision. Pure + deterministic. Lives in the engine (not
+ * the UI) so the journal, the API and every page render the SAME explanation.
+ */
+export function decisionPlan(args: {
+  asset: string;
+  action: "add" | "reduce" | "hold";
+  currentExposurePct: number;
+  targetPct: number | null;
+  confidence: number; // 0-1 (final)
+  minConfidence: number; // 0-1 (mode bar)
+  regimeLabel: string;
+  regimeTradeable: boolean;
+  guardianLevel: "normal" | "elevated" | "extreme" | "crash";
+  cooldownActive: boolean;
+  cooldownMins: number;
+}): DecisionPlan {
+  const {
+    asset,
+    action,
+    currentExposurePct,
+    targetPct,
+    confidence,
+    minConfidence,
+    regimeLabel,
+    regimeTradeable,
+    guardianLevel,
+    cooldownActive,
+    cooldownMins,
+  } = args;
+  const confPct = Math.round(confidence * 100);
+  const barPct = Math.round(minConfidence * 100);
+  const tgt = targetPct ?? currentExposurePct;
+
+  const now =
+    action === "add"
+      ? `Adding to ${asset}: ${currentExposurePct}% to ${tgt}%.`
+      : action === "reduce"
+        ? `Trimming ${asset}: ${currentExposurePct}% to ${tgt}%.`
+        : `Holding ${currentExposurePct}% ${asset}.`;
+
+  let why: string;
+  if (guardianLevel === "crash") {
+    why = "The Risk Guardian is in a crash state, so capital is moving to cash regardless of the signal.";
+  } else if (guardianLevel === "extreme") {
+    why = "Volatility is extreme, so the Guardian allows no new exposure · holding or reducing only.";
+  } else if (action === "add") {
+    why = `Momentum favours ${asset} (${confPct}% conviction, past the ${barPct}% bar)${
+      guardianLevel === "elevated" ? ", and volatility is elevated so the step is smaller than usual" : " and risk is within limits"
+    }.`;
+  } else if (action === "reduce") {
+    why = `The edge has weakened${guardianLevel === "elevated" ? " and volatility is elevated" : ""}, so exposure is coming down.`;
+  } else if (cooldownActive) {
+    why = `It traded recently and is in a ${cooldownMins}-minute cooldown to avoid overtrading · the stance is unchanged.`;
+  } else if (!regimeTradeable) {
+    why = `The ${regimeLabel.toLowerCase()} regime offers no directional edge, so it is keeping a measured stance.`;
+  } else if (confPct < barPct) {
+    why = `Conviction (${confPct}%) is below the ${barPct}% bar, so it is waiting rather than forcing a move.`;
+  } else {
+    why = "It is already within its target band, so no trade is needed.";
+  }
+
+  const watching =
+    guardianLevel === "crash" || guardianLevel === "extreme"
+      ? `Whether volatility falls back toward ${asset}'s normal range.`
+      : `Whether ${asset} holds its short-term trend and volatility stays in the normal band.`;
+
+  const willActWhen =
+    guardianLevel === "crash"
+      ? "It will rebuild exposure once the Guardian clears the crash state."
+      : `It will move when conviction clears ${barPct}% in a tradeable regime and the gap to target is wide enough to matter.`;
+
+  const willStopIf =
+    "Volatility spikes (the Guardian shrinks size, then blocks new exposure, then moves to cash), the drawdown guard trips, or you revoke · the chain enforces all three.";
+
+  return { now, why, watching, willActWhen, willStopIf };
+}

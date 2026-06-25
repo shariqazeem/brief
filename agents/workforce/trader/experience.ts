@@ -70,6 +70,15 @@ export type ExperienceDetail = {
    *  checkpoint the Brain renders. Optional · old records omit it. */
   guardianPaused?: boolean;
   guardianReason?: string | null;
+  /** User-facing plan for this decision (now / why / watching / will act when /
+   *  will stop if). Mirrors DecisionPlan · powers the journal and replay. */
+  plan?: {
+    now: string;
+    why: string;
+    watching: string;
+    willActWhen: string;
+    willStopIf: string;
+  };
 };
 
 export type ExperienceRecord = {

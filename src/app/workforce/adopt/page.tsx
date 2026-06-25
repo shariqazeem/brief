@@ -25,6 +25,7 @@ import {
   saveTraderIdentity,
   type StrategyId,
 } from "@/lib/workforce-client";
+import { OPERATOR_TEMPLATES, venuesForUniverse } from "@/lib/operators";
 import { useAccountSigner } from "@/lib/zklogin/signer";
 
 // Operators live for the demo window, not 12–24h. Long enough that a judge
@@ -32,67 +33,39 @@ import { useAccountSigner } from "@/lib/zklogin/signer";
 const TRADER_EXPIRY_HOURS = 24 * 14; // 14 days
 const PRESETS = [5, 10, 20];
 
-// ONE operator, THREE modes. The mode sets the engine's confidence/trend bars
-// (Protect/Grow/Aggressive) · not a different bot. personality/goal are legacy
-// labels kept only so the journal + manifesto keep reading; the decision engine
-// runs off `mode`.
+// The user hires a NAMED operator (Mira / Echo / Nova) from the single source of
+// truth in @/lib/operators. Each personality maps to an internal mode (the
+// engine's confidence/trend bars) and a universe enforced ON-CHAIN via the
+// policy's allowed_venues. Modes still exist under the hood; users think in
+// operators, not risk sliders.
 type OperatorMode = "protect" | "grow" | "aggressive";
 
-const MODES: {
-  id: OperatorMode;
-  /** The GOAL the user is adopting · people buy goals, not strategies. */
-  intent: string;
-  /** The mode under the hood (engine confidence/trend bars). */
-  label: string;
-  cadence: string;
-  behavior: string[];
-  dot: string;
-  glyph: string;
-  personality: StrategyId;
-  /** On-chain budget cap = deposit × this. The cap is a CUMULATIVE turnover
-   *  ceiling, not the capital (capital is the deposit; only the owner can
-   *  withdraw it). A bigger allowance lets the operator buy/sell/rebalance
-   *  for weeks instead of retiring after deploying its capital once. */
-  turnoverMultiple: number;
-  goal: { type: string; targetPct?: number; horizonDays?: number };
-}[] = [
-  {
-    id: "protect",
-    intent: "Protect my capital",
-    label: "Protect",
-    cadence: "Most days: no trade",
-    behavior: ["Act only when the edge is clear."],
-    dot: "#10B981",
-    glyph: "◈",
-    personality: "conservative",
-    turnoverMultiple: 3,
-    goal: { type: "preserve" },
-  },
-  {
-    id: "grow",
-    intent: "Grow steadily",
-    label: "Grow",
-    cadence: "Most days: 1–3 decisions",
-    behavior: ["Balanced cash and SUI allocation."],
-    dot: "#4DA2FF",
-    glyph: "◇",
-    personality: "momentum",
-    turnoverMultiple: 5,
-    goal: { type: "grow", targetPct: 5, horizonDays: 30 },
-  },
-  {
-    id: "aggressive",
-    intent: "Beat passive SUI",
-    label: "Aggressive",
-    cadence: "Most days: several decisions",
-    behavior: ["Higher risk for higher upside."],
-    dot: "#F59E0B",
-    glyph: "◆",
-    personality: "contrarian",
-    turnoverMultiple: 8,
-    goal: { type: "edge" },
-  },
-];
+// On-chain budget cap = deposit × this · a CUMULATIVE turnover ceiling, not the
+// capital (only the owner can withdraw the capital). A bigger allowance lets the
+// operator rebalance for weeks instead of retiring after deploying once.
+const TURNOVER: Record<OperatorMode, number> = { protect: 3, grow: 5, aggressive: 8 };
+
+const OPERATORS = OPERATOR_TEMPLATES.map((t) => ({
+  slug: t.slug,
+  name: t.name,
+  role: t.role,
+  promise: t.promise,
+  cadence: t.cadence,
+  bestFor: t.bestFor,
+  riskPosture: t.riskPosture,
+  glyph: t.glyph,
+  accent: t.accent,
+  universe: t.universe,
+  personality: t.strategy as StrategyId,
+  defaultBudgetUsd: t.defaultBudgetUsd,
+  maxExposure: t.maxExposure,
+  cooldownSec: t.cooldownSec,
+  experimental: t.experimental ?? false,
+  goal: t.goal,
+  // internal mode + turnover the adopt flow reads
+  mode: t.mode as OperatorMode,
+  turnoverMultiple: TURNOVER[t.mode as OperatorMode],
+}));
 
 // Each adoption step: the action (while in flight) + the trust it establishes
 // (on ✓). The judge reads WHO owns what and WHAT the chain enforces.
@@ -129,7 +102,7 @@ function AdoptWizard() {
   const usdcLabel = isMainnet ? "USDC" : "test USDC";
   const unitLabel = isMainnet ? "USDC" : "DBUSDC"; // the actual capital coin
 
-  const [pickedMode, setPickedMode] = useState<OperatorMode | null>(null);
+  const [pickedMode, setPickedMode] = useState<string | null>(null); // operator slug
   const [amount, setAmount] = useState<number>(5);
   // Optional investment mandate · a human objective + a drawdown guard the
   // operator is bound to. Off by default; the chain caps spend regardless.
@@ -145,7 +118,7 @@ function AdoptWizard() {
   });
   const [adopt, setAdopt] = useState<AdoptState>({ kind: "idle" });
 
-  const modeCfg = pickedMode ? MODES.find((m) => m.id === pickedMode) ?? null : null;
+  const modeCfg = pickedMode ? OPERATORS.find((o) => o.slug === pickedMode) ?? null : null;
   const cfg = DEEPBOOK_CFG[BRIEF_NETWORK];
 
   // Live balances (SUI for the hero, capital coin for the deposit step).
@@ -230,7 +203,7 @@ function AdoptWizard() {
         if (rest.length) tx.mergeCoins(primary, rest);
         const [capitalCoin] = tx.splitCoins(primary, [tx.pure.u64(base)]);
         const goal = modeCfg.goal;
-        const name = `${modeCfg.label} Operator ${Math.floor(Math.random() * 90) + 10}`;
+        const name = modeCfg.name;
         buildAdoptTx(tx, {
           network: BRIEF_NETWORK,
           briefPackageId: BRIEF_PACKAGE_ID,
@@ -239,11 +212,14 @@ function AdoptWizard() {
           name,
           // Capital deposited = `base` (only the owner can withdraw it). The
           // on-chain budget cap is a CUMULATIVE turnover allowance = capital ×
-          // the mode's multiple, so the operator can rebalance for weeks rather
-          // than retiring after deploying its capital once. The chain still
-          // reverts anything past it; the agent still cannot withdraw.
+          // the operator's multiple, so it can rebalance for weeks rather than
+          // retiring after deploying once. The chain reverts anything past it.
           budgetCap: base * BigInt(modeCfg.turnoverMultiple),
           expiresAtMs: BigInt(Date.now() + TRADER_EXPIRY_HOURS * 3600_000),
+          // The universe is enforced ON-CHAIN: allowed_venues contains ONLY this
+          // operator's assets, so the Move policy rejects any order outside them.
+          allowedVenues: venuesForUniverse(modeCfg.universe),
+          maxConcentrationBps: Math.round(modeCfg.maxExposure * 10000),
         });
         signer.signAndExecute(tx, {
           onSuccess: (res) => {
@@ -282,7 +258,12 @@ function AdoptWizard() {
                       deposit_cap_id: depositCapId,
                       owner: address,
                       personality: modeCfg.personality,
-                      mode: modeCfg.id,
+                      mode: modeCfg.mode,
+                      template: modeCfg.slug,
+                      name: modeCfg.name,
+                      role: modeCfg.role,
+                      universe: modeCfg.universe,
+                      cooldown_sec: modeCfg.cooldownSec,
                       mandate: mandateOn
                         ? {
                             targetReturnPct: mTarget,
@@ -367,18 +348,22 @@ function AdoptWizard() {
         {/* ─── Section 2 · Choose your goal ─────────── */}
         {showChoose && (
           <section className="mt-16 animate-fade-up">
-            <SectionLabel n="01" title="Choose your goal" />
+            <SectionLabel n="01" title="Choose your operator" />
             <p className="mt-3 max-w-prose text-[14px] leading-relaxed text-ink-2">
-              You&apos;re adopting an objective, not picking a strategy. Same engine,
-              same on-chain leash · your goal sets how it allocates between cash and SUI.
+              You&apos;re hiring a specific operator with a specific mandate · not a
+              risk slider. Same on-chain leash for all three: each trades only its
+              own assets, can never withdraw, and you can revoke any time.
             </p>
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {MODES.map((m) => (
-                <ModeCard
-                  key={m.id}
-                  m={m}
-                  selected={pickedMode === m.id}
-                  onPick={() => setPickedMode(m.id)}
+              {OPERATORS.map((op) => (
+                <OperatorCard
+                  key={op.slug}
+                  op={op}
+                  selected={pickedMode === op.slug}
+                  onPick={() => {
+                    setPickedMode(op.slug);
+                    setAmount(op.defaultBudgetUsd);
+                  }}
                 />
               ))}
             </div>
@@ -538,7 +523,7 @@ function AdoptWizard() {
                   disabled={busy || insufficient}
                   className="w-full bg-accent px-6 py-4 font-mono text-[12px] uppercase tracking-[0.3em] text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-10"
                 >
-                  {busy ? "Awaiting signature…" : `Adopt to ${modeCfg.intent.toLowerCase()} · One Signature`}
+                  {busy ? "Awaiting signature…" : `Adopt ${modeCfg.name} · One Signature`}
                 </button>
                 <p className="mt-3 max-w-prose font-mono text-[10.5px] leading-relaxed text-muted">
                   This single transaction creates your BalanceManager, deposits your
@@ -626,12 +611,12 @@ function SectionLabel({ n, title }: { n: string; title: string }) {
   );
 }
 
-function ModeCard({
-  m,
+function OperatorCard({
+  op,
   selected,
   onPick,
 }: {
-  m: (typeof MODES)[number];
+  op: (typeof OPERATORS)[number];
   selected: boolean;
   onPick: () => void;
 }) {
@@ -639,36 +624,41 @@ function ModeCard({
     <button
       type="button"
       onClick={onPick}
-      className={`flex min-h-[210px] flex-col border bg-bg-elev p-4 text-left transition-colors ${
+      className={`flex min-h-[240px] flex-col border bg-bg-elev p-4 text-left transition-colors ${
         selected ? "border-accent" : "border-line hover:border-line-strong"
       }`}
       style={{ borderWidth: selected ? 2 : 1 }}
     >
-      <span className="font-sans text-[28px] leading-none text-ink" aria-hidden>
-        {m.glyph}
-      </span>
-      <span className="mt-3 font-sans text-[16px] font-medium tracking-tight text-ink">
-        {m.intent}
-      </span>
-      <span className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: "#1a2c4e" }}>
-        {m.label} mode · {m.cadence}
-      </span>
-      <div className="mt-3 flex-1 space-y-1">
-        {m.behavior.map((line) => (
-          <p key={line} className="text-[12.5px] leading-snug text-ink-2">
-            {line}
-          </p>
-        ))}
-      </div>
-      <div className="mt-3 flex items-center gap-1.5">
-        <span
-          className="h-1.5 w-1.5 shrink-0 rounded-full"
-          style={{ background: m.dot }}
-          aria-hidden
-        />
-        <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted">
-          On-chain leash
+      <div className="flex items-center justify-between">
+        <span className="font-sans text-[26px] leading-none" style={{ color: op.accent }} aria-hidden>
+          {op.glyph}
         </span>
+        <span className="font-mono text-[8.5px] uppercase tracking-[0.18em]" style={{ color: op.accent }}>
+          {op.riskPosture}
+        </span>
+      </div>
+      <span className="mt-3 font-sans text-[18px] font-semibold tracking-tight text-ink">
+        {op.name}
+      </span>
+      <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+        {op.role}
+      </span>
+      <p className="mt-2.5 text-[12.5px] leading-snug text-ink-2">{op.promise}</p>
+      {op.experimental && (
+        <span className="mt-2 inline-block w-fit border border-amber-400 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.16em] text-amber-700">
+          Experimental
+        </span>
+      )}
+      <p className="mt-2 flex-1 text-[11px] leading-snug text-muted">{op.bestFor}</p>
+      <div className="mt-3 space-y-1 border-t border-line pt-2.5">
+        <div className="flex items-center justify-between font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted">
+          <span>Trades</span>
+          <span className="text-ink-2">{op.universe.join(" · ")}</span>
+        </div>
+        <div className="flex items-center justify-between font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted">
+          <span>Suggested</span>
+          <span className="text-ink-2">${op.defaultBudgetUsd}</span>
+        </div>
       </div>
     </button>
   );

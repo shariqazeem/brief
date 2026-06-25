@@ -57,6 +57,10 @@ export type AdoptArgs = {
   expiresAtMs: bigint;
   maxConcentrationBps?: number;
   riskTolerance?: string;
+  /** On-chain allow-list of venues = the operator's universe (e.g. Mira →
+   *  ["spot-sui"] only). Defaults to all spot venues for back-compat. This is
+   *  the HARD enforcement: the Move policy rejects any order outside this list. */
+  allowedVenues?: string[];
 };
 
 /**
@@ -116,7 +120,7 @@ export function buildAdoptTx(tx: Transaction, args: AdoptArgs): void {
       tx.pure.address(args.operator),
       tx.pure.string(args.name),
       tx.pure.u64(args.budgetCap),
-      tx.pure.vector("string", cfg.spotVenues),
+      tx.pure.vector("string", args.allowedVenues ?? cfg.spotVenues),
       tx.pure.u16(args.maxConcentrationBps ?? 3000),
       tx.pure.u64(args.expiresAtMs),
       tx.pure.u8(0),

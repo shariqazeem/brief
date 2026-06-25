@@ -34,6 +34,15 @@ type Entry = {
   goal: Goal;
   /** Optional user investment mandate · objective + drawdown guard. */
   mandate?: Mandate | null;
+  /** The operator's tradeable universe (asset symbols, e.g. ["SUI"]). Mirrors
+   *  the on-chain allowed_venues; the trader + guardian scope behaviour to it. */
+  universe?: string[] | null;
+  /** Operator template slug (mira/echo/nova) + display identity. */
+  template?: string | null;
+  name?: string | null;
+  role?: string | null;
+  /** Min seconds between executed trades (anti-spam); null → mode default. */
+  cooldownSec?: number | null;
   network: "mainnet" | "testnet";
   revoked: boolean;
   adoptedAtMs: number;
@@ -85,6 +94,11 @@ export async function GET(req: NextRequest) {
       owner: e.owner,
       network: e.network,
       revoked: e.revoked,
+      template: e.template ?? null,
+      name: e.name ?? null,
+      role: e.role ?? null,
+      mode: e.mode,
+      universe: e.universe ?? null,
     },
     { headers: { "Cache-Control": "no-store" } },
   );
@@ -129,6 +143,20 @@ export async function POST(req: NextRequest) {
     if (Number.isFinite(Number(goalRaw.horizonDays))) goal.horizonDays = Number(goalRaw.horizonDays);
   }
 
+  // Operator template fields (universe + identity) written by the adopt flow.
+  const ASSETS = ["SUI", "WAL", "DEEP"] as const;
+  const universe = Array.isArray(body.universe)
+    ? (body.universe as unknown[])
+        .map((a) => String(a).toUpperCase())
+        .filter((a) => (ASSETS as readonly string[]).includes(a))
+    : null;
+  const template = typeof body.template === "string" ? body.template : null;
+  const name = typeof body.name === "string" ? body.name.slice(0, 40) : null;
+  const role = typeof body.role === "string" ? body.role.slice(0, 60) : null;
+  const cooldownSec = Number.isFinite(Number(body.cooldown_sec))
+    ? Math.max(0, Math.floor(Number(body.cooldown_sec)))
+    : null;
+
   const entry: Entry = {
     policyId,
     bmId,
@@ -141,6 +169,11 @@ export async function POST(req: NextRequest) {
       : "grow",
     mandate: parseMandate(body.mandate),
     goal,
+    universe: universe && universe.length ? universe : null,
+    template,
+    name,
+    role,
+    cooldownSec,
     network: body.network === "mainnet" ? "mainnet" : "testnet",
     revoked: false,
     adoptedAtMs: Date.now(),
