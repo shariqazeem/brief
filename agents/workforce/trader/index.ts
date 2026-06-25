@@ -127,7 +127,7 @@ import {
 import { maybeAiAdvise, type AiAdvice } from "./ai-advisor.js";
 import { maybeRefreshMacroBriefing } from "./macro-briefing.js";
 import { maybeRunDailyReflection } from "./daily-reflection.js";
-import { loadGuardianStatus, guardianPausedFor } from "../lib/guardian-status.js";
+import { loadGuardianStatus, type RiskLevel } from "../lib/guardian-status.js";
 import { recoverMemoryFromWalrus } from "./walrus-memory.js";
 import {
   evalMandate,
@@ -1965,6 +1965,9 @@ type OperatorRegistryEntry = {
   /** Optional user investment mandate (target return / horizon / max drawdown).
    *  The operator acts toward it and stands down if the drawdown guard trips. */
   mandate?: { targetReturnPct?: number; horizonDays?: number; maxDrawdownPct?: number } | null;
+  /** Assets this operator may trade (its universe · e.g. Mira ["SUI"], Echo
+   *  ["DEEP"]). Absent → all gated assets for the network (back-compat). */
+  universe?: string[];
   network: GatedNetwork;
   revoked: boolean;
   adoptedAtMs: number;
@@ -2004,6 +2007,17 @@ async function markOperatorRevokedInRegistry(policyId: string): Promise<void> {
 function registryGoal(g: OperatorRegistryEntry["goal"]): OperatorGoal {
   if (g && (g.type === "grow" || g.type === "preserve")) return g;
   return { type: "edge" };
+}
+
+/** The assets this operator may trade · its universe intersected with the
+ *  network's gated assets. Defaults to all gated assets when unset (back-compat
+ *  for pre-universe adoptions). Lets Mira trade only SUI, Echo only DEEP, etc. */
+function operatorUniverse(e: OperatorRegistryEntry): string[] {
+  const all = gatedAssetsFor(e.network);
+  if (!e.universe || e.universe.length === 0) return all;
+  const allow = new Set(e.universe.map((a) => a.toUpperCase()));
+  const f = all.filter((a) => allow.has(a.toUpperCase()));
+  return f.length ? f : all;
 }
 
 /** Stable per-operator event-stream id so the dashboard groups all of one
@@ -2474,19 +2488,48 @@ async function runGatedOperator(
     });
   }
 
+  // ---- RISK GUARDIAN v2 (graduated): read the operator's current risk level and
+  // cap exposure accordingly · REDUCE before freeze. normal = full size, elevated
+  // = smaller (cap 50%), extreme = no NEW exposure (hold or reduce only), crash =
+  // move to cash. Coordination, not control: the Move policy still gates every
+  // trade and the owner's revoke overrides everything.
+  let guardianNote: string | null = null;
+  let guardianLevel: RiskLevel = "normal";
+  try {
+    const g = (await loadGuardianStatus()).operators[e.policyId];
+    if (g?.riskLevel) {
+      guardianLevel = g.riskLevel;
+      if (guardianLevel !== "normal") guardianNote = `Risk Guardian · ${g.reason}`;
+    } else if (g?.paused) {
+      guardianLevel = "crash";
+      guardianNote = `Risk Guardian · ${g.reason}`;
+    }
+  } catch {
+    /* guardian unavailable → trade as normal (fail-open; the Move policy still gates) */
+  }
+  // Cap the engine's continuous target (percent of capital) by the risk level.
+  const capTarget = (raw: number | null): number | null => {
+    if (guardianLevel === "crash") return 0; // de-risk fully to cash
+    if (guardianLevel === "extreme") {
+      const cur = currentExposure * 100;
+      return raw == null ? cur : Math.min(raw, cur); // no new exposure (hold/reduce)
+    }
+    if (guardianLevel === "elevated") return raw == null ? raw : Math.min(raw, 50); // smaller
+    return raw;
+  };
+
   // ---- ALLOCATOR: think in ALLOCATIONS, not trades. Compare where capital
-  // currently lives (currentExposure) to where the thesis wants it
-  // (eng.targetExposurePct), and only move when the gap clears a band. This is
-  // what turns "tried to sell but had nothing" into "already in cash · no
-  // action required": a real capital manager, not a trade firehose.
-  const rebalanceSideFor = (d: typeof eng): Direction | null => {
-    if (d.targetExposurePct == null) return null; // no confident view → hold
-    const gap = d.targetExposurePct / 100 - currentExposure;
+  // currently lives (currentExposure) to the guardian-capped target, and only
+  // move when the gap clears the vol-adaptive band. A stance that always exists
+  // but does not churn · a real capital manager, not a trade firehose.
+  const rebalanceSideFor = (targetPct: number | null): Direction | null => {
+    if (targetPct == null) return null; // no transactable view → hold
+    const gap = targetPct / 100 - currentExposure;
     if (gap > REBALANCE_BAND) return "up"; // under-allocated → buy the asset
     if (gap < -REBALANCE_BAND) return "down"; // over-allocated → sell the asset
     return null; // already within the target band → hold
   };
-  let rebalanceSide = rebalanceSideFor(eng);
+  let rebalanceSide = rebalanceSideFor(capTarget(eng.targetExposurePct));
 
   // ---- FEASIBILITY: a rebalance is one min-lot of THIS asset. If the balances
   // can't cover it (no cash to buy / sub-lot inventory to sell), DON'T claim a
@@ -2499,24 +2542,6 @@ async function runGatedOperator(
   } else if (rebalanceSide === "down" && baseBalSui < baseQty) {
     infeasibleNote = `${asset} position (${baseBalSui.toFixed(2)}) below a ${baseQty}-${asset} lot`;
     rebalanceSide = null;
-  }
-
-  // ---- RISK GUARDIAN (multi-agent): the second agent can stand this operator
-  // down (vol spike / drawdown / manual circuit-break). The trader RESPECTS it
-  // before placing any order · coordination, not control (the Move policy is
-  // still the ultimate gate, and the owner's revoke overrides everything).
-  let guardianNote: string | null = null;
-  try {
-    const guardianPause = guardianPausedFor(await loadGuardianStatus(), e.policyId);
-    if (guardianPause) {
-      guardianNote = `Risk Guardian paused · ${guardianPause.reason}`;
-      if (rebalanceSide) {
-        rebalanceSide = null;
-        infeasibleNote = guardianNote;
-      }
-    }
-  } catch {
-    /* guardian unavailable → trade as normal (fail-open; the Move policy still gates) */
   }
 
   // ---- EXECUTION ANALYSIS: only when a rebalance is actually needed, simulate
@@ -2546,7 +2571,7 @@ async function runGatedOperator(
         ...(aiOpt ? { ai: aiOpt } : {}),
       },
     });
-    rebalanceSide = rebalanceSideFor(eng);
+    rebalanceSide = rebalanceSideFor(capTarget(eng.targetExposurePct));
   }
   const willRebalance = rebalanceSide != null;
   // `direction` carries the actual money move when rebalancing, else the lean.
@@ -2592,8 +2617,9 @@ async function runGatedOperator(
       ai_veto: aiAdvice?.veto ?? null,
       base_confidence: deterministicConfidence,
       final_confidence: eng.confidence,
-      guardian_paused: !!guardianNote,
+      guardian_paused: guardianLevel === "crash",
       guardian_reason: guardianNote,
+      guardian_risk_level: guardianLevel,
       // capital-manager view · what the money should be doing, vs where it is
       allocation: eng.allocation,
       target_exposure_pct: eng.targetExposurePct,
@@ -2746,7 +2772,7 @@ async function runGatedOperator(
       aiBlobId,
       // Per-decision Risk-Guardian checkpoint · the state the operator saw at
       // decision time (powers the Brain's per-decision guardian badge).
-      guardianPaused: !!guardianNote,
+      guardianPaused: guardianLevel === "crash",
       guardianReason: guardianNote,
     },
   };
@@ -3167,9 +3193,10 @@ async function gatedSpotTick(ctx: AgentContext): Promise<void> {
           );
         }
       }
-      // Evaluate every asset this operator can trade, then pick ONE to act on.
+      // Evaluate every asset in this operator's universe, then pick ONE to act
+      // on (Mira → SUI only, Echo → DEEP only, etc.).
       const ctxs: AssetCtx[] = [];
-      for (const a of gatedAssetsFor(e.network)) {
+      for (const a of operatorUniverse(e)) {
         const c = await assetCtx(e.network, a);
         if (c) ctxs.push(c);
       }

@@ -323,7 +323,9 @@ export function runDecisionEngine(args: {
   const executionReview =
     opts?.exec?.note ?? "Order sizing at one min-lot; DeepBook execution check at fire time.";
 
-  // ── Decision ────────────────────────────────────────────────────────────
+  // ── Decision · high-conviction directional edge. Kept for narration and the
+  //    "Act" framing; the loop's allocator actually executes off the CONTINUOUS
+  //    target below (it moves when the gap to target clears a vol-adaptive band).
   const execOk = opts?.exec ? opts.exec.approved : true;
   const act =
     confidence >= cfg.minConfidence &&
@@ -333,43 +335,58 @@ export function runDecisionEngine(args: {
     !mandateBlocked &&
     !regimeBlocked;
 
-  const verdict = act
-    ? `Act ${direction.toUpperCase()} · ${(confidence * 100).toFixed(0)}% confidence clears the ${cfg.label} bar in a ${regimeLabel.toLowerCase()} regime.`
-    : mandateBlocked
-      ? `Stand down · mandate drawdown guard tripped; honouring your risk limit.`
-      : budgetBlocked
-        ? `Stand down · budget fully deployed; capital working, none at new risk.`
-        : regimeBlocked
-          ? `Stand down · ${regimeLabel.toLowerCase()} regime offers no directional edge; capital protected.`
-          : !trending
-            ? `Stand down · flat tape, capital protected.`
-            : !execOk
-              ? `Stand down · execution conditions not met.`
-              : `Stand down · ${(confidence * 100).toFixed(0)}% confidence below the ${(
-                  cfg.minConfidence * 100
-                ).toFixed(0)}% ${cfg.label} bar.`;
-
-  // ── Allocation · the capital-manager view: what % should live in SUI ────
+  // ── Allocation · CONTINUOUS stance (the capital-manager view). The operator
+  //    is ALWAYS positioned: target is a smooth function of conviction +
+  //    direction, anchored on a per-mode resting baseline and capped by the
+  //    mode's max exposure. "Always a target" is NOT "always trading" — the
+  //    loop's vol-adaptive deadband only moves capital on a meaningful gap, so
+  //    this is a portfolio manager that always has a stance and explains it,
+  //    not a trade firehose. (Replaces the old binary act ? target : null.)
+  const maxEx = cfg.maxExposure; // 0.30 / 0.55 / 0.85 by mode
+  const baseline = maxEx * 0.25; // resting stance when uncertain
+  const conv = clamp01(confidence);
   let targetExposurePct: number | null;
   let allocation: string;
-  if (act) {
-    if (direction === "up") {
-      targetExposurePct = Math.max(20, Math.round(clamp01(confidence) * cfg.maxExposure * 100));
-      allocation = `Bullish ${regimeLabel.toLowerCase()} · target ${targetExposurePct}% in SUI.`;
-    } else {
-      targetExposurePct = 0;
-      allocation = `Bearish ${regimeLabel.toLowerCase()} · target cash (0% SUI).`;
-    }
+  if (budgetBlocked) {
+    targetExposurePct = null; // cap reached · cannot transact → hold current
+    allocation = "Budget fully deployed · holding current allocation.";
+  } else if (mandateBlocked) {
+    targetExposurePct = 0; // drawdown guard → de-risk to cash
+    allocation = "Mandate drawdown guard · de-risking to cash (0%).";
+  } else if (regimeBlocked) {
+    targetExposurePct = Math.round(baseline * 100); // neutral resting stance, no chase
+    allocation = `${regimeLabel} regime · neutral ${targetExposurePct}% ${asset} stance, no directional chase.`;
   } else {
-    targetExposurePct = null;
-    allocation = mandateBlocked
-      ? "Mandate guard · no new exposure; holding."
-      : budgetBlocked
-        ? "Budget fully deployed · holding current allocation."
-        : regimeBlocked
-          ? `${regimeLabel} regime · no directional edge; holding current allocation.`
-          : "No confident edge · holding current allocation.";
+    const frac =
+      direction === "up"
+        ? baseline + conv * (maxEx - baseline) // baseline → max as up-conviction rises
+        : baseline * (1 - conv); // baseline → 0 as down-conviction rises
+    targetExposurePct = Math.round(clamp01(frac) * 100);
+    allocation = `Target ${targetExposurePct}% ${asset} (${100 - targetExposurePct}% cash) · ${
+      direction === "up" ? "leaning long" : "leaning to cash"
+    } at ${(conv * 100).toFixed(0)}% conviction.`;
   }
+
+  // ── Verdict · one-line synthesis. A clear edge reads as "Act"; otherwise it
+  //    reads as "Hold {target}%", never a dead "stand down" while in fact
+  //    holding a measured stance.
+  const verdict = budgetBlocked
+    ? `Budget fully deployed · holding current allocation, none at new risk.`
+    : mandateBlocked
+      ? `De-risking to cash · mandate drawdown guard tripped, honouring your risk limit.`
+      : act
+        ? `Act ${direction.toUpperCase()} · ${(confidence * 100).toFixed(0)}% conviction clears the ${cfg.label} bar in a ${regimeLabel.toLowerCase()} regime · target ${targetExposurePct}% ${asset}.`
+        : `Hold ${targetExposurePct}% ${asset} · ${
+            regimeBlocked
+              ? `${regimeLabel.toLowerCase()} regime, no directional edge`
+              : !trending
+                ? "flat tape, no trend to ride"
+                : !execOk
+                  ? "execution conditions not met"
+                  : `${(confidence * 100).toFixed(0)}% conviction below the ${(
+                      cfg.minConfidence * 100
+                    ).toFixed(0)}% ${cfg.label} bar`
+          }, holding a measured stance.`;
 
   return {
     mode,

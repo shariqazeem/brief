@@ -10,7 +10,14 @@ export const GUARDIAN_STATUS_PATH = path.join(
   "guardian-status.json",
 );
 
+/** Graduated risk level from the asset-relative vol percentile. The trader maps
+ *  this to behaviour: normal = full size, elevated = smaller positions, extreme
+ *  = no NEW exposure (hold/reduce only), crash = move to cash. */
+export type RiskLevel = "normal" | "elevated" | "extreme" | "crash";
+
 export type GuardianOperator = {
+  /** True only at crash (full stop to cash). elevated/extreme keep operating at
+   *  reduced size · the graduated guardian reduces before it freezes. */
   paused: boolean;
   /** Human-readable reason for the current state. */
   reason: string;
@@ -19,9 +26,13 @@ export type GuardianOperator = {
   /** Realized vol (annualized) + worst drawdown the guardian last saw. */
   vol: number | null;
   drawdownPct: number;
-  /** When the current paused/active state began. */
+  /** When the current state began. */
   since: number;
   updatedMs: number;
+  /** Graduated risk level (the trader caps exposure off this). */
+  riskLevel?: RiskLevel;
+  /** Current vol's percentile within the asset's own trailing distribution. */
+  volPct?: number | null;
 };
 
 export type GuardianStatus = {
