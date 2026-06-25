@@ -52,6 +52,8 @@ import {
 } from "@/lib/operator-scorecard";
 import { operatorCodename } from "@/lib/operator-identity";
 import { operatorIdentity } from "@/lib/operators";
+import { roleHeadline } from "@/lib/operator-feed";
+import { LiveJournal } from "./live-journal";
 import { WithdrawFunds } from "./withdraw-funds";
 import {
   useOperatorLedger,
@@ -401,6 +403,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             Spans the full width above the two-column body. */}
         <OperatorHero
           name={identity.name}
+          role={identity.role}
           glyph={personality?.glyph ?? "◇"}
           stream={stream}
           revoked={revoked}
@@ -427,6 +430,18 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           policySpent={bv.spent}
           policyBudget={bv.cap}
           policyRevoked={revoked || policy?.revoked === true}
+        />
+
+        {/* Live Journal · the center of the product · every decision a receipt.
+            Spans full width directly under the agents + chain. */}
+        <LiveJournal
+          policyId={policyId}
+          stream={stream}
+          ledger={ledger}
+          name={identity.name}
+          role={identity.role}
+          asset={liveAsset}
+          now={now}
         />
 
         {spot ? (
@@ -617,6 +632,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
 
 function OperatorHero({
   name,
+  role,
   glyph,
   stream,
   revoked,
@@ -631,6 +647,7 @@ function OperatorHero({
   fallback,
 }: {
   name: string;
+  role: string;
   glyph: string;
   stream: AgentStreamState;
   revoked: boolean;
@@ -673,7 +690,9 @@ function OperatorHero({
     : dec
       ? dec.mandate?.breached
         ? "Mandate guard tripped · standing down to honour your limit."
-        : allocationHeadline(dec)
+        : dec.decided
+          ? allocationHeadline(dec)
+          : roleHeadline(name, role)
       : fallbackLine;
   // The allocation sub-line · "what your money is doing" in one tabular glance.
   const curEx = dec?.currentExposurePct ?? null;
