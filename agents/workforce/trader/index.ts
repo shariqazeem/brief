@@ -2797,7 +2797,10 @@ async function runGatedOperator(
   // an AI veto is as worth proving as an AI act). The advisor is rate-limited to
   // ~once/8min per operator, so this stays rare + cheap. Never blocks the cycle.
   let aiBlobId: string | null = null;
-  if (aiAdvice && walrusEnabled()) {
+  // Pre-flight WAL funding like every other upload site · writeBlob's
+  // insufficient-WAL throw escapes try/catch as an unhandled rejection and
+  // crashes the trader, so we must NEVER attempt a write on a short wallet.
+  if (aiAdvice && walrusEnabled() && (await hasWalrusFunding(ctx.client, ctx.address))) {
     const payload = new TextEncoder().encode(
       JSON.stringify(
         {

@@ -53,13 +53,20 @@ export function walrusEnabled(): boolean {
   return process.env.BRIEF_USE_WALRUS === "true";
 }
 
+/** Minimum summed WAL (in FROST, 1e-9 WAL) required before we ATTEMPT a Walrus
+ *  write. One small JSON blob for a few epochs costs ~1.4e6 FROST; we demand a
+ *  healthy multi-blob buffer so a write can never leave the wallet below the
+ *  NEXT write's cost mid-flight. Override via env. */
+const MIN_WAL_FROST = BigInt(process.env.BRIEF_WALRUS_MIN_WAL_FROST ?? "20000000"); // ~0.02 WAL
+
 /**
- * Confirm the signer wallet has at least one WAL coin. Walrus
- * `writeBlob` pays for storage in WAL; if the wallet has none, the SDK
- * throws from a nested async chain that escapes our try/catch as an
- * UnhandledPromiseRejection and crashes the agent. Pre-flighting the
- * balance lets us fall back to inline storage cleanly when the
- * specialist wallet hasn't been topped up with WAL yet.
+ * Confirm the signer wallet has ENOUGH WAL to pay for a blob write. Walrus
+ * `writeBlob` pays for storage in WAL; if the wallet is short, the SDK throws
+ * from a nested async chain that escapes our try/catch as an
+ * UnhandledPromiseRejection and CRASHES the agent. A non-zero-but-insufficient
+ * balance (drained below one blob's cost) trips this exactly like a zero
+ * balance, so we require the SUMMED balance to clear a floor, not merely be > 0.
+ * Below it we fall back to inline storage cleanly until the wallet is topped up.
  */
 export async function hasWalrusFunding(
   _sui: SuiJsonRpcClient,
@@ -71,7 +78,8 @@ export async function hasWalrusFunding(
       coinType:
         "0x8270feb7375eee355e64fdb69c50abb6b5f9393a722883c1cf45f8e26048810a::wal::WAL",
     });
-    return (coins.data ?? []).some((c) => BigInt(c.balance) > 0n);
+    const total = (coins.data ?? []).reduce((sum, c) => sum + BigInt(c.balance), 0n);
+    return total >= MIN_WAL_FROST;
   } catch {
     return false;
   }
