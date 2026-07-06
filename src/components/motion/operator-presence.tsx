@@ -25,6 +25,7 @@ const PX: Record<PresenceSize, number> = { sm: 44, md: 72, lg: 128 };
 
 export function OperatorPresence({
   glyph = "◇",
+  art,
   state = "idle",
   live = true,
   size = "md",
@@ -32,6 +33,8 @@ export function OperatorPresence({
   className,
 }: {
   glyph?: string;
+  /** Identity mark image (SET A art). Falls back to the glyph when absent. */
+  art?: string;
   state?: PresenceState;
   live?: boolean;
   size?: PresenceSize;
@@ -89,19 +92,38 @@ export function OperatorPresence({
         aria-hidden
         style={{ position: "absolute", inset: 0, borderRadius: "50%", border: `1px solid ${accent}22` }}
       />
-      {/* mark · identity glyph (the art asset swaps in here later) */}
-      <span
-        className="op-presence-mark"
-        style={{
-          fontSize: Math.round(px * 0.42),
-          lineHeight: 1,
-          color: accent,
-          filter: desat ? "grayscale(0.7) opacity(0.75)" : "none",
-          transition: "filter 400ms var(--ease-base)",
-        }}
-      >
-        {glyph}
-      </span>
+      {/* mark · the operator's identity art, or the glyph as a fallback */}
+      {art ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          className="op-presence-mark"
+          src={art}
+          alt=""
+          aria-hidden
+          width={Math.round(px * 0.86)}
+          height={Math.round(px * 0.86)}
+          style={{
+            width: Math.round(px * 0.86),
+            height: Math.round(px * 0.86),
+            objectFit: "contain",
+            filter: desat ? "grayscale(0.7) opacity(0.75)" : "none",
+            transition: "filter 400ms var(--ease-base)",
+          }}
+        />
+      ) : (
+        <span
+          className="op-presence-mark"
+          style={{
+            fontSize: Math.round(px * 0.42),
+            lineHeight: 1,
+            color: accent,
+            filter: desat ? "grayscale(0.7) opacity(0.75)" : "none",
+            transition: "filter 400ms var(--ease-base)",
+          }}
+        >
+          {glyph}
+        </span>
+      )}
     </div>
   );
 }

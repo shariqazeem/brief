@@ -52,8 +52,10 @@ export type OperatorTemplate = {
   bestFor: string;
   /** UI accent token (hex) · matches the semantic palette. */
   accent: string;
-  /** Small glyph for the card/header. */
+  /** Small glyph for the card/header (fallback when art is unavailable). */
   glyph: string;
+  /** Path to the operator's identity mark (SET A art), shown in OperatorPresence. */
+  art?: string;
   /** Whether to show an "experimental" warning. */
   experimental?: boolean;
   /** Legacy goal blob written to the registry (keeps existing backend working). */
@@ -104,6 +106,7 @@ export const OPERATOR_TEMPLATES: OperatorTemplate[] = [
     bestFor: "First-time users who want safety over upside.",
     accent: "#10B981",
     glyph: "◈",
+    art: "/art/operator-mira.webp",
     goal: { type: "preserve" },
     explanation:
       "Mira keeps most of your capital in USDC and takes only a small SUI position when the trend is confirmed and risk is low. She would rather miss a rally than sit through a drawdown. When volatility rises she reduces exposure before she stops, and in a real crash she moves to cash.",
@@ -130,6 +133,7 @@ export const OPERATOR_TEMPLATES: OperatorTemplate[] = [
     bestFor: "Users who want to see the operator working, with a hard leash.",
     accent: "#F59E0B",
     glyph: "◆",
+    art: "/art/operator-echo.webp",
     goal: { type: "edge" },
     explanation:
       "Echo follows confirmed momentum and is the most visibly active operator. Instead of waiting for perfect conviction, it nudges its target allocation in small steps (typically 5 to 15 percent) and rebalances only when the gap is meaningful, with a cooldown between trades so it never spams. It tolerates more churn than Mira, but the Guardian still shrinks its size in elevated volatility and the chain still caps everything.",
@@ -156,6 +160,7 @@ export const OPERATOR_TEMPLATES: OperatorTemplate[] = [
     bestFor: "Curious users who want to watch an agent learn in public.",
     accent: "#4DA2FF",
     glyph: "◇",
+    art: "/art/operator-nova.webp",
     experimental: true,
     goal: { type: "grow", targetPct: 5, horizonDays: 30 },
     explanation:

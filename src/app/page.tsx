@@ -579,10 +579,27 @@ export default function OperatorLandingV2() {
         style={{ height: "100vh" }}
       >
       {/* ════ SCENE 1 · THE HOOK ════ */}
-      <section className="flex min-h-screen snap-start flex-col items-center justify-center px-6 pt-16">
-        <Scene className="flex flex-col items-center">
+      <section className="relative flex min-h-screen snap-start flex-col items-center justify-center overflow-hidden px-6 pt-16">
+        {/* B1 · the leash backdrop, whisper-quiet (7%). */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-center bg-no-repeat"
+          style={{
+            backgroundImage: "url(/art/hero-leash.webp)",
+            backgroundSize: "min(1400px, 130%)",
+            opacity: 0.07,
+          }}
+        />
+        <Scene className="relative flex flex-col items-center">
           <SceneItem order={0}>
-            <OperatorPresence glyph="◈" state={presenceState} live={connected} size="lg" accent={NAVY} />
+            <OperatorPresence
+              glyph="◈"
+              art="/art/operator-mira.webp"
+              state={presenceState}
+              live={connected}
+              size="lg"
+              accent={NAVY}
+            />
           </SceneItem>
           <SceneItem order={1}>
             <h1 className="ink-navy-gradient mt-10 max-w-2xl text-center text-[34px] font-medium leading-[1.08] tracking-[-0.02em] sm:text-[52px]">
@@ -820,6 +837,7 @@ export default function OperatorLandingV2() {
             <OperatorCard
               key={t.slug}
               glyph={t.glyph}
+              art={t.art}
               name={t.name}
               role={t.role}
               promise={t.promise}
@@ -941,6 +959,7 @@ function GlassNav({ ctaHref, hasOperator }: { ctaHref: string; hasOperator: bool
 // hard "never does" line, then a click into the adopt flow. ──
 function OperatorCard({
   glyph,
+  art,
   name,
   role,
   promise,
@@ -949,6 +968,7 @@ function OperatorCard({
   live,
 }: {
   glyph: string;
+  art?: string;
   name: string;
   role: string;
   promise: string;
@@ -963,7 +983,7 @@ function OperatorCard({
       style={{ border: "1px solid var(--line)" }}
     >
       <div className="flex items-center gap-4">
-        <OperatorPresence glyph={glyph} state="idle" live={live} size="sm" accent={accent} />
+        <OperatorPresence glyph={glyph} art={art} state="idle" live={live} size="sm" accent={accent} />
         <div className="min-w-0">
           <p className="font-sans text-[16px] font-semibold tracking-tight text-ink">{name}</p>
           <p className="font-mono text-[9.5px] uppercase tracking-[0.2em] text-muted">{role}</p>
