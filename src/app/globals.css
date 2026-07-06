@@ -220,6 +220,13 @@ body {
 }
 .cta-sheen:hover > .cta-sheen-glint { animation: ctaSheen 3s var(--ease-base); }
 
+/* Operator tab switch · content cross-fades + slides in (250ms). */
+@keyframes operatorPanelIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.operator-panel { animation: operatorPanelIn 250ms var(--ease-out-expo) both; }
+
 /* Evidence link · the "verify me" underline draws left → right on hover. */
 .evidence-underline { background-image: linear-gradient(currentColor, currentColor);
   background-size: 0% 1px; background-position: 0 100%; background-repeat: no-repeat;

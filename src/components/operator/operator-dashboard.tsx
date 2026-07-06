@@ -55,6 +55,10 @@ import { operatorIdentity } from "@/lib/operators";
 import { roleHeadline } from "@/lib/operator-feed";
 import { LiveJournal } from "./live-journal";
 import { AskOperator } from "./ask-operator";
+import { OperatorTabBar, OperatorPanel, type OperatorTabKey } from "./operator-tabs";
+import { BrainView } from "./brain-view";
+import { ResultsView } from "./results-view";
+import { EvolutionView } from "./evolution-view";
 import { WithdrawFunds } from "./withdraw-funds";
 import {
   useOperatorLedger,
@@ -381,6 +385,11 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
   // mode is clearly winning here (>60%), Protect when clearly losing.
   const modeSuggestion = computeModeSuggestion(dec, scorecard);
 
+  // One surface, five tabs. The Hero + AgentStrip stay persistent above the
+  // tabs (is it alive / winning / under control); everything else is a panel,
+  // so the operator page never scatters to /brain, /evolution, /results, /proof.
+  const [tab, setTab] = useState<OperatorTabKey>("live");
+
   return (
     <div className="min-h-screen bg-bg">
       <TopBar
@@ -433,6 +442,11 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           policyRevoked={revoked || policy?.revoked === true}
         />
 
+        {/* One surface · five tabs. Hero + agents above stay persistent; the
+            old /brain, /evolution, /results, /proof are panels now, not pages. */}
+        <OperatorTabBar active={tab} onChange={setTab} />
+
+        <OperatorPanel active={tab === "live"}>
         {/* Live Journal · the center of the product · every decision a receipt.
             Spans full width directly under the agents + chain. */}
         <LiveJournal
@@ -603,6 +617,40 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
             <BottomStrip entries={journal.entries} />
           </div>
         )}
+        </OperatorPanel>
+
+        {/* MIND · the full decision replay (was /brain). */}
+        <OperatorPanel active={tab === "mind"}>
+          <BrainView policyId={policyId} embedded />
+        </OperatorPanel>
+
+        {/* PERFORMANCE · did it work (was /results). */}
+        <OperatorPanel active={tab === "performance"}>
+          <ResultsView policyId={policyId} embedded />
+        </OperatorPanel>
+
+        {/* MEMORY · what it has learned (was /evolution). */}
+        <OperatorPanel active={tab === "memory"}>
+          <EvolutionView policyId={policyId} embedded />
+        </OperatorPanel>
+
+        {/* PROOF · custody + constitution, scoped to this operator. */}
+        <OperatorPanel active={tab === "proof"}>
+          <div className="mt-2 space-y-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 lg:space-y-0">
+            <div className="space-y-6">
+              <ProofSummary policyId={policyId} bv={bv} revoked={revoked || policy?.revoked === true} />
+              <ProtectedBySui policyId={policyId} />
+            </div>
+            <div className="space-y-6">
+              <WithdrawFunds policyId={policyId} />
+              <OperatorConstitution
+                policyId={policyId ?? undefined}
+                revoked={revoked || policy?.revoked === true}
+                network={BRIEF_NETWORK === "mainnet" ? "mainnet" : "testnet"}
+              />
+            </div>
+          </div>
+        </OperatorPanel>
       </main>
 
       {confirmRevoke && (
@@ -1966,40 +2014,8 @@ function TopBar({
           </div>
         )}
 
-        {/* controls · judge path (Brain · Proof) + the leash */}
+        {/* controls · the leash (Brain/Evolution/Results/Proof are tabs now). */}
         <div className="ml-auto flex items-center gap-5">
-          {policyId && (
-            <>
-              <Link
-                href={`/brain?policy=${policyId}`}
-                className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
-                style={{ color: NAVY }}
-              >
-                Brain →
-              </Link>
-              <Link
-                href={`/evolution?policy=${policyId}`}
-                className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
-                style={{ color: NAVY }}
-              >
-                Evolution →
-              </Link>
-              <Link
-                href={`/results?policy=${policyId}`}
-                className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
-                style={{ color: NAVY }}
-              >
-                Results →
-              </Link>
-              <Link
-                href={`/proof?policy=${policyId}`}
-                className="hidden font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-70 sm:inline"
-                style={{ color: NAVY }}
-              >
-                Proof →
-              </Link>
-            </>
-          )}
           {readOnly ? (
             <span
               className="font-mono text-[9.5px] uppercase tracking-[0.2em]"
