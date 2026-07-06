@@ -463,99 +463,59 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
         <AskOperator policyId={policyId} name={identity.name} role={identity.role} />
 
         {spot ? (
-          // ≥1024px · two-column body. LEFT: performance + ledger + proof.
-          // RIGHT: custody (withdraw + chain + constitution) + reasoning + activity.
-          // On mobile (single column, source order) the Proof Summary surfaces
-          // right after the strip, before the lower sections.
-          <div className="mt-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6">
-            {/* LEFT column */}
-            <div className="space-y-6">
-              <OperatorPerformance
-                scorecard={scorecard}
-                stats={stats}
-                benchmark={benchmark}
+          // LIVE · the operator's now. Performance, Proof and the replay live in
+          // their own tabs, so this stays focused on live activity + reasoning.
+          <div className="mt-6 space-y-6">
+            <div className="bg-bg-elev p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] sm:p-6">
+              <NowTab
                 stream={stream}
+                journal={journal}
+                stale={stale}
+                now={now}
+                policy={policy}
+                traderName={traderName}
                 revoked={revoked}
-                assetLabel={bv.asset}
+                assetLabel={liveAsset}
+                isSpot={spot}
+                dispatchError={props.dispatchError}
+                onDispatchAgain={props.onDispatchAgain}
+                dispatching={props.dispatching}
               />
-              {/* Proof Summary high in the order · on mobile it surfaces right
-                  after the agent strip, before the lower sections. */}
-              <ProofSummary policyId={policyId} bv={bv} revoked={revoked || policy?.revoked === true} />
-              <LatestLedger ledger={ledger} now={now} />
+              <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: 24, marginTop: 24 }}>
+                <span className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
+                  Timeline · its experience
+                </span>
+                <div className="mt-4">
+                  <OperatorTimeline decisions={decisions} stream={stream} traderName={codename} now={now} />
+                </div>
+              </div>
             </div>
 
-            {/* RIGHT column */}
-            <div className="mt-6 space-y-6 lg:mt-0">
-              <WithdrawFunds policyId={policyId} />
-              <ProtectedBySui policyId={policyId} />
-              <OperatorConstitution
-                policyId={policyId ?? undefined}
-                revoked={revoked || policy?.revoked === true}
-                network={BRIEF_NETWORK === "mainnet" ? "mainnet" : "testnet"}
-              />
-
-              {/* REASONING · supporting evidence, collapsed by default. */}
-              <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-                <summary
-                  className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 sm:px-8"
-                  style={{ color: NAVY }}
-                >
-                  <span className="font-mono text-[10px] uppercase tracking-[0.24em]">How it thinks · reasoning &amp; evidence</span>
-                  <span className="font-mono text-[10px] transition-transform group-open:rotate-90" aria-hidden>
-                    ›
-                  </span>
-                </summary>
-                <div className="space-y-6 px-3 pb-6 sm:px-4" style={{ borderTop: "1px solid #E5E5EA" }}>
-                  <div className="pt-6">
-                    <MarketState signals={stream.signals} dec={stream.decision} assetLabel={liveAsset} />
-                  </div>
-                  <AllocationMatrix dec={stream.decision} />
-                  {scorecard && scorecard.playbooks.length > 0 && (
-                    <SectionCard title="What it's learned · playbooks">
-                      <PlaybookIntelligence playbooks={scorecard.playbooks} />
-                    </SectionCard>
-                  )}
+            {/* How it thinks · current reasoning + allocation (collapsed). */}
+            <details className="group bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+              <summary
+                className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 sm:px-8"
+                style={{ color: NAVY }}
+              >
+                <span className="font-mono text-[10px] uppercase tracking-[0.24em]">How it thinks · reasoning &amp; evidence</span>
+                <span className="font-mono text-[10px] transition-transform group-open:rotate-90" aria-hidden>
+                  ›
+                </span>
+              </summary>
+              <div className="space-y-6 px-3 pb-6 sm:px-4" style={{ borderTop: "1px solid #E5E5EA" }}>
+                <div className="pt-6">
+                  <MarketState signals={stream.signals} dec={stream.decision} assetLabel={liveAsset} />
                 </div>
-              </details>
+                <AllocationMatrix dec={stream.decision} />
+                {scorecard && scorecard.playbooks.length > 0 && (
+                  <SectionCard title="What it's learned · playbooks">
+                    <PlaybookIntelligence playbooks={scorecard.playbooks} />
+                  </SectionCard>
+                )}
+              </div>
+            </details>
 
-              <Collapsible title="Live activity" subtitle="watch it work">
-                <div className="space-y-8">
-                  <NowTab
-                    stream={stream}
-                    journal={journal}
-                    stale={stale}
-                    now={now}
-                    policy={policy}
-                    traderName={traderName}
-                    revoked={revoked}
-                    assetLabel={liveAsset}
-                    isSpot={spot}
-                    dispatchError={props.dispatchError}
-                    onDispatchAgain={props.onDispatchAgain}
-                    dispatching={props.dispatching}
-                  />
-                  <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: 24 }}>
-                    <div className="mb-4 flex items-center justify-between">
-                      <span className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
-                        Timeline · its experience
-                      </span>
-                      {policyId && (
-                        <Link
-                          href={`/brain?policy=${policyId}`}
-                          className="font-mono text-[10px] uppercase tracking-[0.2em] transition-opacity hover:opacity-60"
-                          style={{ color: NAVY }}
-                        >
-                          Full replay →
-                        </Link>
-                      )}
-                    </div>
-                    <OperatorTimeline decisions={decisions} stream={stream} traderName={codename} now={now} />
-                  </div>
-                </div>
-              </Collapsible>
-
-              <BottomStrip entries={journal.entries} />
-            </div>
+            <BottomStrip entries={journal.entries} />
           </div>
         ) : (
           // Predict (non-spot) fallback · single-column flow, unchanged.
@@ -624,9 +584,12 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           <BrainView policyId={policyId} embedded />
         </OperatorPanel>
 
-        {/* PERFORMANCE · did it work (was /results). */}
+        {/* PERFORMANCE · did it work (was /results) + the raw allocation ledger. */}
         <OperatorPanel active={tab === "performance"}>
-          <ResultsView policyId={policyId} embedded />
+          <div className="space-y-6">
+            <ResultsView policyId={policyId} embedded />
+            <LatestLedger ledger={ledger} now={now} />
+          </div>
         </OperatorPanel>
 
         {/* MEMORY · what it has learned (was /evolution). */}
