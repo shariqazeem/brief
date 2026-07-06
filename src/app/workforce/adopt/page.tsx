@@ -54,6 +54,7 @@ const OPERATORS = OPERATOR_TEMPLATES.map((t) => ({
   bestFor: t.bestFor,
   riskPosture: t.riskPosture,
   glyph: t.glyph,
+  art: t.art,
   accent: t.accent,
   universe: t.universe,
   personality: t.strategy as StrategyId,
@@ -630,9 +631,14 @@ function OperatorCard({
       style={{ borderWidth: selected ? 2 : 1 }}
     >
       <div className="flex items-center justify-between">
-        <span className="font-sans text-[26px] leading-none" style={{ color: op.accent }} aria-hidden>
-          {op.glyph}
-        </span>
+        {op.art ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={op.art} alt="" aria-hidden width={44} height={44} style={{ width: 44, height: 44, objectFit: "contain" }} />
+        ) : (
+          <span className="font-sans text-[26px] leading-none" style={{ color: op.accent }} aria-hidden>
+            {op.glyph}
+          </span>
+        )}
         <span className="font-mono text-[8.5px] uppercase tracking-[0.18em]" style={{ color: op.accent }}>
           {op.riskPosture}
         </span>

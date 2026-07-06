@@ -51,7 +51,7 @@ import {
   type DecisionRecord,
 } from "@/lib/operator-scorecard";
 import { operatorCodename } from "@/lib/operator-identity";
-import { operatorIdentity } from "@/lib/operators";
+import { operatorIdentity, operatorTemplate } from "@/lib/operators";
 import { roleHeadline } from "@/lib/operator-feed";
 import { LiveJournal } from "./live-journal";
 import { AskOperator } from "./ask-operator";
@@ -355,6 +355,9 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
     mode: dec?.mode,
     fallbackName: codename,
   });
+  // The operator's identity mark (SET A art) for the header · falls back to the
+  // template glyph when the operator predates templates.
+  const heroArt = operatorTemplate(dec?.operatorTemplate ?? undefined)?.art;
   const traderThesis = dec?.thesis ?? dec?.reasoning ?? deriveThesis(stream.signals);
   const traderConfidence = dec?.conviction ?? (decisions[0]?.confidence ?? 0);
   const traderAiModel = dec?.aiReasoned ? aiModelLabel(dec.aiSource) : undefined;
@@ -394,6 +397,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
     <div className="min-h-screen bg-bg">
       <TopBar
         glyph={personality?.glyph ?? "◇"}
+        art={heroArt}
         name={identity.name}
         subname={traderName}
         dot={dot}
@@ -415,6 +419,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           name={identity.name}
           role={identity.role}
           glyph={personality?.glyph ?? "◇"}
+          art={heroArt}
           stream={stream}
           revoked={revoked}
           withdrawn={stats?.withdrawn === true}
@@ -649,6 +654,7 @@ function OperatorHero({
   name,
   role,
   glyph,
+  art,
   stream,
   revoked,
   withdrawn,
@@ -664,6 +670,7 @@ function OperatorHero({
   name: string;
   role: string;
   glyph: string;
+  art?: string;
   stream: AgentStreamState;
   revoked: boolean;
   withdrawn: boolean;
@@ -778,9 +785,14 @@ function OperatorHero({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <span className="font-sans text-[20px] leading-none" style={{ color: INK }} aria-hidden>
-            {glyph}
-          </span>
+          {art ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={art} alt="" aria-hidden width={26} height={26} style={{ width: 26, height: 26, objectFit: "contain" }} />
+          ) : (
+            <span className="font-sans text-[20px] leading-none" style={{ color: INK }} aria-hidden>
+              {glyph}
+            </span>
+          )}
           <span
             className="font-sans text-[17px] font-semibold tracking-tight"
             style={{ color: revoked ? IDLE : INK, textDecoration: revoked ? "line-through" : "none" }}
@@ -1888,6 +1900,7 @@ function Collapsible({
 
 function TopBar({
   glyph,
+  art,
   name,
   subname,
   dot,
@@ -1899,6 +1912,7 @@ function TopBar({
   readOnly,
 }: {
   glyph: string;
+  art?: string;
   name: string;
   subname?: string;
   dot: "act" | "preserve" | "idle" | "grounded";
@@ -1919,9 +1933,14 @@ function TopBar({
       <div className="mx-auto flex max-w-4xl items-center gap-4 px-5 py-3 sm:px-8">
         {/* identity */}
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="font-sans text-[22px] leading-none" style={{ color: INK }} aria-hidden>
-            {glyph}
-          </span>
+          {art ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={art} alt="" aria-hidden width={28} height={28} style={{ width: 28, height: 28, objectFit: "contain" }} />
+          ) : (
+            <span className="font-sans text-[22px] leading-none" style={{ color: INK }} aria-hidden>
+              {glyph}
+            </span>
+          )}
           <span className="flex min-w-0 items-baseline gap-1.5">
             <span
               className="truncate font-sans text-[15px] font-semibold tracking-tight"
