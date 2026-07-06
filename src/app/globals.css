@@ -11,6 +11,32 @@
   --line: #E5E5EA;
   --line-strong: #D1D1D6;
   --accent: #1a2c4e;
+
+  /* === Cinematic-institutional system (prompt 01 · additions only) === */
+  /* Depth · four elevation levels. elev-3 is reserved for the single most
+     important surface per page. */
+  --elev-0: none;
+  --elev-1: 0 1px 3px rgba(10, 10, 10, 0.06);
+  --elev-2: 0 4px 16px rgba(26, 44, 78, 0.08);
+  --elev-3: 0 12px 40px rgba(26, 44, 78, 0.12);
+  /* Glass · sticky headers, the Ask dock, floating controls only. */
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(10, 10, 10, 0.08);
+  --glass-blur: blur(20px) saturate(1.4);
+  /* Aura · the operator's living presence, tinted by state. */
+  --aura-thinking: rgba(77, 162, 255, 0.10);
+  --aura-acting: rgba(16, 185, 129, 0.12);
+  --aura-guarded: rgba(245, 158, 11, 0.10);
+  --aura-intervened: rgba(239, 68, 68, 0.12);
+  --aura-idle: rgba(0, 0, 0, 0);
+  /* Motion timing · four durations, nothing in between. */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-base: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-micro: 180ms;
+  --dur-standard: 320ms;
+  --dur-scene: 700ms;
+  --dur-ceremony: 1400ms;
 }
 
 html {
@@ -121,6 +147,85 @@ body {
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
+/* === Cinematic-institutional primitives (prompt 01) === */
+
+/* Ink → Navy gradient text · hero headlines ONLY, one element per page. */
+.ink-navy-gradient {
+  background: linear-gradient(180deg, var(--ink) 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Scene entrance · a surface rises 12px + fades in on --ease-out-expo. Items
+   stagger via inline --scene-order (60ms each, after a 120ms background beat). */
+@keyframes sceneRise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.scene-item {
+  opacity: 0;
+  animation: sceneRise var(--dur-scene) var(--ease-out-expo) both;
+  animation-delay: calc(var(--scene-order, 0) * 60ms + 120ms);
+  will-change: transform, opacity;
+}
+/* Scroll-scene variant · plays only once its section is in view (JS toggles
+   .in-view); until then it holds hidden so nothing pre-animates off-screen. */
+.scene-item.on-scroll { animation-play-state: paused; }
+.scene-item.on-scroll.in-view { animation-play-state: running; }
+
+/* LiveValue · a changed figure's digits rise from below (paired with a color
+   pulse driven in JS). Count-up itself is a rAF tween in the component. */
+@keyframes valueRise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.live-value-rise { animation: valueRise var(--dur-micro) var(--ease-out-expo) both; }
+
+/* OperatorPresence · the living organism. Aura cross-fades its tint over
+   1200ms; the mark breathes only while the SSE stream is healthy. */
+.op-aura {
+  transition: background 1200ms var(--ease-base);
+  will-change: background;
+}
+@keyframes presenceBreathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.015); }
+}
+.op-presence.is-live .op-presence-mark {
+  animation: presenceBreathe 4s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes presenceSweep { to { transform: rotate(360deg); } }
+.op-presence.is-thinking .op-presence-sweep {
+  animation: presenceSweep 2s linear infinite;
+}
+@keyframes presencePop {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+.op-presence.is-acting .op-presence-mark {
+  animation: presencePop var(--dur-standard) var(--ease-spring) both;
+}
+
+/* Primary CTA · a slow diagonal sheen sweep on hover only. */
+@keyframes ctaSheen { from { transform: translateX(-140%); } to { transform: translateX(240%); } }
+.cta-sheen { position: relative; overflow: hidden; }
+.cta-sheen > .cta-sheen-glint {
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.28) 50%, transparent 60%);
+  transform: translateX(-140%);
+  pointer-events: none;
+}
+.cta-sheen:hover > .cta-sheen-glint { animation: ctaSheen 3s var(--ease-base); }
+
+/* Evidence link · the "verify me" underline draws left → right on hover. */
+.evidence-underline { background-image: linear-gradient(currentColor, currentColor);
+  background-size: 0% 1px; background-position: 0 100%; background-repeat: no-repeat;
+  transition: background-size 200ms var(--ease-base); }
+.evidence-underline:hover { background-size: 100% 1px; }
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -131,6 +236,8 @@ body {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
+  /* Sequences collapse to a plain, already-visible state · no motion. */
+  .scene-item { opacity: 1 !important; transform: none !important; }
 }
 
 /* Chain intervention freeze · when Sui aborts the agent on-chain, pause
