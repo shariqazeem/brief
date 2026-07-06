@@ -38,6 +38,16 @@ type LeaderboardRow = {
   open_position_count: number;
   created_at_ms: number;
   last_trade_at_ms: number;
+  steward_score: number | null;
+  steward_breakdown: {
+    capitalPreservation: number;
+    drawdownDiscipline: number;
+    policyCompliance: number;
+    riskEfficiency: number;
+    realizedReturn: number;
+  } | null;
+  return_pct: number | null;
+  hold_return_pct: number | null;
 };
 
 type LeaderboardResponse = {
@@ -316,7 +326,8 @@ function LeaderboardConsole() {
         </article>
 
         <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-          Sort: live trades → realized P&amp;L → asset breadth. Cached 30 s
+          Sort: Steward Score → live trades → realized P&amp;L. Ranked by how well
+          each operator protected its capital, not how much it gambled. Cached 30 s
           server-side · refresh to re-aggregate.
         </p>
       </section>
@@ -386,6 +397,23 @@ function Row({
             </span>
           )}
         </div>
+        {row.steward_score != null && (
+          <p
+            className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.22em]"
+            title="How well it protected the capital it was trusted with (0-100). Not raw P&L."
+          >
+            <span className="font-semibold text-ink">Steward {row.steward_score}</span>
+            <span className="text-muted">/100</span>
+            {row.return_pct != null && row.hold_return_pct != null && (
+              <span className="text-muted">
+                {" · "}
+                {row.return_pct >= 0 ? "+" : ""}
+                {row.return_pct}% vs {row.hold_return_pct >= 0 ? "+" : ""}
+                {row.hold_return_pct}% hold
+              </span>
+            )}
+          </p>
+        )}
         <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
           {row.trade_count} {row.trade_count === 1 ? "trade" : "trades"}
           {row.journal_entries > 0

@@ -53,15 +53,31 @@ export type AiAdvisorInput = {
   portfolioUsd: number;
   recallNote: string;
   mandateNote?: string;
+  /** The engine's pass-1 target allocation for this asset (0-100) · gives the
+   *  advisor the stance vector + gap-to-target to reason about. */
+  targetExposurePct?: number | null;
+  /** Last few SETTLED outcomes in THIS regime, with P&L · e.g. "up +1.2%; down -0.4%". */
+  recentRegimeOutcomes?: string;
 };
 
 const AI_MIN_INTERVAL_MS = Number(process.env.BRIEF_AI_MIN_INTERVAL_MS ?? 5 * 60_000); // ≥5 min between AI calls per operator
 const WEEKLY_CAP = Number(process.env.BRIEF_AI_WEEKLY_CAP ?? 1500); // hard backstop ·
 // ~$1/wk worst-case on Grok 4.1 Fast (in $0.20 / out $0.50 per 1M); real usage is
 // far lower (gates below mean it only fires on a tradeable regime for a funded op).
-const BASE_CONF_FLOOR = 0.18; // don't spend AI on obvious no-ops
+
+// GRAY ZONE · spend the AI only where it changes the answer. Below GRAY_LO the
+// engine is already standing down (obvious hold), above GRAY_HI it has a
+// screaming trend — neither needs an LLM. In between (a genuine judgment call)
+// OR when the regime just flipped, the advisor earns its cost. This frees the
+// weekly budget for Ask Mira.
+const GRAY_LO = Number(process.env.BRIEF_AI_GRAY_LO ?? 0.35);
+const GRAY_HI = Number(process.env.BRIEF_AI_GRAY_HI ?? 0.65);
 
 const lastAiAt = new Map<string, number>();
+/** Last regime label the advisor actually ran on, per operator · a change since
+ *  then is an escalation trigger (kept pending across rate-limited ticks so a
+ *  flip reliably earns a call once the 5-min spacing clears). */
+const lastRegime = new Map<string, string>();
 let weekStartMs = 0;
 let weekCalls = 0;
 
@@ -85,11 +101,21 @@ export async function maybeAiAdvise(
   if (llmMode(env) !== "llm") return null; // mock / no key → deterministic
   const apiKey = activeLlmKey(env);
   if (!apiKey) return null;
-  // Cost gates: only when a trade is plausible, rate-limited, under the weekly cap.
-  if (!input.tradeable || input.baseConfidence < BASE_CONF_FLOOR) return null;
+  // Cost gates. Only a tradeable regime is worth advising on. Within it, fire
+  // ONLY in the gray zone OR when the regime just changed · obvious holds and
+  // screaming trends spend nothing.
+  if (!input.tradeable) return null;
+  const grayZone = input.baseConfidence >= GRAY_LO && input.baseConfidence <= GRAY_HI;
+  const prevRegime = lastRegime.get(input.policyId);
+  const regimeChanged = prevRegime !== undefined && prevRegime !== input.regimeLabel;
+  if (!grayZone && !regimeChanged) return null;
   const now = Date.now();
+  // 5-min spacing + weekly cap still bind (a regime change does NOT bypass them);
+  // we DON'T record the regime on a skipped tick, so a flip stays pending until a
+  // call actually fires.
   if (now - (lastAiAt.get(input.policyId) ?? 0) < AI_MIN_INTERVAL_MS) return null;
   if (!withinWeeklyBudget(now)) return null;
+  lastRegime.set(input.policyId, input.regimeLabel);
 
   // Use a JSON-clean, NON-reasoning model for the advisor. Reasoning models emit
   // their scratchpad in `content` → unparseable JSON + latency. DEFAULT_AI_MODEL
@@ -103,25 +129,50 @@ export async function maybeAiAdvise(
   try {
     const macro = await loadFreshMacroBriefing();
     if (macro?.summary) {
-      // Keep it short · a long macro paragraph slows the call (more tokens) and
-      // crowds the JSON instruction. One tight sentence is enough context.
-      macroLine = `Macro context: ${macro.summary.replace(/\s+/g, " ").slice(0, 280)}`;
+      // Effective confidence = the LOWER of the model's stated confidence and an
+      // age-based downgrade, so a stale-but-once-confident macro can't overrule
+      // fresh tape. The advisor is told to never veto on a low-confidence macro.
+      const ageMs = Date.now() - macro.updatedAt;
+      const ageConf: "low" | "med" | "high" =
+        ageMs < 3 * 3600_000 ? "high" : ageMs < 8 * 3600_000 ? "med" : "low";
+      const rank = { low: 0, med: 1, high: 2 } as const;
+      const effConf = rank[macro.confidence] <= rank[ageConf] ? macro.confidence : ageConf;
+      macroLine =
+        `Macro context (confidence ${effConf}): ${macro.summary.replace(/\s+/g, " ").slice(0, 280)} ` +
+        `- weight this by its confidence; on LOW confidence do not let it override fresh local tape and never veto on macro alone.`;
     }
   } catch {
     macroLine = "";
   }
+
+  // Stance vector + gap-to-target · lets the advisor reason about the actual
+  // move the engine wants, not just a scalar confidence.
+  const curPct = input.exposurePct * 100;
+  const tgt = input.targetExposurePct ?? null;
+  const stanceLine =
+    tgt != null
+      ? `Stance: ${input.asset} exposure ${curPct.toFixed(0)}%, engine target ${tgt}% (gap ${
+          tgt - curPct >= 0 ? "+" : ""
+        }${(tgt - curPct).toFixed(0)}pts).`
+      : `Stance: ${input.asset} exposure ${curPct.toFixed(0)}%, no engine target this cycle.`;
+  const outcomesLine = input.recentRegimeOutcomes
+    ? `Your last settled "${input.regimeLabel}" trades (fee-inclusive): ${input.recentRegimeOutcomes}.`
+    : ``;
+
   const prompt = [
     `You are the risk-and-conviction advisor for an autonomous on-chain capital operator trading ${input.asset} on Sui DeepBook. You are decisive and disciplined and you protect capital first. Your verdict directly moves the operator's conviction, so be precise.`,
     macroLine,
     `Operator mode: ${input.mode} (protect = cautious, grow = balanced, aggressive = bolder).`,
     `Asset: ${input.asset} at $${input.midUsd}.`,
     `Market: regime "${input.regimeLabel}" (${input.tradeable ? "tradeable" : "stand-aside"}). ROC 30m ${pct(input.roc30)}, 4h ${pct(input.roc4h)}, 24h ${pct(input.roc24h)}. RSI ${input.rsi.toFixed(0)}. Realized vol ${pct(input.vol)}.`,
+    stanceLine,
     `Position: ${pct(input.exposurePct)} of a $${input.portfolioUsd.toFixed(2)} book is in ${input.asset}; ${input.budgetUsedPct.toFixed(0)}% of the trading allowance used.`,
+    outcomesLine,
     `The deterministic engine leans ${input.baseDirection.toUpperCase()} at confidence ${input.baseConfidence.toFixed(2)} (0-1).`,
     input.recallNote ? `Memory of similar past setups: ${input.recallNote}` : ``,
     input.mandateNote ? `Owner mandate: ${input.mandateNote}` : ``,
     ``,
-    `Your job: adjust conviction, not invent trades. Sharpen or dampen the engine's confidence and VETO when warranted. Prefer a veto or a negative modifier when the edge is weak, momentum is overextended (high RSI on a long), volatility is spiking, or the macro backdrop fights the trade. Be conservative — capital preservation beats forcing a trade. The rationale is shown to the operator's owner, so make it a crisp one-sentence justification. Return ONLY JSON.`,
+    `Your job: adjust conviction, not invent trades. Sharpen or dampen the engine's confidence and VETO when warranted. Prefer a veto or a negative modifier when the edge is weak, momentum is overextended (high RSI on a long), volatility is spiking, or a HIGH-confidence macro fights the trade. Your counterargument MUST cite a concrete number from the data above (e.g. "RSI 71 with 4h ROC fading to 0.30%"), never a vague phrase like "momentum may reverse". Capital preservation beats forcing a trade. The rationale is shown to the operator's owner, so make it a crisp one-sentence justification. Return ONLY JSON.`,
   ]
     .filter(Boolean)
     .join("\n");

@@ -21,8 +21,13 @@ import * as path from "node:path";
 import { callLlm, llmMode, DEFAULT_AI_MODEL } from "../../lib/llm.js";
 import { activeLlmKey, loadEnv } from "../../lib/env.js";
 
+export type MacroConfidence = "low" | "med" | "high";
+
 export type MacroBriefing = {
   summary: string;
+  /** The model's own confidence in this read · the advisor weights it, and a
+   *  low/stale macro must never veto fresh local tape. */
+  confidence: MacroConfidence;
   updatedAt: number;
 };
 
@@ -40,12 +45,17 @@ const MACRO_TIMEOUT_MS = 15_000;
 // avoids two concurrent ticks both firing a refresh in the same process.
 let refreshingUntilMs = 0;
 
+function normConfidence(x: unknown): MacroConfidence {
+  return x === "low" || x === "med" || x === "high" ? x : "med";
+}
+
 export async function loadMacroBriefing(): Promise<MacroBriefing | null> {
   try {
     const raw = await fs.readFile(MACRO_PATH, "utf8");
-    const p = JSON.parse(raw) as MacroBriefing;
+    const p = JSON.parse(raw) as Partial<MacroBriefing>;
     if (p && typeof p.summary === "string" && typeof p.updatedAt === "number") {
-      return p;
+      // Back-compat: briefings written before the confidence field default to med.
+      return { summary: p.summary, confidence: normConfidence(p.confidence), updatedAt: p.updatedAt };
     }
   } catch {
     /* no briefing yet */
@@ -95,18 +105,22 @@ export async function maybeRefreshMacroBriefing(): Promise<void> {
   const model = process.env.BRIEF_MACRO_MODEL || DEFAULT_AI_MODEL;
   const prompt =
     "Summarize the current crypto market sentiment, major news, and likely " +
-    "short-term impact on SUI, DEEP, and WAL tokens. Be concise (max ~120 words).";
+    "short-term impact on SUI, DEEP, and WAL tokens (max ~120 words). Then rate " +
+    'your CONFIDENCE in this read as "high" (clear catalysts / strong signal), ' +
+    '"med" (mixed), or "low" (quiet / little to go on). Return ONLY JSON: ' +
+    '{"summary":"<=120 words","confidence":"low|med|high"}.';
 
-  let summary: string;
+  let raw: string;
   try {
-    summary = await Promise.race([
+    raw = await Promise.race([
       callLlm({
         apiKey,
         model,
         prompt,
         system:
-          "You are a concise crypto macro analyst. Plain prose, no preamble, no markdown headers.",
-        maxTokens: 256,
+          "You are a JSON API. Output ONLY a single minified JSON object matching the user's schema. No markdown, no code fences, no commentary.",
+        jsonSchemaHint: '{"summary":"string","confidence":"low|med|high"}',
+        maxTokens: 320,
       }),
       new Promise<string>((_, rej) =>
         setTimeout(() => rej(new Error("macro-briefing timeout")), MACRO_TIMEOUT_MS),
@@ -119,11 +133,30 @@ export async function maybeRefreshMacroBriefing(): Promise<void> {
     return; // SAFE fallback · keep the old file, retry next interval
   }
 
-  const clean = summary.trim().slice(0, 900);
+  // Tolerant parse · an unparseable response is treated as low-confidence prose
+  // so a malformed macro can never masquerade as a high-confidence read.
+  let summary = "";
+  let confidence: MacroConfidence = "low";
+  try {
+    const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const s = cleaned.indexOf("{");
+    const eIdx = cleaned.lastIndexOf("}");
+    const obj = JSON.parse(s >= 0 && eIdx > s ? cleaned.slice(s, eIdx + 1) : cleaned) as {
+      summary?: string;
+      confidence?: string;
+    };
+    summary = String(obj.summary ?? "").trim();
+    confidence = normConfidence(obj.confidence);
+  } catch {
+    summary = raw.trim().replace(/\s+/g, " ");
+    confidence = "low";
+  }
+
+  const clean = summary.slice(0, 900);
   if (!clean) return; // empty response · keep the old file
   try {
-    await saveMacroBriefing({ summary: clean, updatedAt: Date.now() });
-    console.log(`[macro-briefing] refreshed (${clean.length} chars)`);
+    await saveMacroBriefing({ summary: clean, confidence, updatedAt: Date.now() });
+    console.log(`[macro-briefing] refreshed (${clean.length} chars · confidence ${confidence})`);
   } catch (e) {
     console.warn(
       `[macro-briefing] save failed: ${String((e as Error)?.message ?? e).slice(0, 120)}`,

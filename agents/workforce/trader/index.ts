@@ -2477,6 +2477,19 @@ async function runGatedOperator(
       portfolioUsd: portfolio?.value ?? 0,
       recallNote: recall.note,
       mandateNote: mandateArg?.review,
+      // Stance vector (pass-1 engine target) + last 3 SETTLED outcomes in this
+      // regime, with fee-inclusive P&L, so the advisor reasons on real history.
+      targetExposurePct: eng.targetExposurePct,
+      recentRegimeOutcomes: experience
+        .filter(
+          (r) =>
+            r.regimeKind === marketRegime.kind &&
+            (r.outcome === "win" || r.outcome === "loss") &&
+            typeof r.outcomePct === "number",
+        )
+        .slice(-3)
+        .map((r) => `${r.direction} ${((r.outcomePct as number) * 100).toFixed(1)}%`)
+        .join("; "),
     });
   } catch {
     aiAdvice = null;

@@ -30,6 +30,8 @@ import {
   SuiJsonRpcClient,
 } from "@mysten/sui/jsonRpc";
 
+import { stewardScore, type StewardMode, type StewardResult } from "@/lib/steward-score";
+
 const PACKAGE_ID =
   process.env.NEXT_PUBLIC_BRIEF_PACKAGE_ID ??
   "0xe550ace873c02768dbaca7de3a2d64a28acd3f7c51551c9c97b704703e95fb9d";
@@ -97,6 +99,13 @@ type LeaderboardRow = {
   open_position_count: number;
   created_at_ms: number;
   last_trade_at_ms: number;
+  /** Steward Score (0-100) · how well it protected the capital it was trusted
+   *  with. The board's default ranking. Null when not yet scorable (unfunded /
+   *  withdrawn / no stats). */
+  steward_score: number | null;
+  steward_breakdown: StewardResult["breakdown"] | null;
+  return_pct: number | null;
+  hold_return_pct: number | null;
 };
 
 type LeaderboardResponse = {
@@ -210,6 +219,10 @@ async function aggregate(): Promise<LeaderboardResponse> {
         open_position_count: 0,
         created_at_ms: Number(BigInt(String(f.created_at_ms ?? "0"))),
         last_trade_at_ms: 0,
+        steward_score: null,
+        steward_breakdown: null,
+        return_pct: null,
+        hold_return_pct: null,
       });
     }
     if (!res.hasNextPage || !res.nextCursor) break;
@@ -445,11 +458,62 @@ async function aggregate(): Promise<LeaderboardResponse> {
     }
   }
 
+  // ---- 5) Steward Score · read each operator's lifetime stats from disk and
+  // score how well it PROTECTED its capital (fee-inclusive). This is the board's
+  // headline ranking — discipline, not raw P&L. See docs/steward-score.md.
+  await Promise.all(
+    Array.from(policies.values()).map(async (row) => {
+      try {
+        const slug = row.policy_id.slice(2, 14);
+        const raw = await fs.readFile(
+          path.resolve(process.cwd(), ".cursors", `operator-stats-${slug}.json`),
+          "utf8",
+        );
+        const s = JSON.parse(raw) as {
+          mode?: string;
+          deposit?: number;
+          launchMid?: number;
+          lastMid?: number;
+          lastValue?: number;
+          worstDrawdownPct?: number;
+          withdrawn?: boolean;
+        };
+        const mode: StewardMode =
+          s.mode === "protect" || s.mode === "grow" || s.mode === "aggressive"
+            ? s.mode
+            : "grow";
+        const result = stewardScore({
+          mode,
+          deposit: Number(s.deposit ?? 0),
+          launchMid: Number(s.launchMid ?? 0),
+          lastMid: Number(s.lastMid ?? 0),
+          lastValue: Number(s.lastValue ?? 0),
+          worstDrawdownPct: Number(s.worstDrawdownPct ?? 0),
+          // Zero agent-caused aborts network-wide is the headline; wire a real
+          // count here if/when the trader records one.
+          agentAborts: 0,
+          withdrawn: s.withdrawn === true,
+        });
+        if (result) {
+          row.steward_score = result.score;
+          row.steward_breakdown = result.breakdown;
+          row.return_pct = result.returnPct;
+          row.hold_return_pct = result.holdReturnPct;
+        }
+      } catch {
+        /* no stats on this host → leave score null */
+      }
+    }),
+  );
+
   void scanned;
   const rows = Array.from(policies.values())
-    // Sort: live trades desc, then realized P&L desc, then distinct
-    // assets desc · rewards activity + multi-asset + profitability.
+    // Default ranking: STEWARD SCORE desc (unscored rows sink to the bottom),
+    // then live trades, realized P&L, and multi-asset breadth as tiebreakers.
     .sort((a, b) => {
+      const sa = a.steward_score ?? -1;
+      const sb = b.steward_score ?? -1;
+      if (sb !== sa) return sb - sa;
       if (b.live_count !== a.live_count) return b.live_count - a.live_count;
       if (b.realized_pnl_usd !== a.realized_pnl_usd)
         return b.realized_pnl_usd - a.realized_pnl_usd;
