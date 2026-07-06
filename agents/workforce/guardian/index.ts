@@ -29,6 +29,7 @@ import { emitAgentEvent } from "../lib/agent-events.js";
 import {
   loadGuardianStatus,
   saveGuardianStatus,
+  type AssetGuardState,
   type GuardianOperator,
   type GuardianStatus,
   type RiskLevel,
@@ -165,6 +166,25 @@ async function assetRisk(
   return { asset, vol: cur, pct, level };
 }
 
+/** Human-legible reason for ONE asset's vol state · this string renders in the
+ *  UI Guard step, e.g. "DEEP vol at the 94th percentile of its own 60m history
+ *  — no new DEEP exposure, hold or reduce only." */
+function assetVolReason(r: AssetRisk): string {
+  const volTxt = r.vol != null ? `${Math.round(r.vol * 100)}% annualized` : "unknown vol";
+  const pctTxt =
+    r.pct != null ? `${Math.round(r.pct)}th percentile of its own 60m history` : volTxt;
+  switch (r.level) {
+    case "crash":
+      return `${r.asset} in a volatility crash (${pctTxt}) — no ${r.asset} exposure, moving to cash.`;
+    case "extreme":
+      return `${r.asset} vol at the ${pctTxt} — no new ${r.asset} exposure, hold or reduce only.`;
+    case "elevated":
+      return `${r.asset} vol at the ${pctTxt} — trading ${r.asset} smaller.`;
+    default:
+      return `${r.asset} risk within limits (${volTxt}) — full size permitted.`;
+  }
+}
+
 async function tick(): Promise<void> {
   const prev = await loadGuardianStatus();
   const registry = (await loadRegistry()).filter((e) => !e.revoked);
@@ -173,12 +193,21 @@ async function tick(): Promise<void> {
 
   for (const e of registry) {
     const network = e.network ?? "mainnet";
-    // Most-conservative risk across the operator's OWN universe drives the state.
-    // DEEP's normal wildness can't freeze a SUI operator because DEEP is not in a
-    // SUI operator's universe.
+    // Judge EACH asset in the operator's universe against its OWN history and
+    // keep a per-asset state · DEEP's normal wildness gates DEEP exposure only,
+    // it never freezes a calm SUI position on the same operator. `top` is the
+    // worst asset, used purely for the human-readable summary fields.
+    const assets: Record<string, AssetGuardState> = {};
     let top: AssetRisk | null = null;
     for (const asset of entryUniverse(e)) {
       const r = await assetRisk(asset, network);
+      assets[asset] = {
+        level: r.level,
+        reason: assetVolReason(r),
+        vol: r.vol,
+        pct: r.pct,
+        pausedNewExposure: r.level === "extreme" || r.level === "crash",
+      };
       if (top == null) {
         top = r;
         continue;
@@ -193,12 +222,26 @@ async function tick(): Promise<void> {
     const stats = await loadStats(e.policyId);
     // A withdrawn operator is closed · the guardian doesn't manage it.
     if (stats?.withdrawn) continue;
-    const dd = stats?.worstDrawdownPct ?? 0;
     const forced = FORCED.has(e.policyId);
 
-    // Drawdown limit and a manual force are hard stops to cash.
+    // ── Portfolio-level drawdown pause (halts EVERYTHING, all assets) ──
+    // Use the CURRENT drawdown from peak (peak vs last marked value), NOT the
+    // monotonic worst-ever, so the pause can actually RESUME · with 12/8
+    // hysteresis: trip at DD_PAUSE, stay paused until it recovers below
+    // DD_RESUME. (worstDrawdownPct never decreases, so gating on it would
+    // freeze an operator forever after a single bad hour — this fixes that.)
+    const curDD =
+      stats && stats.peakValue > 0 && stats.lastValue > 0
+        ? Math.max(0, ((stats.peakValue - stats.lastValue) / stats.peakValue) * 100)
+        : 0;
+    const wasDrawdownPause = prev.operators[e.policyId]?.portfolio?.drawdownPause ?? false;
+    const drawdownPause = wasDrawdownPause ? curDD > DD_RESUME : curDD > DD_PAUSE;
+    const worstDd = stats?.worstDrawdownPct ?? 0;
+
+    // Summary level = worst asset, escalated to crash by a portfolio halt or a
+    // manual force. Per-asset gating (the real behaviour) lives in `assets`.
     let level: RiskLevel = top.level;
-    if (dd > DD_PAUSE) level = "crash";
+    if (drawdownPause) level = "crash";
     if (forced) level = "crash";
 
     // Only crash is a full pause · elevated/extreme keep the operator working at
@@ -207,18 +250,11 @@ async function tick(): Promise<void> {
     const severity: GuardianOperator["severity"] =
       level === "crash" ? "paused" : level === "normal" ? "ok" : "watch";
 
-    const volTxt = top.vol != null ? `${Math.round(top.vol * 100)}% annualized` : "unknown vol";
     const reason = forced
       ? "Manually paused by the risk circuit-breaker."
-      : dd > DD_PAUSE
-        ? `Drawdown ${dd.toFixed(1)}% exceeded the ${DD_PAUSE}% limit — moving to cash.`
-        : level === "crash"
-          ? `${top.asset} in a volatility crash (${volTxt}) — moving to cash.`
-          : level === "extreme"
-            ? `${top.asset} volatility extreme (${volTxt}) — holding, no new exposure.`
-            : level === "elevated"
-              ? `${top.asset} volatility elevated (${volTxt}) — trading smaller.`
-              : "Risk within limits — full size permitted.";
+      : drawdownPause
+        ? `Portfolio drawdown ${curDD.toFixed(1)}% exceeded the ${DD_PAUSE}% limit — moving to cash across all assets.`
+        : assetVolReason(top);
 
     const wasLevel = prev.operators[e.policyId]?.riskLevel ?? "normal";
     const wasPaused = prev.operators[e.policyId]?.paused ?? false;
@@ -230,11 +266,13 @@ async function tick(): Promise<void> {
       reason,
       severity,
       vol: top.vol,
-      drawdownPct: dd,
+      drawdownPct: worstDd,
       since,
       updatedMs: now,
       riskLevel: level,
       volPct: top.pct,
+      assets,
+      portfolio: { drawdownPause, drawdownPct: curDD },
     };
 
     // Emit a pause/resume event on the crash boundary (the dramatic moment the
@@ -243,7 +281,7 @@ async function tick(): Promise<void> {
       emitAgentEvent(paused ? "guardian_pause" : "guardian_resume", {
         policyId: e.policyId,
         asset: top.asset,
-        data: { reason, vol: top.vol, drawdown_pct: dd, severity, risk_level: level },
+        data: { reason, vol: top.vol, drawdown_pct: curDD, severity, risk_level: level },
       });
       console.log(
         `[guardian] ${e.policyId.slice(0, 10)}… ${paused ? "PAUSED" : "RESUMED"} · ${reason}`,

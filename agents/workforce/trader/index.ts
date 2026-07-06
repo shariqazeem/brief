@@ -49,7 +49,14 @@ import {
   gatedAssetsFor,
   type MarketSpec,
 } from "../lib/markets.js";
-import { closeSpot, openSpot, readSpotExecution, readSpotMid } from "./spot-handler.js";
+import {
+  closeSpot,
+  openSpot,
+  readSpotExecution,
+  readSpotMid,
+  DEEPBOOK_TAKER_FEE_FRAC,
+  type SpotExecution,
+} from "./spot-handler.js";
 import {
   buildFuelDepositTx,
   buildGatedSpotTx,
@@ -101,6 +108,7 @@ import {
 import {
   runDecisionEngine,
   decisionPlan,
+  stanceLine,
   MODE_CFG,
   modeFromGoal,
   normalizeMode,
@@ -2510,12 +2518,20 @@ async function runGatedOperator(
   let guardianLevel: RiskLevel = "normal";
   try {
     const g = (await loadGuardianStatus()).operators[e.policyId];
-    if (g?.riskLevel) {
-      guardianLevel = g.riskLevel;
-      if (guardianLevel !== "normal") guardianNote = `Risk Guardian · ${g.reason}`;
-    } else if (g?.paused) {
-      guardianLevel = "crash";
-      guardianNote = `Risk Guardian · ${g.reason}`;
+    if (g) {
+      // Portfolio drawdown (or a manual force) halts EVERYTHING regardless of
+      // which asset this cycle is trading; a per-asset vol state gates ONLY that
+      // asset. So a DEEP crash blocks new DEEP exposure while a calm SUI cycle on
+      // the same operator proceeds — the per-asset fix. Fall back to the summary
+      // `riskLevel` (then `paused`) for legacy status files without `assets`.
+      const portfolioHalt = g.portfolio?.drawdownPause ?? false;
+      const perAsset: RiskLevel =
+        g.assets?.[asset]?.level ?? g.riskLevel ?? (g.paused ? "crash" : "normal");
+      guardianLevel = portfolioHalt ? "crash" : perAsset;
+      if (guardianLevel !== "normal") {
+        const why = portfolioHalt ? g.reason : (g.assets?.[asset]?.reason ?? g.reason);
+        guardianNote = `Risk Guardian · ${why}`;
+      }
     }
   } catch {
     /* guardian unavailable → trade as normal (fail-open; the Move policy still gates) */
@@ -2561,6 +2577,9 @@ async function runGatedOperator(
   // the real order against the live DeepBook book (slippage / depth / DEEP fee).
   // A thin book or excessive slippage can VETO it. Pass 2 folds it in, then we
   // re-derive the rebalance (an exec veto cancels the move).
+  // Retained so the executed leg's REAL observed slippage feeds fee-inclusive
+  // settlement when the trade actually fires (see the ledger append below).
+  let execAnalysis: SpotExecution | null = null;
   if (rebalanceSide) {
     const execA = await readSpotExecution(
       ctx,
@@ -2569,6 +2588,7 @@ async function runGatedOperator(
       baseQty,
       midUsd,
     );
+    execAnalysis = execA;
     eng = runDecisionEngine({
       asset,
       signals,
@@ -2639,6 +2659,34 @@ async function runGatedOperator(
     cooldownMins: Math.round(cooldownMs / 60000),
   });
 
+  // ---- STANCE BEAT: a true one-line snapshot of where capital IS vs where it
+  // WANTS to be, emitted EVERY cycle (trading or not) so the Live tab always has
+  // something real to show — "holding" reads as a managed stance, not dead air.
+  const stanceTargetPct = capTarget(eng.targetExposurePct);
+  const stanceGap =
+    stanceTargetPct == null ? null : stanceTargetPct / 100 - currentExposure;
+  const stanceBlocked = !willRebalance && (!!infeasibleNote || cooldownActive);
+  const stance = {
+    line: stanceLine({
+      asset,
+      targetPct: stanceTargetPct,
+      currentPct: curExposurePct,
+      band: REBALANCE_BAND,
+      action: planAction,
+      blocked: stanceBlocked,
+    }),
+    target_pct: stanceTargetPct,
+    current_pct: curExposurePct,
+    gap: stanceGap,
+    band: REBALANCE_BAND,
+    // full allocation vector (this operator's single risk asset + cash) for the UI
+    targets:
+      stanceTargetPct == null
+        ? null
+        : { [asset]: stanceTargetPct / 100, USDC: Math.max(0, 1 - stanceTargetPct / 100) },
+    current: { [asset]: currentExposure, USDC: Math.max(0, 1 - currentExposure) },
+  };
+
   // ---- PLAYBOOK: the operator's learned procedure for THIS regime · computed
   // earlier (it now gates the decision via effConfidenceMult, not just display).
 
@@ -2692,6 +2740,8 @@ async function runGatedOperator(
       target_exposure_pct: eng.targetExposurePct,
       current_exposure_pct: curExposurePct,
       rebalance: willRebalance ? (direction === "up" ? "buy" : "sell") : "hold",
+      // per-cycle stance beat · a true one-liner + allocation vector every cycle
+      stance,
       // playbook · the operator's learned procedure for this regime
       playbook: {
         label: playbook.label,
@@ -3065,6 +3115,12 @@ async function runGatedOperator(
   // operator's decision → action → outcome track record.
   try {
     const led = await loadLedger(e.policyId);
+    // Fee-inclusive cost for THIS leg: real observed slippage from the live-book
+    // pre-trade analysis (execAnalysis) + a conservative DeepBook taker fee.
+    // Subtracted from the raw price move at settlement so realized P&L is not
+    // mid-to-mid optimistic. Slippage is clamped ≥0 (it's a cost, never a gain).
+    const slipFrac = execAnalysis ? Math.max(0, execAnalysis.slippagePct) / 100 : 0;
+    const costPct = slipFrac + DEEPBOOK_TAKER_FEE_FRAC;
     led.push({
       ts: Date.now(),
       seq: expRecord.seq ?? led.length + 1,
@@ -3079,6 +3135,7 @@ async function runGatedOperator(
       reason: `${eng.regimeLabel} · ${eng.thesis}`,
       txDigest: digest,
       outcome: "pending",
+      costPct,
     });
     await saveLedger(e.policyId, led);
   } catch {

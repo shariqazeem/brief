@@ -54,6 +54,7 @@ import { operatorCodename } from "@/lib/operator-identity";
 import { operatorIdentity } from "@/lib/operators";
 import { roleHeadline } from "@/lib/operator-feed";
 import { LiveJournal } from "./live-journal";
+import { AskOperator } from "./ask-operator";
 import { WithdrawFunds } from "./withdraw-funds";
 import {
   useOperatorLedger,
@@ -443,6 +444,9 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           asset={liveAsset}
           now={now}
         />
+
+        {/* Ask the operator · a grounded conversation with its own memory. */}
+        <AskOperator policyId={policyId} name={identity.name} role={identity.role} />
 
         {spot ? (
           // ≥1024px · two-column body. LEFT: performance + ledger + proof.

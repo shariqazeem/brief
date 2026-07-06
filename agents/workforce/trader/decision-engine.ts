@@ -410,6 +410,40 @@ export function runDecisionEngine(args: {
   };
 }
 
+/** One deterministic stance line for the per-cycle stance beat · renders on the
+ *  Live tab so EVERY cycle shows something true even when the operator holds.
+ *  "Target SUI 35% · current 28% · gap +7pts, inside band · adding". */
+export function stanceLine(args: {
+  asset: string;
+  targetPct: number | null;
+  currentPct: number;
+  /** Vol-adaptive rebalance band as a FRACTION (e.g. 0.14). */
+  band: number;
+  action: "add" | "reduce" | "hold";
+  /** True when a move was wanted but blocked (cooldown / infeasible / veto). */
+  blocked?: boolean;
+}): string {
+  const { asset, targetPct, currentPct, band, action, blocked } = args;
+  if (targetPct == null) {
+    return `Holding ${currentPct}% ${asset} · no transactable target this cycle.`;
+  }
+  const gapPts = targetPct - currentPct;
+  const withinBand = Math.abs(gapPts) / 100 <= band;
+  const gapTxt =
+    Math.abs(gapPts) < 1
+      ? "gap flat"
+      : `gap ${gapPts > 0 ? "+" : ""}${gapPts}pts${withinBand ? ", inside band" : ""}`;
+  const tail =
+    action === "add"
+      ? "adding"
+      : action === "reduce"
+        ? "trimming"
+        : blocked
+          ? "holding (move blocked)"
+          : "holding";
+  return `Target ${asset} ${targetPct}% · current ${currentPct}% · ${gapTxt} · ${tail}`;
+}
+
 /** A user-facing plan for one decision · the same discipline, made legible. */
 export type DecisionPlan = {
   now: string; // current stance

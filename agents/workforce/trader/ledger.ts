@@ -37,8 +37,14 @@ export type LedgerEvent = {
   reason: string;
   txDigest: string | null;
   outcome: LedgerOutcome;
-  /** Realized move in the operator's favour since the event (signed fraction). */
+  /** Realized move in the operator's favour since the event (signed fraction),
+   *  AFTER execution cost · this is the fee-inclusive number. */
   outcomePct?: number;
+  /** This leg's execution cost as a fraction of notional · observed slippage
+   *  from the live-book pre-trade analysis + a conservative DeepBook taker fee.
+   *  Subtracted from the raw price move at settlement so realized P&L is
+   *  fee-inclusive, not mid-to-mid optimistic. Optional for legacy rows (→ 0). */
+  costPct?: number;
 };
 
 export type OperatorStats = {
@@ -199,10 +205,14 @@ export function settleLedger(
     const cur = mids[ev.asset ?? "SUI"];
     if (cur == null || cur <= 0) return ev;
     const moved = (cur - ev.mid) / (ev.mid || 1);
-    const favor = ev.side === "buy" ? moved : -moved; // sell-to-cash favours a drop
+    const rawFavor = ev.side === "buy" ? moved : -moved; // sell-to-cash favours a drop
     // Sanity guard: a >100% move over a ~1h spot horizon is physically
-    // impossible for these tokens → corrupt/stale data, leave pending.
-    if (!Number.isFinite(favor) || Math.abs(favor) > 1) return ev;
+    // impossible for these tokens → corrupt/stale data, leave pending. Guard on
+    // the RAW move (before cost) so a legit tiny move isn't dropped.
+    if (!Number.isFinite(rawFavor) || Math.abs(rawFavor) > 1) return ev;
+    // Fee-inclusive: subtract this leg's execution cost (slippage + DeepBook
+    // fee) so a move that didn't clear its own trading cost settles as a loss.
+    const favor = rawFavor - (ev.costPct ?? 0);
     settled++;
     return {
       ...ev,

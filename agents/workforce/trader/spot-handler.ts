@@ -82,6 +82,13 @@ export type SpotExecution = {
 
 const MAX_SLIPPAGE_PCT = 1.5;
 
+/** Conservative DeepBook v3 taker-fee assumption per executed leg, as a fraction
+ *  of notional. On mainnet the gated order pays its fee from the input coin
+ *  (pay_with_deep=false) on a volatile pool. Used to make the operator's
+ *  realized track record fee-inclusive rather than mid-to-mid optimistic;
+ *  deliberately conservative so execution cost is never understated. */
+export const DEEPBOOK_TAKER_FEE_FRAC = 0.0005; // 5 bps / leg
+
 /** Pre-trade DeepBook execution analysis: simulate the actual order against the
  *  live book (devInspect, no signing) and report real slippage + DEEP fee +
  *  whether the fill quality clears the bar. Fail-safe: a read error never

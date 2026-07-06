@@ -15,24 +15,56 @@ export const GUARDIAN_STATUS_PATH = path.join(
  *  = no NEW exposure (hold/reduce only), crash = move to cash. */
 export type RiskLevel = "normal" | "elevated" | "extreme" | "crash";
 
+/** Per-asset risk state · each asset is judged ONLY against its own 60m-vol
+ *  history, so DEEP's normal wildness gates DEEP exposure without freezing a
+ *  calm SUI position on the same operator. This is the fix for the "one spiking
+ *  asset freezes the whole operator" bug. */
+export type AssetGuardState = {
+  /** Graduated level from this asset's OWN vol percentile. */
+  level: RiskLevel;
+  /** Human-legible reason (renders in the UI Guard step). */
+  reason: string;
+  /** Realized 60m vol (annualized) for this asset. */
+  vol: number | null;
+  /** This vol's percentile within the asset's own trailing distribution. */
+  pct: number | null;
+  /** True at extreme+ · no NEW exposure to THIS asset (hold or reduce only). */
+  pausedNewExposure: boolean;
+};
+
 export type GuardianOperator = {
-  /** True only at crash (full stop to cash). elevated/extreme keep operating at
-   *  reduced size · the graduated guardian reduces before it freezes. */
+  /** True only at crash (full stop to cash) · a SUMMARY across the whole
+   *  operator (worst asset OR portfolio drawdown). elevated/extreme keep it
+   *  operating at reduced size. Per-asset gating lives in `assets` below; the
+   *  trader reads THAT for the specific asset it is evaluating this cycle. */
   paused: boolean;
-  /** Human-readable reason for the current state. */
+  /** Human-readable reason for the current (summary) state. */
   reason: string;
   /** "ok" | "watch" | "paused" · drives the UI colour. */
   severity: "ok" | "watch" | "paused";
-  /** Realized vol (annualized) + worst drawdown the guardian last saw. */
+  /** Realized vol (annualized) of the worst asset + worst drawdown seen. */
   vol: number | null;
   drawdownPct: number;
   /** When the current state began. */
   since: number;
   updatedMs: number;
-  /** Graduated risk level (the trader caps exposure off this). */
+  /** Graduated risk level SUMMARY (worst asset OR drawdown). */
   riskLevel?: RiskLevel;
-  /** Current vol's percentile within the asset's own trailing distribution. */
+  /** Worst asset's vol percentile within its own trailing distribution. */
   volPct?: number | null;
+  /** Per-asset risk state · keyed by asset symbol (SUI/WAL/DEEP). Each asset is
+   *  judged only against its own history, so one spiking asset gates only its
+   *  own exposure. The trader reads `assets[asset]` for the asset it is
+   *  evaluating; absent → fall back to the `riskLevel` summary. */
+  assets?: Record<string, AssetGuardState>;
+  /** Portfolio-level risk that halts EVERYTHING regardless of per-asset vol · a
+   *  drawdown-limit breach (with hysteresis) or a manual force. */
+  portfolio?: {
+    /** True while the portfolio drawdown pause is engaged (halts all assets). */
+    drawdownPause: boolean;
+    /** Current drawdown from peak (%) that drives the pause. */
+    drawdownPct: number;
+  };
 };
 
 export type GuardianStatus = {
