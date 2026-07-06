@@ -16,6 +16,42 @@ import { apiUrl } from "@/lib/api-base";
 import { SystemHealthDot } from "@/components/system-health";
 import { WalletBoundary } from "@/components/wallet-boundary";
 import { operatorCodename } from "@/lib/operator-identity";
+import { LiveValue } from "@/components/motion/live-value";
+
+/** Network-level totals · the punchline is that policy violations are 0 network-
+ *  wide (the chain rejects any off-policy attempt). Real, from /api/network/proof. */
+function useNetworkProof() {
+  const [p, setP] = useState<{ operators: number; decisions: number } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(apiUrl("/api/network/proof"));
+        if (r.ok) {
+          const j = (await r.json()) as { operators?: number; decisions?: number };
+          if (!cancelled) setP({ operators: Number(j.operators ?? 0), decisions: Number(j.decisions ?? 0) });
+        }
+      } catch {
+        /* headline hides if unavailable */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return p;
+}
+
+function NetStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <p className="font-sans text-[40px] font-semibold leading-none tracking-tight text-ink tabular-nums sm:text-[52px]">
+        <LiveValue value={value} format={(n) => Math.round(n).toLocaleString("en-US")} />
+      </p>
+      <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-muted">{label}</p>
+    </div>
+  );
+}
 
 type LeaderboardRow = {
   policy_id: string;
@@ -160,6 +196,7 @@ function LeaderboardConsole() {
   const [data, setData] = useState<LeaderboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshAt, setRefreshAt] = useState(0);
+  const netProof = useNetworkProof();
   const account = useCurrentAccount();
 
   useEffect(() => {
@@ -238,18 +275,30 @@ function LeaderboardConsole() {
       <section className="mx-auto max-w-5xl px-5 py-10 sm:px-8 sm:py-14">
         <div className="space-y-4">
           <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-            Live · Sui {data?.network ?? "mainnet"} · {data?.rows.length ?? "-"} operators adopted
+            Live · Sui {data?.network ?? "mainnet"} · the network
           </p>
           <h1 className="font-sans text-[34px] font-medium leading-[1.05] tracking-tightest text-ink sm:text-[44px]">
-            The operator workforce.
+            The Network.
           </h1>
           <p className="max-w-2xl text-[14.5px] leading-relaxed text-ink-2 sm:text-[15.5px]">
-            Brief is a platform for autonomous operators · each one non-custodial,
-            constrained by Move, and verifiable on chain. Every row here is a real
-            adopted operator; every trade and policy spend is on Suiscan. One today,
-            a workforce tomorrow · and the operator that uses its leash most
-            carefully climbs.
+            Every operator on Brief, ranked by how well it protects the capital it
+            was trusted with, not by how much it gambled. Each one non-custodial,
+            constrained by Move, and verifiable on chain.
           </p>
+
+          {/* Network-level truth · the punchline is the zero. */}
+          <div className="flex flex-wrap items-end gap-x-10 gap-y-4 pt-2">
+            <NetStat label="Operators" value={netProof?.operators ?? data?.rows.length ?? 0} />
+            <NetStat label="Decisions" value={netProof?.decisions ?? 0} />
+            <div>
+              <p className="font-sans text-[40px] font-semibold leading-none tracking-tight tabular-nums text-emerald-600 sm:text-[52px]">
+                0
+              </p>
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
+                Policy violations, network-wide
+              </p>
+            </div>
+          </div>
           {yourRowIndex >= 0 && (
             <p className="inline-flex items-center gap-2 border-2 border-emerald-600 bg-emerald-600 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-bg">
               You&apos;re #{yourRowIndex + 1} ·{" "}
