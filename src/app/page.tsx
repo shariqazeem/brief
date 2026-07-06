@@ -13,7 +13,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { apiUrl } from "@/lib/api-base";
+import { BRIEF_NETWORK } from "@/lib/brief-client";
 import { loadLatestTraderIdentity } from "@/lib/workforce-client";
+import { OPERATOR_TEMPLATES } from "@/lib/operators";
+import { Scene, SceneItem } from "@/components/motion/scene";
+import { OperatorPresence, type PresenceState } from "@/components/motion/operator-presence";
+import { LiveValue } from "@/components/motion/live-value";
+import { NAVY } from "@/lib/ui";
 
 // ── design tokens (brief-exact) ──────────────────────────────────────────
 const INK = "#111111";
@@ -24,7 +30,8 @@ const AMBER = "#F59E0B";
 const IDLE = "#999999";
 const CARD = "shadow-[0_1px_3px_rgba(0,0,0,0.06)]";
 
-const SUISCAN_TX = (d: string) => `https://suiscan.xyz/testnet/tx/${d}`;
+const NET: "mainnet" | "testnet" = BRIEF_NETWORK === "mainnet" ? "mainnet" : "testnet";
+const SUISCAN_TX = (d: string) => `https://suiscan.xyz/${NET}/tx/${d}`;
 
 // ── the live decision the cascade renders (reduced from the global SSE) ──
 type Decision = {
@@ -544,58 +551,101 @@ export default function OperatorLandingV2() {
       ? "-"
       : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+  // The operator's living state, from the live beat · drives OperatorPresence.
+  const presenceState: PresenceState = stale
+    ? "idle"
+    : revoked
+      ? "intervened"
+      : cur.beat === "mint" || (cur.beat === "delivered" && cur.decided)
+        ? "acting"
+        : cur.beat === "observe" ||
+            cur.beat === "signals" ||
+            cur.beat === "svi" ||
+            cur.beat === "decision"
+          ? "thinking"
+          : "idle";
+  // One-line live thought (mono) beneath the hero presence · honest when idle.
+  const liveThought = stale
+    ? "AWAITING THE NEXT DECISION CYCLE"
+    : `OBSERVING ${cur.asset} · ${usd(liveSpot)} · ${
+        cur.decided === false ? "HOLDING" : cur.decided ? "ACTING" : "THINKING"
+      }`;
+
   return (
-    <main
-      className="snap-y snap-mandatory overflow-y-auto bg-[#FAFAFA] font-sans text-[#111111]"
-      style={{ height: "100vh" }}
-    >
-      {/* ════ SECTION 1 · THE HOOK ════ */}
-      <section className="flex min-h-screen snap-start flex-col items-center justify-center px-6">
-        <LeashHero />
-        <h1 className="mt-14 max-w-2xl text-center text-[34px] font-medium leading-[1.1] tracking-[-0.02em] sm:text-[52px]">
-          Adopt an operator.
-          <br />
-          The chain holds the leash.
-        </h1>
-        <p className="mt-6 max-w-xl text-center text-[15px] leading-relaxed sm:text-[16.5px]" style={{ color: SUB }}>
-          An autonomous financial operator that <span style={{ color: INK }}>cannot steal your funds</span>,{" "}
-          <span style={{ color: INK }}>cannot exceed its budget</span>, and{" "}
-          <span style={{ color: INK }}>can be fired with one transaction</span>.
-        </p>
-        <div className="mt-10 flex items-center gap-7 font-mono text-[12px] tracking-[0.02em]">
-          <a
-            href={ctaHref}
-            className="bg-accent px-6 py-3 text-[11px] uppercase tracking-[0.28em] text-white transition-opacity hover:opacity-90"
-          >
-            {ctaLabel}
-          </a>
-          <a
-            href="#think"
-            className="text-[#666666] transition-colors hover:text-[#111111]"
-          >
-            Watch it think ↓
-          </a>
-        </div>
-
-        {/* Trust line · substrate, stated plainly (mono, muted, small) */}
-        <p className="mt-7 font-mono text-[10px] uppercase tracking-[0.22em]" style={{ color: IDLE }}>
-          Built on Sui · Memory anchored on Walrus
-        </p>
-
-        {/* Above-the-fold proof · the trust signal, no scroll required */}
-        {proof && proof.operators > 0 && (
-          <div className="mt-14 flex flex-wrap items-center justify-center gap-x-6 gap-y-2.5 font-mono text-[11px] tracking-[0.01em]">
-            <ProofStat n={`${proof.operators}`} l={proof.operators === 1 ? "operator live" : "operators live"} />
-            <span className="text-[#CCCCCC]">·</span>
-            <ProofStat n={proof.decisions.toLocaleString("en-US")} l="decisions" />
-            <span className="text-[#CCCCCC]">·</span>
-            <ProofStat n={`${proof.under_management} ${proof.unit}`} l="managed" />
-            <span className="text-[#CCCCCC]">·</span>
-            <ProofStat n="0" l="policy violations" good />
-            <span className="text-[#CCCCCC]">·</span>
-            <ProofStat n="0" l="custody incidents" good />
-          </div>
-        )}
+    <>
+      <GlassNav ctaHref={ctaHref} hasOperator={hasOperator} />
+      <main
+        className="snap-y snap-mandatory overflow-y-auto bg-[#FAFAFA] font-sans text-[#111111]"
+        style={{ height: "100vh" }}
+      >
+      {/* ════ SCENE 1 · THE HOOK ════ */}
+      <section className="flex min-h-screen snap-start flex-col items-center justify-center px-6 pt-16">
+        <Scene className="flex flex-col items-center">
+          <SceneItem order={0}>
+            <OperatorPresence glyph="◈" state={presenceState} live={connected} size="lg" accent={NAVY} />
+          </SceneItem>
+          <SceneItem order={1}>
+            <h1 className="ink-navy-gradient mt-10 max-w-2xl text-center text-[34px] font-medium leading-[1.08] tracking-[-0.02em] sm:text-[52px]">
+              Hire an AI to run your money.
+              <br />
+              The chain holds the leash.
+            </h1>
+          </SceneItem>
+          <SceneItem order={2}>
+            <p className="mt-6 max-w-xl text-center text-[15px] leading-relaxed sm:text-[16.5px]" style={{ color: SUB }}>
+              Autonomous operators, live on Sui mainnet, governed by Move. They can trade, they
+              can <span style={{ color: INK }}>never withdraw</span>, and one signature fires them.
+            </p>
+          </SceneItem>
+          <SceneItem order={3}>
+            <p
+              className="mt-6 font-mono text-[11px] uppercase tracking-[0.22em]"
+              style={{ color: stale ? IDLE : NAVY }}
+            >
+              {liveThought}
+            </p>
+          </SceneItem>
+          <SceneItem order={4}>
+            <div className="mt-9 flex items-center gap-6 font-mono text-[12px]">
+              <a
+                href={ctaHref}
+                className="cta-sheen bg-accent px-6 py-3 text-[11px] uppercase tracking-[0.26em] text-white transition-opacity hover:opacity-90"
+              >
+                <span className="cta-sheen-glint" aria-hidden />
+                {ctaLabel}
+              </a>
+              <a href="/proof" className="text-[#666666] transition-colors hover:text-[#111111]">
+                Inspect the proof →
+              </a>
+            </div>
+          </SceneItem>
+          <SceneItem order={5}>
+            <div
+              className="mt-9 flex flex-wrap items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em]"
+              style={{ color: IDLE }}
+            >
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: connected ? EMERALD : IDLE }}
+              />
+              Live on Sui mainnet
+              {proof && (
+                <>
+                  <span className="text-[#CCCCCC]">·</span>
+                  <span style={{ color: INK }}>
+                    <LiveValue
+                      value={proof.decisions}
+                      format={(n) => Math.round(n).toLocaleString("en-US")}
+                    />
+                  </span>
+                  decisions
+                  <span className="text-[#CCCCCC]">·</span>
+                  <span style={{ color: EMERALD }}>0</span> violations
+                </>
+              )}
+            </div>
+          </SceneItem>
+        </Scene>
       </section>
 
       {/* ════ SECTION 2 · WATCH IT THINK ════ */}
@@ -711,56 +761,41 @@ export default function OperatorLandingV2() {
         </div>
       </section>
 
-      {/* ════ SECTION 3 · THE LEASH ════ */}
+      {/* ════ SCENE 3 · THE LEASH ════ */}
       <section className="flex min-h-screen snap-start flex-col items-center justify-center px-6 py-24">
-        <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#666666]">
-          The leash
+        <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#666666]">The leash</p>
+        <div className="mt-10">
+          <LeashHero />
+        </div>
+        <p className="mt-8 max-w-lg text-center text-[15px] leading-relaxed text-[#666666]">
+          A warm-gold operator moves freely inside a boundary it can never cross. That boundary is a
+          Move <span style={{ color: INK }}>OperatorPolicy</span>, not a promise in our backend.
         </p>
-        <div className="mt-12 grid w-full max-w-4xl gap-6 sm:grid-cols-3">
+        <div className="mt-10 grid w-full max-w-3xl gap-4 sm:grid-cols-3">
           {[
-            {
-              k: "01",
-              h: "You set the rules",
-              b: "Budget cap, allowed venues, expiry · chosen in one signature.",
-            },
-            {
-              k: "02",
-              h: "Move enforces them",
-              b: "An on-chain OperatorPolicy object. Every spend checks it first.",
-            },
-            {
-              k: "03",
-              h: "You yank the leash",
-              b: "One tap revokes. The chain refuses the operator's next trade.",
-            },
+            { h: "Budget cap", b: "Enforced by Move. Every spend checks it first, in the same transaction." },
+            { h: "No withdrawals", b: "No WithdrawCap exists. Not the operator, not us, no one can move it out." },
+            { h: "Revocable", b: "One signature and the chain aborts its very next trade." },
           ].map((c) => (
-            <div key={c.k} className={`bg-white px-6 py-7 ${CARD}`}>
-              <p className="font-mono text-[12px] tabular-nums text-[#666666]">{c.k}</p>
-              <h3 className="mt-3 text-[18px] font-medium tracking-tight text-[#111111]">
+            <div
+              key={c.h}
+              className="bg-white p-5 text-left"
+              style={{ border: "1px solid var(--line)", boxShadow: "var(--elev-1)" }}
+            >
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: NAVY }}>
                 {c.h}
-              </h3>
-              <p className="mt-2 text-[14px] leading-relaxed text-[#666666]">{c.b}</p>
+              </p>
+              <p className="mt-2 text-[13px] leading-relaxed text-[#666666]">{c.b}</p>
             </div>
           ))}
         </div>
-
-        <div className="mt-16 flex flex-wrap items-center justify-center gap-3">
-          {["Agentic Web", "DeepBook", "Walrus"].map((t) => (
-            <span
-              key={t}
-              className={`bg-white px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-[#666666] ${CARD}`}
-            >
-              {t}
-            </span>
-          ))}
-        </div>
-
-        <div className="mt-12 flex items-center gap-8 font-mono text-[12px]">
+        <p className="mt-10 max-w-xl text-center text-[13.5px] leading-relaxed text-[#666666]">
+          Break one and the chain aborts the transaction. Not a warning · a rejection, in the same
+          transaction as the trade.
+        </p>
+        <div className="mt-8 flex items-center gap-8 font-mono text-[12px]">
           <a href={ctaHref} className="text-[#111111] transition-opacity hover:opacity-60">
             {hasOperator ? "Open your operator →" : "Adopt now →"}
-          </a>
-          <a href="/leaderboard" className="text-[#666666] transition-colors hover:text-[#111111]">
-            Leaderboard
           </a>
           <span className="flex items-center gap-1.5 text-[#666666]">
             <span
@@ -772,56 +807,178 @@ export default function OperatorLandingV2() {
         </div>
       </section>
 
-      {/* ════ SECTION 4 · THE PLATFORM / MAINNET ════ */}
+      {/* ════ SCENE 4 · CHOOSE YOUR OPERATOR ════ */}
       <section className="flex min-h-screen snap-start flex-col items-center justify-center bg-white px-6 py-24">
         <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#666666]">
-          The platform
+          Choose your operator
         </p>
-        <h2 className="mt-8 max-w-3xl text-center text-[28px] font-medium leading-[1.12] tracking-[-0.02em] sm:text-[42px]">
-          The first platform where autonomous agents
-          <br className="hidden sm:block" /> are controlled by on-chain law.
+        <h2 className="mt-6 max-w-2xl text-center text-[26px] font-medium leading-[1.14] tracking-[-0.02em] sm:text-[36px]">
+          A workforce of living operators. Each one non-custodial, each on the same leash.
         </h2>
-        <p className="mt-6 max-w-xl text-center text-[15px] leading-relaxed text-[#666666] sm:text-[16px]">
-          <span className="text-[#111111]">Halcyon is the first operator.</span> Finance is the proof.
+        <div className="mt-12 grid w-full max-w-4xl gap-5 sm:grid-cols-3">
+          {OPERATOR_TEMPLATES.map((t) => (
+            <OperatorCard
+              key={t.slug}
+              glyph={t.glyph}
+              name={t.name}
+              role={t.role}
+              promise={t.promise}
+              posture={t.riskPosture}
+              accent={t.accent}
+              live={connected}
+            />
+          ))}
+        </div>
+        <p className="mt-10 max-w-md text-center text-[13px] leading-relaxed text-[#666666]">
+          Ranked on the{" "}
+          <a href="/network" className="evidence-underline text-[#111111]">
+            network
+          </a>{" "}
+          by how well they protect capital, not how much they gamble.
         </p>
+      </section>
 
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-7 font-mono text-[12px]">
+      {/* ════ SCENE 5 · PROOF STRIP + FOOTER ════ */}
+      <section className="flex min-h-screen snap-start flex-col items-center justify-center px-6 py-24">
+        <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#666666]">
+          Everything is evidence
+        </p>
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-2.5">
+          {["Policy", "Trades", "Rejection", "Revoke", "Manifesto"].map((l) => (
+            <a
+              key={l}
+              href="/proof"
+              className="bg-white px-3.5 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[#666666] transition-colors hover:text-[#111111]"
+              style={{ border: "1px solid var(--line)", boxShadow: "var(--elev-1)" }}
+            >
+              {l} ↗
+            </a>
+          ))}
+        </div>
+        <div className="mt-14 flex items-center gap-6 font-mono text-[12px]">
           <a
             href={ctaHref}
-            className="bg-accent px-6 py-3 text-[11px] uppercase tracking-[0.28em] text-white transition-opacity hover:opacity-90"
+            className="cta-sheen bg-accent px-6 py-3 text-[11px] uppercase tracking-[0.26em] text-white transition-opacity hover:opacity-90"
           >
+            <span className="cta-sheen-glint" aria-hidden />
             {ctaLabel}
           </a>
           <a href="/proof" className="text-[#666666] transition-colors hover:text-[#111111]">
             See the live proof →
           </a>
-          <a
-            href="https://x.com/shariqshkt"
-            target="_blank"
-            rel="noreferrer"
-            className="text-[#999999] transition-colors hover:text-[#111111]"
-          >
-            Mainnet access →
-          </a>
         </div>
-        <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.22em] text-[#999999]">
-          Live on Sui mainnet · real USDC · first 100 operators onboarded by hand
-        </p>
-
-        <div className="mt-16 flex flex-wrap items-center justify-center gap-3">
-          {["Objective", "Trust", "Proof", "Evolution"].map((t) => (
-            <span
-              key={t}
-              className={`bg-white px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-[#666666] ${CARD}`}
+        <footer className="mt-16 flex flex-col items-center gap-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[#999999]">
+          <div className="flex items-center gap-5">
+            <a
+              href="https://github.com/shariqazeem/brief"
+              target="_blank"
+              rel="noreferrer"
+              className="transition-colors hover:text-[#111111]"
             >
-              {t}
-            </span>
-          ))}
-        </div>
-        <p className="mt-10 max-w-md text-center font-mono text-[10px] uppercase tracking-[0.22em] text-[#999999]">
-          Brief, by Kyvernlabs · built on Sui
-        </p>
+              GitHub
+            </a>
+            <a
+              href="https://x.com/briefxyz"
+              target="_blank"
+              rel="noreferrer"
+              className="transition-colors hover:text-[#111111]"
+            >
+              X
+            </a>
+            <a href="/network" className="transition-colors hover:text-[#111111]">
+              Network
+            </a>
+          </div>
+          <p>Built for Sui Overflow 2026 · Brief, by Kyvernlabs</p>
+          <p className="text-[#CCCCCC]">
+            Live on Sui mainnet · real USDC · memory anchored on Walrus
+          </p>
+        </footer>
       </section>
-    </main>
+      </main>
+    </>
+  );
+}
+
+// ── Minimal glass nav · the ecosystem thread (wordmark, Network, Proof, CTA) ──
+function GlassNav({ ctaHref, hasOperator }: { ctaHref: string; hasOperator: boolean }) {
+  return (
+    <nav
+      className="fixed inset-x-0 top-0 z-50 flex items-center justify-between px-5 py-3 sm:px-8"
+      style={{
+        background: "var(--glass)",
+        backdropFilter: "var(--glass-blur)",
+        WebkitBackdropFilter: "var(--glass-blur)",
+        borderBottom: "1px solid var(--glass-border)",
+      }}
+    >
+      <a href="/" className="flex items-center gap-2">
+        <span className="font-mono text-[13px] font-semibold tracking-[-0.01em] text-ink">Brief</span>
+        <span className="hidden font-mono text-[9px] uppercase tracking-[0.24em] text-muted sm:inline">
+          the chain holds the leash
+        </span>
+      </a>
+      <div className="flex items-center gap-5 font-mono text-[10px] uppercase tracking-[0.2em]">
+        <a href="/network" className="text-ink-2 transition-opacity hover:opacity-60">
+          Network
+        </a>
+        <a href="/proof" className="text-ink-2 transition-opacity hover:opacity-60">
+          Proof
+        </a>
+        <a
+          href={ctaHref}
+          className="bg-ink px-3 py-1.5 uppercase tracking-[0.2em] text-white transition-opacity hover:opacity-80"
+        >
+          {hasOperator ? "Your operator" : "Adopt"}
+        </a>
+      </div>
+    </nav>
+  );
+}
+
+// ── One operator card for Scene 4 · the product as an ecosystem of living
+// things. Presence breathes on the shared wire; personality + posture + the
+// hard "never does" line, then a click into the adopt flow. ──
+function OperatorCard({
+  glyph,
+  name,
+  role,
+  promise,
+  posture,
+  accent,
+  live,
+}: {
+  glyph: string;
+  name: string;
+  role: string;
+  promise: string;
+  posture: string;
+  accent: string;
+  live: boolean;
+}) {
+  return (
+    <a
+      href="/workforce"
+      className="group block bg-white p-6 text-left shadow-[var(--elev-1)] transition-shadow duration-200 hover:shadow-[var(--elev-2)]"
+      style={{ border: "1px solid var(--line)" }}
+    >
+      <div className="flex items-center gap-4">
+        <OperatorPresence glyph={glyph} state="idle" live={live} size="sm" accent={accent} />
+        <div className="min-w-0">
+          <p className="font-sans text-[16px] font-semibold tracking-tight text-ink">{name}</p>
+          <p className="font-mono text-[9.5px] uppercase tracking-[0.2em] text-muted">{role}</p>
+        </div>
+        <span
+          className="ml-auto font-mono text-[8.5px] uppercase tracking-[0.16em]"
+          style={{ color: accent }}
+        >
+          {posture}
+        </span>
+      </div>
+      <p className="mt-4 text-[13.5px] leading-relaxed text-ink-2">{promise}</p>
+      <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-muted transition-colors group-hover:text-ink">
+        Adopt {name} →
+      </p>
+    </a>
   );
 }
