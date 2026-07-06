@@ -170,7 +170,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "operator not found" }, { status: 404 });
   }
 
-  const respond = (answer: string, refs: Ref[], ai: boolean, model: string | null) => {
+  const respond = (raw: string, refs: Ref[], ai: boolean, model: string | null) => {
+    // Brand voice: never show long dashes (the model sometimes emits them).
+    const answer = raw.replace(/\s*[—–]\s*/g, " - ").replace(/\s{2,}/g, " ").trim();
     void logChat(policyId, message, answer, refs, ai);
     return NextResponse.json(
       { ok: true, ai, model, answer, refs, operator: g.identity.name },
