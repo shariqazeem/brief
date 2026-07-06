@@ -84,7 +84,10 @@ export async function GET() {
   if (!wardenFresh) problems.push("warden not reporting");
   if (lowWallets.length > 0) problems.push(`low gas: ${lowWallets.join(", ")}`);
   if (!priceFresh) problems.push("price feed stale");
-  if (warden && warden.manager_dusdc < 10)
+  // dUSDC / Predict "mints" are a TESTNET-only concept. On mainnet the operators
+  // trade real USDC on DeepBook v3 spot from their own BalanceManager — there is
+  // no PredictManager, so this check would raise a false alarm.
+  if (!isMainnet && warden && warden.manager_dusdc < 10)
     problems.push("manager dUSDC low · live mints degrade to simulated");
 
   const payload = {
