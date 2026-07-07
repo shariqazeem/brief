@@ -9,8 +9,8 @@
 // Neutrals (= Tailwind ink / ink-2 / muted / muted-2 / line tokens)
 export const INK = "#0A0A0A";
 export const SUB = "#525560";
-export const MUTED = "#8E8E93";
-export const FAINT = "#C7C7CC";
+export const MUTED = "#6E7178";
+export const FAINT = "#B4B6BC";
 export const LINE = "#E5E5EA";
 export const LINE_SUBTLE = "#F0F0F0";
 

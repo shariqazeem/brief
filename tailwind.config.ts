@@ -16,8 +16,8 @@ const config: Config = {
         // size without straining; primary is near-black for legibility.
         ink: "#0A0A0A",
         "ink-2": "#525560",
-        muted: "#8E8E93",
-        "muted-2": "#C7C7CC",
+        muted: "#6E7178",
+        "muted-2": "#B4B6BC",
 
         // Subtle borders. Most surfaces use `line`; only emphasized
         // dividers (e.g. table heads) use `line-strong`.
