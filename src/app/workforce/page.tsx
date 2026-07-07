@@ -218,29 +218,24 @@ function Header({
   source?: "wallet" | "zklogin" | "none";
 }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
-      <div className="mx-auto flex max-w-page items-center justify-between gap-4 px-6 py-4 sm:px-10">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <Link href="/" className="flex items-center gap-2.5 text-ink">
-            <Mark />
-            <span className="text-[15px] font-medium tracking-tight">Brief</span>
-            <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.28em] text-muted">
-              · workforce
-            </span>
-          </Link>
-          <span className="hidden font-mono text-[9px] uppercase tracking-[0.22em] text-muted sm:inline">
-            Built on Sui · Memory anchored on Walrus
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
+    <header
+      className="sticky top-0 z-30 bg-bg/80 backdrop-blur"
+      style={{ boxShadow: "0 1px 0 rgba(10,10,10,0.03), 0 8px 24px -16px rgba(26,44,78,0.18)" }}
+    >
+      <div className="mx-auto flex max-w-page items-center justify-between gap-4 px-6 py-3.5 sm:px-10">
+        <Link href="/" className="flex items-center gap-2.5 text-ink">
+          <Mark />
+          <span className="text-[16px] font-semibold tracking-[-0.02em]">Brief</span>
+        </Link>
+        <div className="flex items-center gap-4">
           <span className="hidden sm:inline-flex">
             <SystemHealthDot />
           </span>
           <Link
-            href="/leaderboard"
-            className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-muted transition-colors hover:text-ink sm:inline-flex"
+            href="/network"
+            className="hidden font-sans text-[13px] text-ink-2 transition-colors hover:text-ink sm:inline"
           >
-            Leaderboard
+            Network
           </Link>
           {connected ? (
             <AccountChip

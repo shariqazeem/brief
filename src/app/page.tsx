@@ -922,30 +922,27 @@ export default function OperatorLandingV2() {
 function GlassNav({ ctaHref, hasOperator }: { ctaHref: string; hasOperator: boolean }) {
   return (
     <nav
-      className="fixed inset-x-0 top-0 z-50 flex items-center justify-between px-5 py-3 sm:px-8"
+      className="fixed inset-x-0 top-0 z-50 flex items-center justify-between px-5 py-3.5 sm:px-8"
       style={{
         background: "var(--glass)",
         backdropFilter: "var(--glass-blur)",
         WebkitBackdropFilter: "var(--glass-blur)",
-        borderBottom: "1px solid var(--glass-border)",
+        boxShadow: "0 1px 0 rgba(10,10,10,0.03), 0 8px 24px -16px rgba(26,44,78,0.18)",
       }}
     >
-      <a href="/" className="flex items-center gap-2">
-        <span className="font-mono text-[13px] font-semibold tracking-[-0.01em] text-ink">Brief</span>
-        <span className="hidden font-mono text-[9px] uppercase tracking-[0.24em] text-muted sm:inline">
-          the chain holds the leash
-        </span>
+      <a href="/" className="font-sans text-[16px] font-semibold tracking-[-0.02em] text-ink">
+        Brief
       </a>
-      <div className="flex items-center gap-5 font-mono text-[10px] uppercase tracking-[0.2em]">
-        <a href="/network" className="text-ink-2 transition-opacity hover:opacity-60">
+      <div className="flex items-center gap-6 font-sans text-[13px]">
+        <a href="/network" className="hidden text-ink-2 transition-colors hover:text-ink sm:inline">
           Network
         </a>
-        <a href="/proof" className="text-ink-2 transition-opacity hover:opacity-60">
+        <a href="/proof" className="hidden text-ink-2 transition-colors hover:text-ink sm:inline">
           Proof
         </a>
         <a
           href={ctaHref}
-          className="bg-ink px-3 py-1.5 uppercase tracking-[0.2em] text-white transition-opacity hover:opacity-80"
+          className="rounded-full bg-ink px-4 py-1.5 text-[12.5px] font-medium text-white transition-opacity hover:opacity-80"
         >
           {hasOperator ? "Your operator" : "Adopt"}
         </a>

@@ -147,6 +147,18 @@ body {
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
+/* === Premium surfaces · rounded, softly-elevated cards replace sharp boxes ===
+   Every white card surface gets a modern radius + soft elevation. Components
+   that set their own stronger shadow keep it (utility classes win the cascade);
+   this just upgrades the flat, hard-bordered default everywhere at once. */
+.bg-bg-elev {
+  border-radius: 16px;
+  box-shadow: var(--elev-1);
+}
+/* Hairline dividers read as "old boxes" · soften them to a whisper so the
+   elevation, not the line, does the separating. */
+.border-line { border-color: #ECECEE !important; }
+
 /* === Cinematic-institutional primitives (prompt 01) === */
 
 /* Ink → Navy gradient text · hero headlines ONLY, one element per page. */
