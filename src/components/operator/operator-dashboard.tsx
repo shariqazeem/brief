@@ -1944,7 +1944,12 @@ function TopBar({
   return (
     <header
       className="sticky top-0 z-30 bg-bg-elev"
-      style={{ borderBottom: `1px solid ${revoked ? RED : "#E5E5E5"}` }}
+      style={{
+        borderRadius: 0,
+        boxShadow: revoked
+          ? "inset 0 -2px 0 rgba(239,68,68,0.55), 0 6px 20px -16px rgba(26,44,78,0.2)"
+          : "0 1px 0 rgba(10,10,10,0.04), 0 6px 20px -16px rgba(26,44,78,0.16)",
+      }}
     >
       <div className="mx-auto flex max-w-4xl items-center gap-4 px-5 py-3 sm:px-8">
         {/* identity */}
