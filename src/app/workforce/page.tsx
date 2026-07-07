@@ -761,19 +761,20 @@ function Disconnected() {
     <section className="mx-auto max-w-page px-6 pt-12 pb-24 sm:px-10 sm:pt-16">
       <div className="mx-auto max-w-page">
         <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-muted">
-          Brief · live on Sui testnet
+          Brief · live on Sui {BRIEF_NETWORK === "mainnet" ? "mainnet" : "testnet"}
         </p>
-        <h1 className="mt-4 font-sans text-4xl font-medium tracking-tightest sm:text-5xl">
-          One operator. Three modes.
+        <h1 className="ink-navy-gradient mt-4 font-sans text-4xl font-medium leading-[1.05] tracking-tightest sm:text-5xl">
+          Hire an operator to run your money.
         </h1>
-        <p className="mt-4 max-w-prose text-[16px] leading-relaxed text-ink-2 sm:text-lg">
-          One autonomous operator, calibrated by the mode you choose. It trades
-          on chain, bounded by a Move policy you revoke in one tap.{" "}
+        <p className="mt-5 max-w-prose text-[16px] leading-relaxed text-ink-2 sm:text-[17px]">
+          Choose an autonomous operator below, then connect a wallet to put it to
+          work. It trades on chain, can never withdraw your funds, and you revoke
+          it in one tap.{" "}
           <Link
-            href="/leaderboard"
-            className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
+            href="/network"
+            className="text-ink underline-offset-2 hover:underline"
           >
-            See whose operator is winning →
+            See the network →
           </Link>
         </p>
 

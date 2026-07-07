@@ -28,7 +28,7 @@ export function OperatorTabBar({
 }) {
   return (
     <div
-      className="sticky top-[49px] z-30 -mx-5 mb-6 flex gap-0.5 overflow-x-auto px-4 py-1.5 sm:mx-0 sm:px-1"
+      className="sticky top-[49px] z-30 -mx-5 mb-6 px-4 py-2.5 sm:mx-0 sm:px-0"
       style={{
         background: "var(--glass)",
         backdropFilter: "var(--glass-blur)",
@@ -36,28 +36,36 @@ export function OperatorTabBar({
         borderBottom: "1px solid var(--line)",
       }}
     >
-      {OPERATOR_TABS.map((t) => {
-        const on = active === t.key;
-        return (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => onChange(t.key)}
-            aria-current={on ? "page" : undefined}
-            className="relative shrink-0 px-3.5 py-2 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors hover:text-ink"
-            style={{ color: on ? "#0A0A0A" : "#8E8E93" }}
-          >
-            {t.label}
-            {on && (
-              <span
-                className="absolute inset-x-3 -bottom-[1px] h-[2px] rounded-full"
-                style={{ background: NAVY }}
-                aria-hidden
-              />
-            )}
-          </button>
-        );
-      })}
+      {/* Segmented control · a light track with a filled navy pill for the
+          active view. Unmistakably a switcher, not a row of labels. */}
+      <div
+        className="flex gap-1 overflow-x-auto rounded-[11px] p-1"
+        style={{ background: "#F0F0F2" }}
+        role="tablist"
+      >
+        {OPERATOR_TABS.map((t) => {
+          const on = active === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              onClick={() => onChange(t.key)}
+              aria-selected={on}
+              className={`shrink-0 rounded-[8px] px-4 py-1.5 font-sans text-[13px] font-semibold tracking-tight transition-all duration-200 ${
+                on ? "" : "text-ink-2 hover:text-ink"
+              }`}
+              style={
+                on
+                  ? { background: "#FFFFFF", color: NAVY, boxShadow: "0 1px 3px rgba(10,10,10,0.10)" }
+                  : { background: "transparent" }
+              }
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
