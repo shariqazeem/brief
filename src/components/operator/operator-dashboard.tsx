@@ -486,7 +486,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
                 onDispatchAgain={props.onDispatchAgain}
                 dispatching={props.dispatching}
               />
-              <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: 24, marginTop: 24 }}>
+              <div style={{ borderTop: "1px solid #ECECEE", paddingTop: 24, marginTop: 24 }}>
                 <span className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
                   Timeline · its experience
                 </span>
@@ -507,7 +507,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
                   ›
                 </span>
               </summary>
-              <div className="space-y-6 px-3 pb-6 sm:px-4" style={{ borderTop: "1px solid #E5E5EA" }}>
+              <div className="space-y-6 px-3 pb-6 sm:px-4" style={{ borderTop: "1px solid #ECECEE" }}>
                 <div className="pt-6">
                   <MarketState signals={stream.signals} dec={stream.decision} assetLabel={liveAsset} />
                 </div>
@@ -542,7 +542,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
                   onDispatchAgain={props.onDispatchAgain}
                   dispatching={props.dispatching}
                 />
-                <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: 24 }}>
+                <div style={{ borderTop: "1px solid #ECECEE", paddingTop: 24 }}>
                   <div className="mb-4 flex items-center justify-between">
                     <span className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
                       Timeline · its experience
@@ -572,7 +572,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
                   ›
                 </span>
               </summary>
-              <div className="px-5 pb-7 sm:px-8" style={{ borderTop: "1px solid #E5E5EA" }}>
+              <div className="px-5 pb-7 sm:px-8" style={{ borderTop: "1px solid #ECECEE" }}>
                 <div className="pt-6">
                   <PolicyTab {...props} manifestoBlobId={stream.walrusManifestoBlobId} />
                 </div>
@@ -611,9 +611,15 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           </div>
         </OperatorPanel>
 
-        {/* PROOF · custody + constitution, scoped to this operator. */}
+        {/* PROOF · custody + constitution, scoped to this operator. B3 vault. */}
         <OperatorPanel active={tab === "proof"}>
-          <div className="mt-2 space-y-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 lg:space-y-0">
+          <div className="relative">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-top bg-no-repeat"
+            style={{ backgroundImage: "url(/art/section-vault.webp)", backgroundSize: "min(820px, 100%)", opacity: 0.05 }}
+          />
+          <div className="relative mt-2 space-y-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 lg:space-y-0">
             <div className="space-y-6">
               <ProofSummary policyId={policyId} bv={bv} revoked={revoked || policy?.revoked === true} />
               <ProtectedBySui policyId={policyId} />
@@ -626,6 +632,7 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
                 network={BRIEF_NETWORK === "mainnet" ? "mainnet" : "testnet"}
               />
             </div>
+          </div>
           </div>
         </OperatorPanel>
       </main>
@@ -1382,7 +1389,7 @@ function AllocationMatrix({ dec }: { dec: AgentStreamState["decision"] }) {
       <p className="font-mono text-[10px] uppercase tracking-[0.24em]" style={{ color: NAVY }}>
         Allocation policy · its brain
       </p>
-      <div className="mt-3 overflow-hidden" style={{ border: "1px solid #E5E5EA" }}>
+      <div className="mt-3 overflow-hidden" style={{ border: "1px solid #ECECEE" }}>
         {/* header */}
         <div className="grid grid-cols-4" style={{ background: "#FAFAFA" }}>
           <div className="px-3 py-2 font-mono text-[9px] uppercase tracking-[0.14em]" style={{ color: SUB }}>
@@ -1516,7 +1523,7 @@ function ObjectiveCard({
         ? { word: "Working", color: NAVY }
         : { word: "Idle", color: MUTED };
   const footer = (
-    <div className="mt-4 flex items-center gap-2" style={{ borderTop: "1px solid #E5E5EA", paddingTop: 12 }}>
+    <div className="mt-4 flex items-center gap-2" style={{ borderTop: "1px solid #ECECEE", paddingTop: 12 }}>
       <span
         className={`h-1.5 w-1.5 rounded-full ${status.word === "Executing" ? "animate-pulse" : ""}`}
         style={{ background: status.color }}
@@ -1896,7 +1903,7 @@ function Collapsible({
           ›
         </span>
       </summary>
-      <div className="px-5 pb-7 sm:px-8" style={{ borderTop: "1px solid #E5E5EA" }}>
+      <div className="px-5 pb-7 sm:px-8" style={{ borderTop: "1px solid #ECECEE" }}>
         <div className="pt-6">{children}</div>
       </div>
     </details>

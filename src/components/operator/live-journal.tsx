@@ -87,7 +87,7 @@ export function LiveJournal({
     <section className="mt-6 bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
       <header
         className="flex items-center justify-between px-5 py-3.5 sm:px-6"
-        style={{ borderBottom: "1px solid #E5E5EA" }}
+        style={{ borderBottom: "1px solid #ECECEE" }}
       >
         <div className="flex items-center gap-2">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" aria-hidden />

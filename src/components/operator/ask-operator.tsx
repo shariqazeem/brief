@@ -90,7 +90,7 @@ export function AskOperator({
     <section className="mt-6 bg-bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
       <header
         className="flex items-center justify-between px-5 py-3.5 sm:px-6"
-        style={{ borderBottom: "1px solid #E5E5EA" }}
+        style={{ borderBottom: "1px solid #ECECEE" }}
       >
         <div className="flex items-center gap-2">
           <span className="h-1.5 w-1.5 rounded-full bg-[#4DA2FF]" aria-hidden />
@@ -152,7 +152,7 @@ export function AskOperator({
           void send(input);
         }}
         className="flex items-center gap-2 px-4 pb-4 sm:px-5"
-        style={{ borderTop: "1px solid #E5E5EA", paddingTop: "0.75rem" }}
+        style={{ borderTop: "1px solid #ECECEE", paddingTop: "0.75rem" }}
       >
         <input
           value={input}
