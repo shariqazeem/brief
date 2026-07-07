@@ -597,9 +597,18 @@ export function OperatorDashboard(props: OperatorDashboardProps) {
           </div>
         </OperatorPanel>
 
-        {/* MEMORY · what it has learned (was /evolution). */}
+        {/* MEMORY · what it has learned (was /evolution). B4 shelf backdrop. */}
         <OperatorPanel active={tab === "memory"}>
-          <EvolutionView policyId={policyId} embedded />
+          <div className="relative">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-top bg-no-repeat"
+              style={{ backgroundImage: "url(/art/section-memory.webp)", backgroundSize: "min(820px, 100%)", opacity: 0.05 }}
+            />
+            <div className="relative">
+              <EvolutionView policyId={policyId} embedded />
+            </div>
+          </div>
         </OperatorPanel>
 
         {/* PROOF · custody + constitution, scoped to this operator. */}

@@ -779,8 +779,13 @@ export default function OperatorLandingV2() {
       </section>
 
       {/* ════ SCENE 3 · THE LEASH ════ */}
-      <section className="flex min-h-screen snap-start flex-col items-center justify-center px-6 py-24">
-        <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#666666]">The leash</p>
+      <section className="relative flex min-h-screen snap-start flex-col items-center justify-center overflow-hidden px-6 py-24">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-center bg-no-repeat"
+          style={{ backgroundImage: "url(/art/section-leash.webp)", backgroundSize: "min(1100px, 116%)", opacity: 0.05 }}
+        />
+        <p className="relative font-mono text-[11px] uppercase tracking-[0.32em] text-[#666666]">The leash</p>
         <div className="mt-10">
           <LeashHero />
         </div>
